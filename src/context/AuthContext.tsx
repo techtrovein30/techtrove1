@@ -36,11 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async signUp(participantType, input) {
         const u =
           participantType === "internal"
-            ? await api.signUpInternal({
-                fullName: input.fullName,
-                regNumber: input.regNumber ?? "",
-                password: input.password,
-              })
+          ? await api.signUpInternal({
+              fullName: input.fullName,
+              regNumber: input.regNumber ?? "",
+              email: input.email ?? "",
+              password: input.password,
+            })
             : await api.signUpExternal({
                 fullName: input.fullName,
                 email: input.email ?? "",

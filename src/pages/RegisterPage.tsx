@@ -59,8 +59,8 @@ function LoginFirstPanel({ eventId }: { eventId: string | null }) {
       </span>
       <h2 className="display mt-6 text-3xl text-foreground">Login first</h2>
       <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
-        Registration requires a TechTrove 3.0 account. Sign in with your registration number (SIMATS)
-        or create an external participant account.
+        Registration requires a TechTrove 3.0 account. Sign in with your username, registration
+        number or email, or create a new participant account.
       </p>
       <Link
         to={eventId ? `/login?next=${encodeURIComponent(`/register?event=${eventId}`)}` : "/login?next=%2Fregister"}
@@ -192,9 +192,6 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
         if (!p.trim()) nextErrors[`player-${i}`] = `Player ${String(i + 1).padStart(2, "0")} name is required.`;
       });
       const all = [...draft.players, ...draft.substitutes].map((n) => n.trim().toLowerCase()).filter(Boolean);
-      if (new Set(all).size !== all.length) {
-        nextErrors.members = "Duplicate names are not allowed.";
-      }
       if (all.length < required) nextErrors.step = "Fill in every required player.";
     }
 
@@ -404,12 +401,6 @@ function MembersStep({
       title="Team members"
       lead={`${required} players are mandatory${maxSubs > 0 ? `, plus up to ${maxSubs} optional substitutes` : ""} for ${event?.name ?? "this event"}.`}
     >
-      {errors.members && (
-        <p role="alert" className="mb-5 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
-          {errors.members}
-        </p>
-      )}
-
       <fieldset>
         <legend className="eyebrow mb-4">Players · required</legend>
         <div className="grid gap-4 sm:grid-cols-2">

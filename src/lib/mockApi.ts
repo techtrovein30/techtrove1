@@ -5,6 +5,7 @@ export type ParticipantType = "internal" | "external";
 
 export interface User {
   id: string;
+  username: string;
   fullName: string;
   email: string;
   participantType: ParticipantType;
@@ -67,8 +68,35 @@ function makeId(prefix: string): string {
   return `${prefix}-${rand}`;
 }
 
+function deriveUsername(fullName: string): string {
+  const parts = fullName
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((p) => p.replace(/[^a-z0-9]/g, ""))
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(".") : "member";
+}
+
+function uniqueUsername(users: StoredUser[], fullName: string): string {
+  const base = deriveUsername(fullName);
+  if (!users.some((u) => u.username === base)) return base;
+  for (let i = 2; ; i++) {
+    const candidate = `${base}${i}`;
+    if (!users.some((u) => u.username === candidate)) return candidate;
+  }
+}
+
+function isSaveethaEmail(email: string): boolean {
+  return /^[^\s@]+@saveetha\.[a-z.]+$/i.test(email.trim());
+}
+
 function listUsers(): StoredUser[] {
-  return storageGet<StoredUser[]>(USERS_KEY, []);
+  // Backfill usernames for accounts created before usernames existed.
+  return storageGet<StoredUser[]>(USERS_KEY, []).map((u) => ({
+    ...u,
+    username: u.username ?? deriveUsername(u.fullName),
+  }));
 }
 
 function saveUsers(users: StoredUser[]): void {
@@ -92,20 +120,29 @@ export const api = {
   async signUpInternal(input: {
     fullName: string;
     regNumber: string;
+    email: string;
     password: string;
   }): Promise<User> {
     await delay();
     const users = listUsers();
-    const email = `${input.regNumber.trim().toLowerCase()}@internal.simats.edu`;
-    if (users.some((u) => u.email === email)) {
+    const email = input.email.trim().toLowerCase();
+    if (!isSaveethaEmail(email)) {
+      throw new Error("Internal students must register with their Saveetha email (e.g. name@saveetha.com).");
+    }
+    const regNumber = input.regNumber.trim().toUpperCase();
+    if (users.some((u) => u.regNumber === regNumber)) {
       throw new Error("An account with this registration number already exists. Try signing in.");
+    }
+    if (users.some((u) => u.email === email)) {
+      throw new Error("An account with this email already exists. Try signing in.");
     }
     const user: StoredUser = {
       id: makeId("U"),
+      username: uniqueUsername(users, input.fullName),
       fullName: input.fullName.trim(),
       email,
       participantType: "internal",
-      regNumber: input.regNumber.trim().toUpperCase(),
+      regNumber,
       college: "SIMATS",
       passwordHash: hashPassword(input.password),
     };
@@ -124,13 +161,15 @@ export const api = {
   }): Promise<User> {
     await delay();
     const users = listUsers();
-    if (users.some((u) => u.email === input.email.trim().toLowerCase())) {
+    const email = input.email.trim().toLowerCase();
+    if (users.some((u) => u.email === email)) {
       throw new Error("An account with this email already exists. Try signing in.");
     }
     const user: StoredUser = {
       id: makeId("U"),
+      username: uniqueUsername(users, input.fullName),
       fullName: input.fullName.trim(),
-      email: input.email.trim().toLowerCase(),
+      email,
       participantType: "external",
       college: input.college.trim(),
       phone: input.phone.trim(),
@@ -146,7 +185,10 @@ export const api = {
     await delay();
     const id = identifier.trim().toLowerCase();
     const user = listUsers().find(
-      (u) => u.email === id || (u.regNumber && u.regNumber.toLowerCase() === id),
+      (u) =>
+        u.username.toLowerCase() === id ||
+        u.email === id ||
+        (u.regNumber && u.regNumber.toLowerCase() === id),
     );
     if (!user || user.passwordHash !== hashPassword(password)) {
       throw new Error("Invalid credentials. Check your details and try again.");
@@ -197,11 +239,6 @@ export const api = {
     }
     if (substitutes.length > maxSubs) {
       throw new Error(`This event allows at most ${maxSubs} substitutes.`);
-    }
-
-    const names = [...players, ...substitutes].map((n) => n.toLowerCase());
-    if (new Set(names).size !== names.length) {
-      throw new Error("Duplicate member names are not allowed.");
     }
 
     const existing = listRegistrations();

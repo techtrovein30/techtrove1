@@ -26,6 +26,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const next = searchParams.get("next") ?? "/register";
+  const [createdUsername, setCreatedUsername] = useState<string | null>(null);
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -41,17 +42,18 @@ export function LoginPage() {
         }
         await signIn(form.identifier, form.password);
       } else if (participantType === "internal") {
-        if (!form.fullName.trim() || !form.regNumber.trim() || !form.password) {
+        if (!form.fullName.trim() || !form.regNumber.trim() || !form.email.trim() || !form.password) {
           throw new Error("Fill in all required fields.");
+        }
+        if (!/^[^\s@]+@saveetha\.[a-z.]+$/i.test(form.email.trim())) {
+          throw new Error("Internal students must register with their Saveetha email (e.g. name@saveetha.com).");
         }
         if (form.password.length < 6) {
           throw new Error("Password must be at least 6 characters.");
         }
-        await signUp("internal", {
-          fullName: form.fullName,
-          regNumber: form.regNumber,
-          password: form.password,
-        });
+        const created = await signUp("internal", { ...form });
+        setCreatedUsername(created.username);
+        return;
       } else {
         if (
           !form.fullName.trim() ||
@@ -68,7 +70,9 @@ export function LoginPage() {
         if (form.password.length < 6) {
           throw new Error("Password must be at least 6 characters.");
         }
-        await signUp("external", { ...form });
+        const created = await signUp("external", { ...form });
+        setCreatedUsername(created.username);
+        return;
       }
       navigate(next, { replace: true });
     } catch (err) {
@@ -93,7 +97,7 @@ export function LoginPage() {
           <p className="eyebrow">{`TechTrove 3.0 · SIMATS`}</p>
           <div>
             <img
-              src="/images/techtrove-logo.jpg"
+              src="/images/techtrove-logo.png"
               alt="TechTrove 3.0 wolf emblem"
               loading="lazy"
               className="glow-purple h-44 w-auto"
@@ -124,6 +128,30 @@ export function LoginPage() {
           {mode === "signin" ? "Login" : "Create account"}
         </h2>
 
+        {createdUsername ? (
+          <div className="clip-angle diag-stripes mt-8 border border-edge bg-surface p-8 text-center sm:p-10">
+            <p className="eyebrow">Account created</p>
+            <h2 className="display mt-3 text-3xl text-foreground">You are in the pack</h2>
+            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+              Your username
+            </p>
+            <p className="display mt-2 border border-primary/50 bg-primary/10 px-4 py-3 text-2xl tracking-wide text-primary-soft">
+              {createdUsername}
+            </p>
+            <p className="mt-4 text-xs leading-relaxed text-muted">
+              Generated from your name. Use it — or your email — with the password you created to
+              sign in next time.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate(next, { replace: true })}
+              className="clip-angle mt-7 w-full bg-primary px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft"
+            >
+              Continue
+            </button>
+          </div>
+        ) : (
+          <>
         <div role="tablist" aria-label="Participant type" className="mt-8 grid grid-cols-2 gap-px border border-edge bg-edge">
           {(["internal", "external"] as ParticipantType[]).map((type) => (
             <button
@@ -145,14 +173,14 @@ export function LoginPage() {
 
         <p className="mt-3 text-xs text-muted">
           {participantType === "internal"
-            ? "For SIMATS students. Sign in with your registration number."
+            ? "For SIMATS students. Register with your Saveetha mail and registration number."
             : "For participants from other colleges."}
         </p>
 
         <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-5">
           {mode === "signup" && (
             <Field
-              label={participantType === "internal" ? "Full name" : "Full name"}
+              label="Full name"
               required
               value={form.fullName}
               onChange={set("fullName")}
@@ -162,20 +190,31 @@ export function LoginPage() {
 
           {mode === "signin" ? (
             <Field
-              label="Registration number or email"
+              label="Username, reg no. or email"
               required
               value={form.identifier}
               onChange={set("identifier")}
               autoComplete="username"
             />
           ) : participantType === "internal" ? (
-            <Field
-              label="Registration number"
-              required
-              value={form.regNumber}
-              onChange={set("regNumber")}
-              autoComplete="off"
-            />
+            <>
+              <Field
+                label="Registration number"
+                required
+                value={form.regNumber}
+                onChange={set("regNumber")}
+                autoComplete="off"
+              />
+              <Field
+                label="Saveetha email"
+                type="email"
+                required
+                value={form.email}
+                onChange={set("email")}
+                autoComplete="email"
+                hint="Your official Saveetha mail id (e.g. name@saveetha.com)."
+              />
+            </>
           ) : (
             <>
               <Field label="Email" type="email" required value={form.email} onChange={set("email")} autoComplete="email" />
@@ -221,6 +260,8 @@ export function LoginPage() {
             {mode === "signin" ? "Create an account" : "Sign in instead"}
           </button>
         </p>
+          </>
+        )}
 
         <p className="mt-8 flex items-start gap-2 border-t border-edge pt-6 text-xs leading-relaxed text-muted">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />

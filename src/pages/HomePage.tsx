@@ -20,7 +20,7 @@ export function HomePage() {
         <div className="absolute inset-0 bg-gradient-to-b from-background/70 via-background/55 to-background" />
         <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-background/60" />
 
-        <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-4 pb-16 pt-32 sm:px-6 md:pb-24 md:pt-44 lg:grid-cols-[1.25fr_1fr] lg:items-center lg:gap-8">
+        <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-4 pb-16 pt-32 sm:px-6 md:pb-24 md:pt-44 lg:grid-cols-[1.25fr_1fr] lg:items-center lg:gap-12 xl:gap-16">
           <div>
             <p className="eyebrow text-primary-soft">{siteConfig.presenter} presents</p>
             <h1 className="display mt-4 whitespace-nowrap text-[clamp(2.5rem,10vw,7.5rem)] animated-gradient-text drop-shadow-2xl">
@@ -32,9 +32,9 @@ export function HomePage() {
 
             <div className="mt-6 flex items-center gap-6 border-t border-edge pt-6 lg:hidden">
               <img
-                src="/images/techtrove-logo.jpg"
+                src="/images/techtrove-logo.png"
                 alt="TechTrove 3.0 wolf emblem"
-                className="glow-purple h-28 w-auto self-start"
+                className="glow-emblem h-28 w-auto self-start"
               />
               <p className="max-w-xs text-sm leading-relaxed text-muted">{siteConfig.description}</p>
             </div>
@@ -67,17 +67,11 @@ export function HomePage() {
             </div>
           </div>
 
-          <div className="relative hidden lg:block">
+          <div className="relative min-w-0 hidden lg:block">
             <img
-              src="/images/brush.png"
-              alt=""
-              loading="lazy"
-              className="absolute z-10 left-1/2 top-1/2 w-[130%] -translate-x-1/2 -translate-y-1/2 rotate-[8deg] opacity-30 mix-blend-screen"
-            />
-            <img
-              src="/images/techtrove-logo.jpg"
+              src="/images/techtrove-logo.png"
               alt="TechTrove 3.0 wolf emblem"
-              className="glow-purple relative mx-auto h-96 w-auto drop-shadow-2xl"
+              className="glow-emblem relative mx-auto h-96 w-auto max-w-full"
             />
             <p className="relative mt-6 max-w-xs text-sm leading-relaxed text-muted">
               {siteConfig.description}
@@ -231,10 +225,10 @@ export function HomePage() {
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background/70 to-background" />
         <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-4 py-24 text-center sm:px-6 md:py-32">
           <img
-            src="/images/techtrove-logo.jpg"
+            src="/images/techtrove-logo.png"
             alt="TechTrove 3.0 logo"
             loading="lazy"
-            className="glow-purple h-20 w-auto"
+            className="glow-emblem h-20 w-auto"
           />
           <h2 className="display mt-8 text-5xl text-foreground sm:text-7xl">Claim your slot</h2>
           <p className="mt-5 max-w-md text-sm leading-relaxed text-muted sm:text-base">

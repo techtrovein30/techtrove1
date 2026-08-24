@@ -5,7 +5,7 @@ export function ComingSoon({ day }: { day: Day }) {
   return (
     <div className="diag-stripes clip-angle relative overflow-hidden border border-edge bg-surface px-6 py-16 text-center sm:py-24">
       <img
-        src="/images/techtrove-logo.jpg"
+        src="/images/techtrove-logo.png"
         alt=""
         loading="lazy"
         className="pointer-events-none absolute -right-10 top-1/2 h-64 w-auto -translate-y-1/2 opacity-[0.06] sm:h-80"
