@@ -44,7 +44,7 @@ export function SchedulePage() {
                 {items.length > 0 ? (
                   <ol className="relative mt-8 space-y-6 pl-0">
                     {items.map((item, i) => (
-                      <li key={i} className="relative glass-panel glowing-border p-6 sm:p-8 flex items-start gap-6 sm:gap-8 hover:shadow-[0_0_25px_rgba(212, 175, 55,0.15)] transition-all">
+                      <li key={i} className="relative glass-panel glowing-border p-6 sm:p-8 flex items-start gap-6 sm:gap-8 hover:shadow-[0_0_25px_rgba(124, 58, 237,0.15)] transition-all">
                         <span className="display pt-0.5 text-2xl leading-none text-primary-soft sm:text-3xl">
                           {item.time}
                         </span>

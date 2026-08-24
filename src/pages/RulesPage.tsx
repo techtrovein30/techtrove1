@@ -19,7 +19,7 @@ export function RulesPage() {
         {ruleSections.map((section, i) => (
           <article
             key={section.id}
-            className="grid gap-6 glass-panel glowing-border p-6 sm:p-8 md:grid-cols-[14rem_1fr] md:gap-12 hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all"
+            className="grid gap-6 glass-panel glowing-border p-6 sm:p-8 md:grid-cols-[14rem_1fr] md:gap-12 hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all"
           >
             <div>
               <span aria-hidden className="display outline-text block text-4xl animated-gradient-text opacity-80">

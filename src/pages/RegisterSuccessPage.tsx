@@ -36,7 +36,7 @@ export function RegisterSuccessPage() {
 
   return (
     <div className="reveal-up mx-auto max-w-3xl px-4 pb-24 pt-28 text-center sm:px-6 md:pt-36">
-      <span className="glow-gold mx-auto flex h-16 w-16 items-center justify-center border border-primary bg-primary/15">
+      <span className="glow-purple mx-auto flex h-16 w-16 items-center justify-center border border-primary bg-primary/15">
         <BadgeCheck className="h-8 w-8 text-primary-soft" aria-hidden />
       </span>
 

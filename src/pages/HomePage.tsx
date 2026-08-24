@@ -34,7 +34,7 @@ export function HomePage() {
               <img
                 src="/images/techtrove-logo.png"
                 alt="TechTrove 3.0 wolf emblem"
-                className="glow-gold h-28 w-auto self-start"
+                className="glow-purple h-28 w-auto self-start"
               />
               <p className="max-w-xs text-sm leading-relaxed text-muted">{siteConfig.description}</p>
             </div>
@@ -53,14 +53,14 @@ export function HomePage() {
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Link
                 to="/register"
-                className="rounded-full inline-flex items-center justify-center gap-2 bg-primary px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(212, 175, 55,0.4)] hover:shadow-[0_0_30px_rgba(212, 175, 55,0.7)] hover:bg-primary-soft"
+                className="rounded-full inline-flex items-center justify-center gap-2 bg-primary px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(124, 58, 237,0.4)] hover:shadow-[0_0_30px_rgba(124, 58, 237,0.7)] hover:bg-primary-soft"
               >
                 Register now
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
               <Link
                 to="/events"
-                className="rounded-full inline-flex items-center justify-center gap-2 border border-edge-strong bg-background/50 px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-foreground backdrop-blur-sm transition-all hover:border-primary hover:text-primary-soft hover:shadow-[0_0_20px_rgba(212, 175, 55,0.2)] glass-panel"
+                className="rounded-full inline-flex items-center justify-center gap-2 border border-edge-strong bg-background/50 px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-foreground backdrop-blur-sm transition-all hover:border-primary hover:text-primary-soft hover:shadow-[0_0_20px_rgba(124, 58, 237,0.2)] glass-panel"
               >
                 Explore events
               </Link>
@@ -77,7 +77,7 @@ export function HomePage() {
             <img
               src="/images/techtrove-logo.png"
               alt="TechTrove 3.0 wolf emblem"
-              className="glow-gold relative mx-auto h-96 w-auto drop-shadow-2xl"
+              className="glow-purple relative mx-auto h-96 w-auto drop-shadow-2xl"
             />
             <p className="relative mt-6 max-w-xs text-sm leading-relaxed text-muted">
               {siteConfig.description}
@@ -234,7 +234,7 @@ export function HomePage() {
             src="/images/techtrove-logo.png"
             alt="TechTrove 3.0 logo"
             loading="lazy"
-            className="glow-gold h-20 w-auto"
+            className="glow-purple h-20 w-auto"
           />
           <h2 className="display mt-8 text-5xl text-foreground sm:text-7xl">Claim your slot</h2>
           <p className="mt-5 max-w-md text-sm leading-relaxed text-muted sm:text-base">
@@ -243,7 +243,7 @@ export function HomePage() {
           </p>
           <Link
             to="/register"
-            className="rounded-full mt-9 inline-flex items-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(212, 175, 55,0.4)] hover:shadow-[0_0_30px_rgba(212, 175, 55,0.7)] hover:bg-primary-soft"
+            className="rounded-full mt-9 inline-flex items-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(124, 58, 237,0.4)] hover:shadow-[0_0_30px_rgba(124, 58, 237,0.7)] hover:bg-primary-soft"
           >
             Register now
             <ArrowRight className="h-4 w-4" aria-hidden />

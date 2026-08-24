@@ -26,7 +26,7 @@ export function SponsorsPage() {
               {tier.slots.map((slot, i) => (
                 <div
                   key={i}
-                  className="glass-panel glowing-border flex min-h-36 flex-col items-center justify-center p-8 text-center hover:shadow-[0_0_20px_rgba(212, 175, 55,0.2)] transition-all"
+                  className="glass-panel glowing-border flex min-h-36 flex-col items-center justify-center p-8 text-center hover:shadow-[0_0_20px_rgba(124, 58, 237,0.2)] transition-all"
                 >
                   {slot.logo ? (
                     <img src={slot.logo} alt={`${slot.name ?? tier.tier} logo`} loading="lazy" className="max-h-16 object-contain" />
@@ -43,7 +43,7 @@ export function SponsorsPage() {
           </article>
         ))}
 
-        <div className="glass-panel glowing-border relative overflow-hidden px-6 py-12 text-center sm:py-16 shadow-[0_0_30px_rgba(212, 175, 55,0.15)]">
+        <div className="glass-panel glowing-border relative overflow-hidden px-6 py-12 text-center sm:py-16 shadow-[0_0_30px_rgba(124, 58, 237,0.15)]">
           <h2 className="display text-3xl text-foreground sm:text-4xl">Partner with TechTrove 3.0</h2>
           <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-muted">
             Put your brand in front of students from colleges across the region, on the field and
@@ -51,7 +51,7 @@ export function SponsorsPage() {
           </p>
           <a
             href="mailto:techtrove@example.edu"
-            className="rounded-full mt-8 inline-flex bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(212, 175, 55,0.4)] hover:shadow-[0_0_30px_rgba(212, 175, 55,0.7)] hover:bg-primary-soft"
+            className="rounded-full mt-8 inline-flex bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(124, 58, 237,0.4)] hover:shadow-[0_0_30px_rgba(124, 58, 237,0.7)] hover:bg-primary-soft"
           >
             Become a sponsor
           </a>

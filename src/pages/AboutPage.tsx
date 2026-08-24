@@ -25,7 +25,7 @@ export function AboutPage() {
               src="/images/techtrove-logo.png"
               alt="TechTrove 3.0 wolf emblem"
               loading="lazy"
-              className="glow-gold mx-auto h-64 w-auto lg:h-80"
+              className="glow-purple mx-auto h-64 w-auto lg:h-80"
             />
             <img
               src="/images/brush.png"
@@ -58,19 +58,19 @@ export function AboutPage() {
             </div>
 
             <dl className="mt-10 grid grid-cols-2 gap-4">
-              <div className="glass-panel glowing-border p-6 shadow-sm hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all">
+              <div className="glass-panel glowing-border p-6 shadow-sm hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all">
                 <dt className="eyebrow text-primary-soft">Dates</dt>
                 <dd className="mt-2 text-sm font-semibold">{siteConfig.eventDate}</dd>
               </div>
-              <div className="glass-panel glowing-border p-6 shadow-sm hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all">
+              <div className="glass-panel glowing-border p-6 shadow-sm hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all">
                 <dt className="eyebrow text-primary-soft">Venue</dt>
                 <dd className="mt-2 text-sm font-semibold">{siteConfig.venue}</dd>
               </div>
-              <div className="glass-panel glowing-border p-6 shadow-sm hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all">
+              <div className="glass-panel glowing-border p-6 shadow-sm hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all">
                 <dt className="eyebrow text-primary-soft">Presenter</dt>
                 <dd className="mt-2 text-sm font-semibold">{siteConfig.presenter}</dd>
               </div>
-              <div className="glass-panel glowing-border p-6 shadow-sm hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all">
+              <div className="glass-panel glowing-border p-6 shadow-sm hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all">
                 <dt className="eyebrow text-primary-soft">Format</dt>
                 <dd className="mt-2 text-sm font-semibold">Three-day symposium</dd>
               </div>
@@ -78,7 +78,7 @@ export function AboutPage() {
 
             <Link
               to="/events"
-              className="rounded-full mt-10 inline-flex bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(212, 175, 55,0.4)] hover:shadow-[0_0_30px_rgba(212, 175, 55,0.7)] hover:bg-primary-soft"
+              className="rounded-full mt-10 inline-flex bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(124, 58, 237,0.4)] hover:shadow-[0_0_30px_rgba(124, 58, 237,0.7)] hover:bg-primary-soft"
             >
               Explore events
             </Link>

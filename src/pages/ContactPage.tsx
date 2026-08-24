@@ -20,7 +20,7 @@ export function ContactPage() {
 
       <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 md:py-20 lg:px-8">
         <dl className="grid gap-6 sm:grid-cols-2">
-          <div className="glass-panel glowing-border p-6 sm:p-8 hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all">
+          <div className="glass-panel glowing-border p-6 sm:p-8 hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all">
             <dt className="eyebrow flex items-center gap-2">
               <Mail className="h-3.5 w-3.5 text-primary-soft" aria-hidden /> Email
             </dt>
@@ -30,7 +30,7 @@ export function ContactPage() {
               </a>
             </dd>
           </div>
-          <div className="glass-panel glowing-border p-6 sm:p-8 hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all">
+          <div className="glass-panel glowing-border p-6 sm:p-8 hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all">
             <dt className="eyebrow flex items-center gap-2">
               <Phone className="h-3.5 w-3.5 text-primary-soft" aria-hidden /> Phone
             </dt>
@@ -40,13 +40,13 @@ export function ContactPage() {
               </a>
             </dd>
           </div>
-          <div className="glass-panel glowing-border p-6 sm:p-8 hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all">
+          <div className="glass-panel glowing-border p-6 sm:p-8 hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all">
             <dt className="eyebrow flex items-center gap-2">
               <MapPin className="h-3.5 w-3.5 text-primary-soft" aria-hidden /> Venue
             </dt>
             <dd className="mt-3 text-lg font-medium">{c.venue}</dd>
           </div>
-          <div className="glass-panel glowing-border p-6 sm:p-8 hover:shadow-[0_0_20px_rgba(212, 175, 55,0.15)] transition-all">
+          <div className="glass-panel glowing-border p-6 sm:p-8 hover:shadow-[0_0_20px_rgba(124, 58, 237,0.15)] transition-all">
             <dt className="eyebrow flex items-center gap-2">
               <Mail className="h-3.5 w-3.5 text-primary-soft" aria-hidden /> Organizing committee
             </dt>
@@ -65,7 +65,7 @@ export function ContactPage() {
               <li key={social.label}>
                 <a
                   href={social.url}
-                  className="rounded-full glass-panel glowing-border inline-flex px-8 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted transition-all hover:border-primary/50 hover:text-primary-soft hover:shadow-[0_0_15px_rgba(212, 175, 55,0.2)]"
+                  className="rounded-full glass-panel glowing-border inline-flex px-8 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted transition-all hover:border-primary/50 hover:text-primary-soft hover:shadow-[0_0_15px_rgba(124, 58, 237,0.2)]"
                 >
                   {social.label}
                 </a>

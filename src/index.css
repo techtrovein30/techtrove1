@@ -6,9 +6,9 @@
   --color-elevated: #161616;
   --color-foreground: #f5f5f5;
   --color-muted: #a5a5a5;
-  --color-primary: #d4af37;
-  --color-primary-soft: #fde047;
-  --color-primary-deep: #854d0e;
+  --color-primary: #7c3aed;
+  --color-primary-soft: #8b5cf6;
+  --color-primary-deep: #4c1d95;
   --color-edge: rgba(245, 245, 245, 0.08);
   --color-edge-strong: rgba(245, 245, 245, 0.16);
 
@@ -68,7 +68,7 @@ body {
   border: none;
   background: linear-gradient(
     to right,
-    rgba(212, 175, 55, 0.65),
+    rgba(124, 58, 237, 0.65),
     rgba(245, 245, 245, 0.12)
   );
 }
@@ -87,8 +87,8 @@ body {
   filter: grayscale(0.35) contrast(1.12) saturate(1.15);
 }
 
-.glow-gold {
-  box-shadow: 0 20px 60px -30px rgba(212, 175, 55, 0.55);
+.glow-purple {
+  box-shadow: 0 20px 60px -30px rgba(124, 58, 237, 0.55);
 }
 
 .clip-angle {
@@ -200,7 +200,7 @@ body {
     270deg,
     var(--color-primary-soft),
     var(--color-foreground),
-    #fef08a,
+    #c4b5fd,
     var(--color-primary-soft)
   );
   background-size: 300% 300%;
@@ -225,7 +225,7 @@ body {
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.6), transparent 70%);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.6), transparent 70%);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;

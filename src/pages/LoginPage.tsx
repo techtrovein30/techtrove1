@@ -96,7 +96,7 @@ export function LoginPage() {
               src="/images/techtrove-logo.png"
               alt="TechTrove 3.0 wolf emblem"
               loading="lazy"
-              className="glow-gold h-44 w-auto"
+              className="glow-purple h-44 w-auto"
             />
             <h1 className="display mt-8 text-5xl text-foreground">Welcome to the pack</h1>
             <hr className="rule-line mt-6 w-40" />

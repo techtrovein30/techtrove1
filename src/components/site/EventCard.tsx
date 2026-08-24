@@ -7,7 +7,7 @@ export function EventCard({ event, index }: { event: TechEvent; index: number })
   return (
     <Link
       to={`/events/${event.id}`}
-      className="group rounded-2xl glass-panel relative flex flex-col overflow-hidden transition-all duration-300 hover:border-primary/60 hover:shadow-[0_0_30px_rgba(212, 175, 55,0.25)] glowing-border focus-visible:outline-none"
+      className="group rounded-2xl glass-panel relative flex flex-col overflow-hidden transition-all duration-300 hover:border-primary/60 hover:shadow-[0_0_30px_rgba(124, 58, 237,0.25)] glowing-border focus-visible:outline-none"
     >
       <div className="relative aspect-[16/10] overflow-hidden">
         {event.image ? (

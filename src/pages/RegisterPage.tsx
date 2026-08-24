@@ -328,7 +328,7 @@ function TermsStep({
           type="checkbox"
           checked={accepted}
           onChange={(e) => onAccept(e.target.checked)}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-[#d4af37]"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[#7c3aed]"
         />
         <span className="text-sm leading-relaxed text-foreground">
           I agree to the Terms and Conditions, including that the registration fee of{" "}
