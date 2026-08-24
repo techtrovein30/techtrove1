@@ -90,19 +90,19 @@ export function LoginPage() {
         />
         <div className="absolute inset-0 bg-gradient-to-br from-background via-background/60 to-primary-deep/30" />
         <div className="relative z-10 flex h-full flex-col justify-between p-12">
-          <p className="eyebrow">{`TechTrove · SIMATS`}</p>
+          <p className="eyebrow">{`TechTrove 3.0 · SIMATS`}</p>
           <div>
             <img
               src="/images/techtrove-logo.png"
-              alt="TechTrove wolf emblem"
+              alt="TechTrove 3.0 wolf emblem"
               loading="lazy"
-              className="glow-purple h-44 w-auto"
+              className="glow-gold h-44 w-auto"
             />
             <h1 className="display mt-8 text-5xl text-foreground">Welcome to the pack</h1>
             <hr className="rule-line mt-6 w-40" />
             <p className="mt-6 max-w-sm text-sm leading-relaxed text-muted">
               One account for the whole symposium. Register teams, track entries and manage your
-              TechTrove participation.
+              TechTrove 3.0 participation.
             </p>
           </div>
           <p className="text-xs uppercase tracking-[0.18em] text-muted">
@@ -209,7 +209,7 @@ export function LoginPage() {
         </form>
 
         <p className="mt-6 text-sm text-muted">
-          {mode === "signin" ? "New to TechTrove?" : "Already have an account?"}{" "}
+          {mode === "signin" ? "New to TechTrove 3.0?" : "Already have an account?"}{" "}
           <button
             type="button"
             onClick={() => {

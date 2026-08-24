@@ -36,11 +36,11 @@ export function RegisterSuccessPage() {
 
   return (
     <div className="reveal-up mx-auto max-w-3xl px-4 pb-24 pt-28 text-center sm:px-6 md:pt-36">
-      <span className="glow-purple mx-auto flex h-16 w-16 items-center justify-center border border-primary bg-primary/15">
+      <span className="glow-gold mx-auto flex h-16 w-16 items-center justify-center border border-primary bg-primary/15">
         <BadgeCheck className="h-8 w-8 text-primary-soft" aria-hidden />
       </span>
 
-      <p className="eyebrow mt-8">TechTrove</p>
+      <p className="eyebrow mt-8">TechTrove 3.0</p>
       <h1 className="display mt-3 text-5xl text-foreground sm:text-7xl">Registration successful</h1>
       <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-muted">
         Your team is in. Keep your registration ID safe — it is your reference for all

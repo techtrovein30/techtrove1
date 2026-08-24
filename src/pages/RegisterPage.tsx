@@ -59,7 +59,7 @@ function LoginFirstPanel({ eventId }: { eventId: string | null }) {
       </span>
       <h2 className="display mt-6 text-3xl text-foreground">Login first</h2>
       <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
-        Registration requires a TechTrove account. Sign in with your registration number (SIMATS)
+        Registration requires a TechTrove 3.0 account. Sign in with your registration number (SIMATS)
         or create an external participant account.
       </p>
       <Link
@@ -328,7 +328,7 @@ function TermsStep({
           type="checkbox"
           checked={accepted}
           onChange={(e) => onAccept(e.target.checked)}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-[#7c3aed]"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[#d4af37]"
         />
         <span className="text-sm leading-relaxed text-foreground">
           I agree to the Terms and Conditions, including that the registration fee of{" "}

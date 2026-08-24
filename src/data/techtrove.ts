@@ -55,11 +55,11 @@ export interface SponsorTier {
 }
 
 export const siteConfig = {
-  name: "TechTrove",
+  name: "TechTrove 3.0",
   presenter: "SIMATS",
   tagline: "Innovate. Compete. Conquer.",
   description:
-    "TechTrove is the multi-day technical and sports symposium of SIMATS - three days of competition, creativity and collaboration across engineering, design and athletics.",
+    "TechTrove 3.0 is the multi-day technical and sports symposium of SIMATS - three days of competition, creativity and collaboration across engineering, design and athletics.",
   eventDate: "Date to be announced",
   venue: "SIMATS Campus, Chennai",
   stats: [
@@ -68,9 +68,9 @@ export const siteConfig = {
     { value: "50+", label: "Colleges" },
     { value: "TBA", label: "Prize Pool" },
   ] as Stat[],
-  marqueeItems: ["Day 1 Sports", "Day 2 Coming Soon", "Day 3 Coming Soon", "TechTrove"],
+  marqueeItems: ["Day 1 Sports", "Day 2 Coming Soon", "Day 3 Coming Soon", "TechTrove 3.0"],
   contact: {
-    committee: "TechTrove Organizing Committee",
+    committee: "TechTrove 3.0 Organizing Committee",
     college: "SIMATS, Chennai",
     email: "techtrove@example.edu",
     phone: "+91 00000 00000",
@@ -198,7 +198,7 @@ export const ruleSections: RuleSection[] = [
     id: "registration",
     title: "Registration rules",
     items: [
-      "Every team must complete registration through the TechTrove portal.",
+      "Every team must complete registration through the TechTrove 3.0 portal.",
       "Team captain details are mandatory for each registration.",
       "Player counts must match the limits published for each event.",
       "One registration per team per event.",

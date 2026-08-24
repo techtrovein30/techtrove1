@@ -6,9 +6,9 @@ export function SponsorsPage() {
       <section className="border-b border-edge bg-surface/50">
         <div className="mx-auto max-w-7xl px-4 pb-14 pt-32 sm:px-6 md:pb-16 md:pt-40 lg:px-8">
           <p className="eyebrow">Sponsors</p>
-          <h1 className="display mt-3 text-5xl text-foreground sm:text-7xl">Our sponsors</h1>
+          <h1 className="display mt-3 text-5xl animated-gradient-text drop-shadow-2xl sm:text-7xl">Our sponsors</h1>
           <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted">
-            TechTrove is backed by brands that back student talent. Sponsor slots for this edition
+            TechTrove 3.0 is backed by brands that back student talent. Sponsor slots for this edition
             are open.
           </p>
           <hr className="rule-line mt-6 w-44" />
@@ -26,7 +26,7 @@ export function SponsorsPage() {
               {tier.slots.map((slot, i) => (
                 <div
                   key={i}
-                  className="diag-stripes clip-angle flex min-h-36 flex-col items-center justify-center border border-dashed border-edge-strong bg-surface p-8 text-center"
+                  className="glass-panel glowing-border flex min-h-36 flex-col items-center justify-center p-8 text-center hover:shadow-[0_0_20px_rgba(212, 175, 55,0.2)] transition-all"
                 >
                   {slot.logo ? (
                     <img src={slot.logo} alt={`${slot.name ?? tier.tier} logo`} loading="lazy" className="max-h-16 object-contain" />
@@ -43,15 +43,15 @@ export function SponsorsPage() {
           </article>
         ))}
 
-        <div className="clip-angle diag-stripes relative overflow-hidden border border-edge bg-surface px-6 py-12 text-center sm:py-16">
-          <h2 className="display text-3xl text-foreground sm:text-4xl">Partner with TechTrove</h2>
+        <div className="glass-panel glowing-border relative overflow-hidden px-6 py-12 text-center sm:py-16 shadow-[0_0_30px_rgba(212, 175, 55,0.15)]">
+          <h2 className="display text-3xl text-foreground sm:text-4xl">Partner with TechTrove 3.0</h2>
           <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-muted">
             Put your brand in front of students from colleges across the region, on the field and
             on stage.
           </p>
           <a
             href="mailto:techtrove@example.edu"
-            className="clip-angle mt-8 inline-flex bg-primary px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft"
+            className="rounded-full mt-8 inline-flex bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(212, 175, 55,0.4)] hover:shadow-[0_0_30px_rgba(212, 175, 55,0.7)] hover:bg-primary-soft"
           >
             Become a sponsor
           </a>

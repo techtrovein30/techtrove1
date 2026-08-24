@@ -19,10 +19,10 @@ export function DaySelector({ days, activeId, onSelect }: DaySelectorProps) {
             aria-selected={active}
             onClick={() => onSelect(day.id)}
             className={cn(
-              "clip-angle px-2 py-4 text-center transition-colors duration-200 sm:px-4",
+              "rounded-xl glass-panel px-2 py-4 text-center transition-all duration-300 sm:px-4",
               active
-                ? "bg-primary text-white"
-                : "border border-edge bg-surface text-muted hover:border-primary/50 hover:text-foreground",
+                ? "bg-primary text-white shadow-[0_0_20px_rgba(212, 175, 55,0.5)] glowing-border"
+                : "text-muted hover:border-primary/50 hover:text-foreground hover:shadow-[0_0_15px_rgba(212, 175, 55,0.2)] glowing-border",
             )}
           >
             <span className="display block text-xl sm:text-2xl">{day.label}</span>

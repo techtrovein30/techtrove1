@@ -23,8 +23,8 @@ export function HomePage() {
         <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-4 pb-16 pt-32 sm:px-6 md:pb-24 md:pt-44 lg:grid-cols-[1.25fr_1fr] lg:items-center lg:gap-8">
           <div>
             <p className="eyebrow text-primary-soft">{siteConfig.presenter} presents</p>
-            <h1 className="display mt-4 text-[clamp(4rem,17vw,10.5rem)] text-foreground">
-              TechTrove
+            <h1 className="display mt-4 whitespace-nowrap text-[clamp(2.5rem,10vw,7.5rem)] animated-gradient-text drop-shadow-2xl">
+              TechTrove 3.0
             </h1>
             <p className="display mt-3 text-lg tracking-[0.14em] text-primary-soft sm:text-2xl">
               {siteConfig.tagline}
@@ -33,34 +33,34 @@ export function HomePage() {
             <div className="mt-6 flex items-center gap-6 border-t border-edge pt-6 lg:hidden">
               <img
                 src="/images/techtrove-logo.png"
-                alt="TechTrove wolf emblem"
-                className="glow-purple h-28 w-auto self-start"
+                alt="TechTrove 3.0 wolf emblem"
+                className="glow-gold h-28 w-auto self-start"
               />
               <p className="max-w-xs text-sm leading-relaxed text-muted">{siteConfig.description}</p>
             </div>
 
-            <dl className="mt-8 grid max-w-md grid-cols-2 gap-px border border-edge bg-edge sm:mt-10">
-              <div className="bg-background/80 p-4 backdrop-blur-sm">
-                <dt className="eyebrow">Dates</dt>
-                <dd className="mt-2 text-sm font-medium text-foreground">{siteConfig.eventDate}</dd>
+            <dl className="mt-8 grid max-w-md grid-cols-2 gap-4 sm:mt-10">
+              <div className="glass-panel glowing-border p-5">
+                <dt className="eyebrow text-primary-soft">Dates</dt>
+                <dd className="mt-2 text-sm font-semibold text-foreground">{siteConfig.eventDate}</dd>
               </div>
-              <div className="bg-background/80 p-4 backdrop-blur-sm">
-                <dt className="eyebrow">Venue</dt>
-                <dd className="mt-2 text-sm font-medium text-foreground">{siteConfig.venue}</dd>
+              <div className="glass-panel glowing-border p-5">
+                <dt className="eyebrow text-primary-soft">Venue</dt>
+                <dd className="mt-2 text-sm font-semibold text-foreground">{siteConfig.venue}</dd>
               </div>
             </dl>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Link
                 to="/register"
-                className="clip-angle inline-flex items-center justify-center gap-2 bg-primary px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft"
+                className="rounded-full inline-flex items-center justify-center gap-2 bg-primary px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(212, 175, 55,0.4)] hover:shadow-[0_0_30px_rgba(212, 175, 55,0.7)] hover:bg-primary-soft"
               >
                 Register now
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
               <Link
                 to="/events"
-                className="clip-angle inline-flex items-center justify-center gap-2 border border-edge-strong bg-background/50 px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-foreground backdrop-blur-sm transition-colors hover:border-primary hover:text-primary-soft"
+                className="rounded-full inline-flex items-center justify-center gap-2 border border-edge-strong bg-background/50 px-8 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-foreground backdrop-blur-sm transition-all hover:border-primary hover:text-primary-soft hover:shadow-[0_0_20px_rgba(212, 175, 55,0.2)] glass-panel"
               >
                 Explore events
               </Link>
@@ -76,8 +76,8 @@ export function HomePage() {
             />
             <img
               src="/images/techtrove-logo.png"
-              alt="TechTrove wolf emblem"
-              className="glow-purple relative mx-auto h-96 w-auto drop-shadow-2xl"
+              alt="TechTrove 3.0 wolf emblem"
+              className="glow-gold relative mx-auto h-96 w-auto drop-shadow-2xl"
             />
             <p className="relative mt-6 max-w-xs text-sm leading-relaxed text-muted">
               {siteConfig.description}
@@ -112,9 +112,9 @@ export function HomePage() {
       <section className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 md:py-28 lg:px-8">
         <span
           aria-hidden
-          className="outline-text display pointer-events-none absolute -top-4 left-0 select-none whitespace-nowrap text-[clamp(5rem,18vw,15rem)] leading-none opacity-60"
+          className="outline-text display pointer-events-none absolute -top-4 left-0 select-none whitespace-nowrap text-[clamp(5rem,18vw,15rem)] leading-none opacity-40"
         >
-          TechTrove
+          TechTrove 3.0
         </span>
         <div className="relative max-w-2xl">
           <p className="eyebrow">Symposium</p>
@@ -125,18 +125,18 @@ export function HomePage() {
           </h2>
           <hr className="rule-line mt-6 w-40" />
           <p className="mt-6 max-w-xl text-sm leading-relaxed text-muted sm:text-base">
-            TechTrove brings technology, competition and sport onto the same stage. Day 1 belongs to
+            TechTrove 3.0 brings technology, competition and sport onto the same stage. Day 1 belongs to
             the field. Day 2 and Day 3 open up the technical and creative tracks of the symposium.
           </p>
           <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted sm:text-base">
-            Built for students who compete hard and build harder, TechTrove is where colleges meet,
+            Built for students who compete hard and build harder, TechTrove 3.0 is where colleges meet,
             teams form and the SIMATS wolf finds its pack.
           </p>
           <Link
             to="/about"
             className="group mt-8 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary-soft"
           >
-            Read more about TechTrove
+            Read more about TechTrove 3.0
             <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" aria-hidden />
           </Link>
         </div>
@@ -232,9 +232,9 @@ export function HomePage() {
         <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-4 py-24 text-center sm:px-6 md:py-32">
           <img
             src="/images/techtrove-logo.png"
-            alt="TechTrove logo"
+            alt="TechTrove 3.0 logo"
             loading="lazy"
-            className="glow-purple h-20 w-auto"
+            className="glow-gold h-20 w-auto"
           />
           <h2 className="display mt-8 text-5xl text-foreground sm:text-7xl">Claim your slot</h2>
           <p className="mt-5 max-w-md text-sm leading-relaxed text-muted sm:text-base">
@@ -243,7 +243,7 @@ export function HomePage() {
           </p>
           <Link
             to="/register"
-            className="clip-angle mt-9 inline-flex items-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft"
+            className="rounded-full mt-9 inline-flex items-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all shadow-[0_0_20px_rgba(212, 175, 55,0.4)] hover:shadow-[0_0_30px_rgba(212, 175, 55,0.7)] hover:bg-primary-soft"
           >
             Register now
             <ArrowRight className="h-4 w-4" aria-hidden />

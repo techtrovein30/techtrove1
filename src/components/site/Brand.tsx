@@ -9,14 +9,14 @@ export function Brand({
   logoClass?: string;
 }) {
   return (
-    <Link to="/" className={cn("group flex items-center gap-2.5", className)} aria-label="TechTrove home">
+    <Link to="/" className={cn("group flex items-center gap-2.5", className)} aria-label="TechTrove 3.0 home">
       <img
         src="/images/techtrove-logo.png"
         alt=""
         className={cn("w-auto object-contain", logoClass)}
       />
       <span className="display text-xl tracking-wide text-foreground group-hover:text-primary-soft transition-colors">
-        TechTrove
+        TechTrove 3.0
       </span>
     </Link>
   );

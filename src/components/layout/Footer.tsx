@@ -16,7 +16,7 @@ export function Footer() {
         <div>
           <Brand logoClass="h-12 w-auto" />
           <p className="mt-5 max-w-xs text-sm leading-relaxed text-muted">
-            SIMATS presents TechTrove. Innovate. Compete. Conquer.
+            SIMATS presents TechTrove 3.0. Innovate. Compete. Conquer.
           </p>
           <p className="mt-4 text-xs uppercase tracking-[0.18em] text-muted">
             {siteConfig.eventDate} · {siteConfig.venue}
@@ -60,7 +60,7 @@ export function Footer() {
 
       <div className="border-t border-edge">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 py-5 text-xs text-muted sm:flex-row sm:px-6 lg:px-8">
-          <span>Copyright TechTrove. All rights reserved.</span>
+          <span>Copyright TechTrove 3.0. All rights reserved.</span>
           <span className="uppercase tracking-[0.18em]">{siteConfig.name} · {siteConfig.presenter}</span>
         </div>
       </div>

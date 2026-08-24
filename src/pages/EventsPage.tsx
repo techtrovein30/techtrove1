@@ -14,7 +14,7 @@ export function EventsPage() {
       <section className="border-b border-edge bg-surface/50">
         <div className="mx-auto max-w-7xl px-4 pb-14 pt-32 sm:px-6 md:pb-16 md:pt-40 lg:px-8">
           <p className="eyebrow">Events</p>
-          <h1 className="display mt-3 text-5xl text-foreground sm:text-7xl">Explore events</h1>
+          <h1 className="display mt-3 text-5xl animated-gradient-text drop-shadow-2xl sm:text-7xl">Explore events</h1>
           <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted">
             Three days of competition across sports, technology and creativity. Pick a day to see
             what is on.
