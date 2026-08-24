@@ -93,7 +93,7 @@ export function LoginPage() {
           <p className="eyebrow">{`TechTrove 3.0 · SIMATS`}</p>
           <div>
             <img
-              src="/images/techtrove-logo.png"
+              src="/images/techtrove-logo.jpg"
               alt="TechTrove 3.0 wolf emblem"
               loading="lazy"
               className="glow-purple h-44 w-auto"

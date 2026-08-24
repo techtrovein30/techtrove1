@@ -11,7 +11,7 @@ export function Brand({
   return (
     <Link to="/" className={cn("group flex items-center gap-2.5", className)} aria-label="TechTrove 3.0 home">
       <img
-        src="/images/techtrove-logo.png"
+        src="/images/techtrove-logo.jpg"
         alt=""
         className={cn("w-auto object-contain", logoClass)}
       />

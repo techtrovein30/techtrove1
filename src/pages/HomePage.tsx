@@ -32,7 +32,7 @@ export function HomePage() {
 
             <div className="mt-6 flex items-center gap-6 border-t border-edge pt-6 lg:hidden">
               <img
-                src="/images/techtrove-logo.png"
+                src="/images/techtrove-logo.jpg"
                 alt="TechTrove 3.0 wolf emblem"
                 className="glow-purple h-28 w-auto self-start"
               />
@@ -72,10 +72,10 @@ export function HomePage() {
               src="/images/brush.png"
               alt=""
               loading="lazy"
-              className="absolute left-1/2 top-1/2 w-[130%] -translate-x-1/2 -translate-y-1/2 rotate-[8deg] opacity-30 mix-blend-screen"
+              className="absolute z-10 left-1/2 top-1/2 w-[130%] -translate-x-1/2 -translate-y-1/2 rotate-[8deg] opacity-30 mix-blend-screen"
             />
             <img
-              src="/images/techtrove-logo.png"
+              src="/images/techtrove-logo.jpg"
               alt="TechTrove 3.0 wolf emblem"
               className="glow-purple relative mx-auto h-96 w-auto drop-shadow-2xl"
             />
@@ -231,7 +231,7 @@ export function HomePage() {
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background/70 to-background" />
         <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-4 py-24 text-center sm:px-6 md:py-32">
           <img
-            src="/images/techtrove-logo.png"
+            src="/images/techtrove-logo.jpg"
             alt="TechTrove 3.0 logo"
             loading="lazy"
             className="glow-purple h-20 w-auto"
