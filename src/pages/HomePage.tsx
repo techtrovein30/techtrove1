@@ -13,7 +13,7 @@ export function HomePage() {
       {/* Hero */}
       <section className="grain relative overflow-hidden">
         <img
-          src="/images/arena.jpg"
+          src="/images/arena.webp"
           alt=""
           className="absolute inset-0 h-full w-full object-cover object-center opacity-40"
         />
@@ -32,7 +32,7 @@ export function HomePage() {
 
             <div className="mt-6 flex items-center gap-6 border-t border-edge pt-6 lg:hidden">
               <img
-                src="/images/techtrove-logo.png"
+                src="/images/techtrove-logo.webp"
                 alt="TechTrove 3.0 wolf emblem"
                 className="glow-emblem h-28 w-auto self-start"
               />
@@ -69,7 +69,7 @@ export function HomePage() {
 
           <div className="relative min-w-0 hidden lg:block">
             <img
-              src="/images/techtrove-logo.png"
+              src="/images/techtrove-logo.webp"
               alt="TechTrove 3.0 wolf emblem"
               className="glow-emblem relative mx-auto h-96 w-auto max-w-full"
             />
@@ -217,7 +217,7 @@ export function HomePage() {
       {/* CTA band */}
       <section className="grain relative overflow-hidden border-t border-edge">
         <img
-          src="/images/arena.jpg"
+          src="/images/arena.webp"
           alt=""
           loading="lazy"
           className="absolute inset-0 h-full w-full object-cover opacity-25"
@@ -225,7 +225,7 @@ export function HomePage() {
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background/70 to-background" />
         <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-4 py-24 text-center sm:px-6 md:py-32">
           <img
-            src="/images/techtrove-logo.png"
+            src="/images/techtrove-logo.webp"
             alt="TechTrove 3.0 logo"
             loading="lazy"
             className="glow-emblem h-20 w-auto"

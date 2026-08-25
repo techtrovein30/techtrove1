@@ -97,9 +97,9 @@ const sportsEligibility: string[] = [
 
 function sportImage(index: number): string {
   const pool = [
-    "/images/sport-a.jpg",
-    "/images/sport-c.jpg",
-    "/images/sport-b.jpg",
+    "/images/sport-a.webp",
+    "/images/sport-c.webp",
+    "/images/sport-b.webp",
   ];
   return pool[index % pool.length];
 }

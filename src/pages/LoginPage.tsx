@@ -87,7 +87,7 @@ export function LoginPage() {
       {/* Brand panel */}
       <section className="grain relative hidden overflow-hidden border-r border-edge lg:block">
         <img
-          src="/images/arena.jpg"
+          src="/images/arena.webp"
           alt=""
           loading="lazy"
           className="absolute inset-0 h-full w-full object-cover opacity-25"
@@ -97,7 +97,7 @@ export function LoginPage() {
           <p className="eyebrow">{`TechTrove 3.0 · SIMATS`}</p>
           <div>
             <img
-              src="/images/techtrove-logo.png"
+              src="/images/techtrove-logo.webp"
               alt="TechTrove 3.0 wolf emblem"
               loading="lazy"
               className="glow-purple h-44 w-auto"

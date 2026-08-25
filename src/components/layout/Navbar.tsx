@@ -180,7 +180,7 @@ export function Navbar() {
           aria-modal="true"
         >
           <img
-            src="/images/techtrove-logo.png"
+            src="/images/techtrove-logo.webp"
             alt=""
             loading="lazy"
             className="pointer-events-none absolute -right-12 top-24 h-80 w-auto opacity-[0.05]"

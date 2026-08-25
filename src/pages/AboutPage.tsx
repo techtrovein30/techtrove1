@@ -22,7 +22,7 @@ export function AboutPage() {
         <div className="relative grid gap-12 lg:grid-cols-[1fr_1.2fr] lg:gap-16">
           <div className="relative">
             <img
-              src="/images/techtrove-logo.png"
+              src="/images/techtrove-logo.webp"
               alt="TechTrove 3.0 wolf emblem"
               loading="lazy"
               className="glow-emblem mx-auto h-64 w-auto lg:h-80"
