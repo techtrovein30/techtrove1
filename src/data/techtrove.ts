@@ -77,9 +77,7 @@ export const siteConfig = {
     venue: "SIMATS Campus, Chennai",
   },
   socials: [
-    { label: "Instagram", url: "#" },
-    { label: "LinkedIn", url: "#" },
-    { label: "YouTube", url: "#" },
+    { label: "Instagram", url: "https://www.instagram.com/techtrove_3.0/" },
   ],
 };
 
