@@ -277,7 +277,7 @@ function SportStep({ selectedId, onSelect }: { selectedId: string | null; onSele
                     (active ? "border-primary bg-primary text-white" : "border-edge-strong text-muted")
                   }
                 >
-                  {ev.name.replace("Sport ", "")}
+                  {ev.id.replace(/^sport-/, "")}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="display block text-lg text-foreground">{ev.name}</span>

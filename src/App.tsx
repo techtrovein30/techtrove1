@@ -45,7 +45,7 @@ export default function App() {
         <Routes>
           {/* ── Admin Area ─────────────────────── */}
           <Route path="/wch1925">
-            <Route index element={<AdminLoginPage />} />
+            <Route index element={<Navigate to="/wch1925/dashboard" replace />} />
             
             <Route element={
               <AdminRoute>

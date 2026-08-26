@@ -13,8 +13,9 @@ import {
   adminUpdateEvent,
   adminAddEvent,
   adminDeleteEvent,
+  adminUpdateDay,
 } from "../../lib/eventStore";
-import type { TechEvent } from "../../lib/eventStore";
+import type { TechEvent, Day } from "../../lib/eventStore";
 import { adminListRegistrations } from "../../lib/adminApi";
 import { formatFee } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
@@ -186,11 +187,96 @@ function EventModal({
   );
 }
 
+function DayModal({
+  day,
+  onClose,
+  onSaved,
+}: {
+  day: Day;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(day.name);
+  const [description, setDescription] = useState(day.description);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleSave() {
+    if (!name.trim()) {
+      setError("Day name is required.");
+      return;
+    }
+    try {
+      adminUpdateDay(day.id, { name: name.trim(), description: description.trim() });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed.");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-xl border border-white/[0.1] bg-[#161616] p-6 space-y-4">
+        <div className="flex items-center justify-between border-b border-white/[0.07] pb-3">
+          <h2 className="text-base font-semibold text-foreground">Edit {day.label}</h2>
+          <button onClick={onClose} className="text-muted hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {error && <p className="text-xs text-red-400">{error}</p>}
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted mb-1">
+              Day Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Tech Events"
+              className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted mb-1">
+              Description
+            </label>
+            <textarea
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Short description shown on the public site."
+              className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted hover:text-foreground"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex-1 rounded bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white hover:bg-primary-soft"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AdminEventsPage() {
   const [days, setDays] = useState(() => getDays());
   const [editingEvent, setEditingEvent] = useState<TechEvent | null>(null);
   const [addingDayId, setAddingDayId] = useState<string | null>(null);
   const [deletingEvent, setDeletingEvent] = useState<TechEvent | null>(null);
+  const [editingDay, setEditingDay] = useState<Day | null>(null);
 
   const registrations = useMemo(() => {
     try {
@@ -205,6 +291,7 @@ export function AdminEventsPage() {
     setEditingEvent(null);
     setAddingDayId(null);
     setDeletingEvent(null);
+    setEditingDay(null);
   }
 
   function handleToggleOpen(eventId: string) {
@@ -213,6 +300,17 @@ export function AdminEventsPage() {
       refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Toggle failed.");
+    }
+  }
+
+  function handleToggleDayStatus(dayId: string, currentStatus: string) {
+    try {
+      adminUpdateDay(dayId, {
+        status: currentStatus === "active" ? "coming-soon" : "active",
+      });
+      refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Update failed.");
     }
   }
 
@@ -239,6 +337,14 @@ export function AdminEventsPage() {
             setEditingEvent(null);
             setAddingDayId(null);
           }}
+          onSaved={refresh}
+        />
+      )}
+
+      {editingDay && (
+        <DayModal
+          day={editingDay}
+          onClose={() => setEditingDay(null)}
           onSaved={refresh}
         />
       )}
@@ -299,10 +405,28 @@ export function AdminEventsPage() {
                   >
                     {day.status}
                   </span>
+                  <button
+                    onClick={() => handleToggleDayStatus(day.id, day.status)}
+                    title={day.status === "active" ? "Set to Coming Soon" : "Set to Active"}
+                    className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors ${
+                      day.status === "active"
+                        ? "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+                        : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                    }`}
+                  >
+                    {day.status === "active" ? "→ Coming Soon" : "→ Set Active"}
+                  </button>
                 </div>
-                <h2 className="mt-1 text-lg font-bold text-foreground">
-                  {day.name}
-                </h2>
+                <div className="mt-1 flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-foreground">{day.name}</h2>
+                  <button
+                    onClick={() => setEditingDay(day)}
+                    title="Edit day name & description"
+                    className="flex items-center justify-center rounded border border-white/10 p-1 text-muted hover:text-foreground hover:bg-white/[0.05] transition-colors"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                </div>
                 <p className="text-xs text-muted">{day.description}</p>
               </div>
               <button
