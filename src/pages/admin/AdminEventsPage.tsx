@@ -4,6 +4,7 @@ import {
   Pencil,
   Trash2,
   X,
+  Calendar,
 } from "lucide-react";
 import {
   getDays,
@@ -314,11 +315,15 @@ export function AdminEventsPage() {
 
             {/* Event List */}
             {day.events.length === 0 ? (
-              <div className="p-8 text-center text-sm text-muted">
-                No events in {day.label} yet.
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03] text-muted">
+                  <Calendar className="h-6 w-6" />
+                </div>
+                <p className="mt-4 text-sm font-medium text-foreground">No events scheduled</p>
+                <p className="mt-1 text-xs text-muted">Add events to this day to get started.</p>
               </div>
             ) : (
-              <div className="divide-y divide-white/[0.05]">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-5 bg-white/[0.01]">
                 {day.events.map((event) => {
                   const regCount = registrations.filter(
                     (r) => r.eventId === event.id
@@ -326,62 +331,79 @@ export function AdminEventsPage() {
                   return (
                     <div
                       key={event.id}
-                      className="p-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-colors hover:bg-white/[0.02]"
+                      className="group flex flex-col justify-between rounded-xl border border-white/[0.06] bg-[#1a1a1a] p-5 transition-all hover:-translate-y-0.5 hover:border-white/[0.12] hover:bg-white/[0.04] hover:shadow-lg hover:shadow-black/20"
                     >
-                      <div className="space-y-1 min-w-0 flex-1">
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-bold text-foreground">
-                            {event.name}
-                          </h3>
-                          <span className="border border-white/10 px-2 py-0.5 text-[9px] text-muted">
-                            {event.category}
-                          </span>
-                          <span
-                            className={`border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
-                              event.registrationOpen
-                                ? "border-emerald-500/40 text-emerald-400"
-                                : "border-red-500/40 text-red-400"
-                            }`}
-                          >
-                            {event.registrationOpen ? "Registration Open" : "Closed"}
-                          </span>
+                      <div>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="truncate font-bold text-lg text-foreground transition-colors group-hover:text-primary-soft">
+                              {event.name}
+                            </h3>
+                            <div className="mt-1 flex flex-wrap gap-2">
+                              <span className="rounded bg-white/[0.05] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted">
+                                {event.category}
+                              </span>
+                              <span
+                                className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
+                                  event.registrationOpen
+                                    ? "bg-emerald-500/10 text-emerald-400"
+                                    : "bg-red-500/10 text-red-400"
+                                }`}
+                              >
+                                {event.registrationOpen ? "Registration Open" : "Closed"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-primary-soft">{formatFee(event.registrationFee)}</p>
+                            <p className="text-[10px] uppercase tracking-[0.1em] text-muted">Entry Fee</p>
+                          </div>
                         </div>
-                        <p className="text-xs text-muted max-w-xl">
+
+                        <p className="mt-4 line-clamp-2 text-sm text-muted">
                           {event.description}
                         </p>
-                        <p className="text-xs text-muted">
-                          Fee:{" "}
-                          <strong className="text-foreground">
-                            {formatFee(event.registrationFee)}
-                          </strong>{" "}
-                          · Players: {event.requiredPlayers ?? "TBA"} · Subs:{" "}
-                          {event.maxSubstitutes ?? 0} · Registrations:{" "}
-                          <strong className="text-primary-soft">{regCount}</strong>
-                        </p>
+
+                        <div className="mt-5 grid grid-cols-2 gap-3 rounded-lg border border-white/[0.04] bg-white/[0.02] p-3 text-xs">
+                          <div>
+                            <p className="text-muted">Team Size</p>
+                            <p className="font-semibold text-foreground mt-0.5">
+                              {event.requiredPlayers ?? "TBA"} <span className="text-muted font-normal text-[10px]">+ {event.maxSubstitutes ?? 0} subs</span>
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted">Registrations</p>
+                            <p className="font-semibold text-foreground mt-0.5">
+                              {regCount} <span className="text-muted font-normal text-[10px]">teams</span>
+                            </p>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="mt-5 flex flex-wrap items-center gap-2 pt-4 border-t border-white/[0.06]">
                         <button
                           onClick={() => handleToggleOpen(event.id)}
-                          className={`rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] border transition-colors ${
+                          className={`flex-1 rounded px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors ${
                             event.registrationOpen
-                              ? "border-red-500/40 text-red-300 hover:bg-red-500/10"
-                              : "border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+                              ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                              : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
                           }`}
                         >
                           {event.registrationOpen ? "Close Reg." : "Open Reg."}
                         </button>
                         <button
                           onClick={() => setEditingEvent(event)}
-                          className="flex items-center gap-1 rounded border border-white/10 px-3 py-1.5 text-xs font-semibold text-muted hover:text-foreground hover:border-white/20"
+                          className="flex items-center justify-center rounded border border-white/10 px-3 py-2 text-muted hover:text-foreground hover:bg-white/[0.05]"
+                          title="Edit Event"
                         >
-                          <Pencil className="h-3.5 w-3.5" /> Edit
+                          <Pencil className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => setDeletingEvent(event)}
-                          className="flex items-center gap-1 rounded border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/10"
+                          className="flex items-center justify-center rounded border border-red-500/20 px-3 py-2 text-red-400 hover:bg-red-500/10"
+                          title="Delete Event"
                         >
-                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
                     </div>

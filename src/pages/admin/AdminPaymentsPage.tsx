@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, CreditCard, Clock, CheckCircle2 } from "lucide-react";
+import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt } from "lucide-react";
 import type { Registration } from "../../lib/mockApi";
 import {
   adminListRegistrations,
@@ -75,63 +75,107 @@ export function AdminPaymentsPage() {
     }
   }
 
+  function exportCSV() {
+    if (filtered.length === 0) return;
+    const headers = ["Registration Code", "Team Name", "Event", "Captain", "Fee Amount", "Status"];
+    const rows = filtered.map(r => {
+      const ev = events.find(e => e.id === r.eventId);
+      return [
+        r.registrationCode,
+        r.teamName,
+        ev?.name ?? r.eventId,
+        r.captainName,
+        r.fee.toString(),
+        r.paymentStatus
+      ].map(field => `"${field}"`).join(",");
+    });
+    
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `techtrove_payments_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Payments</h1>
-        <p className="mt-1 text-sm text-muted">
-          Manage event registration fees and record payments.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Payments</h1>
+          <p className="mt-1 text-sm text-muted">
+            Manage event registration fees and record payments.
+          </p>
+        </div>
+        <button
+          onClick={exportCSV}
+          disabled={filtered.length === 0}
+          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.06] disabled:opacity-50"
+        >
+          <Download className="h-4 w-4 text-muted" />
+          Export Payments
+        </button>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-primary/30 bg-primary/10 p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+        <div className="group relative overflow-hidden rounded-xl border border-primary/30 bg-primary/10 p-5 transition-all hover:border-primary/50 hover:bg-primary/20">
+          <div className="flex items-center justify-between z-10 relative">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-soft">
               Total Revenue Collected
             </p>
-            <CreditCard className="h-4 w-4 text-primary-soft" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 text-primary-soft">
+              <CreditCard className="h-4 w-4" />
+            </div>
           </div>
-          <p className="mt-2 text-3xl font-bold text-primary-soft">
+          <p className="mt-3 text-3xl font-bold text-primary-soft drop-shadow-[0_0_12px_rgba(167,139,250,0.3)] z-10 relative">
             {formatFee(summary.totalRevenue)}
           </p>
-          <p className="mt-1 text-xs text-muted">
+          <p className="mt-1 text-xs text-primary-soft/70 z-10 relative">
             {summary.recordedCount} Recorded Payments
           </p>
+          <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/20 blur-3xl transition-opacity duration-300 group-hover:bg-primary/30" aria-hidden="true" />
         </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#161616] p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+        <div className="group relative overflow-hidden rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 transition-all hover:border-amber-500/50 hover:bg-amber-500/10">
+          <div className="flex items-center justify-between z-10 relative">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-400">
               Pending Payments
             </p>
-            <Clock className="h-4 w-4 text-amber-400" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/20 text-amber-400">
+              <Clock className="h-4 w-4" />
+            </div>
           </div>
-          <p className="mt-2 text-3xl font-bold text-foreground">
+          <p className="mt-3 text-3xl font-bold text-amber-400 z-10 relative">
             {summary.pendingCount}
           </p>
-          <p className="mt-1 text-xs text-amber-400">
+          <p className="mt-1 text-xs text-amber-400/70 z-10 relative">
             {formatFee(summary.pendingRevenue)} pending
           </p>
         </div>
 
-        <div className="rounded-xl border border-white/[0.07] bg-[#161616] p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+        <div className="group relative overflow-hidden rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5 transition-all hover:border-emerald-500/50 hover:bg-emerald-500/10">
+          <div className="flex items-center justify-between z-10 relative">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-400">
               Recorded Rate
             </p>
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
+              <CheckCircle2 className="h-4 w-4" />
+            </div>
           </div>
-          <p className="mt-2 text-3xl font-bold text-foreground">
+          <p className="mt-3 text-3xl font-bold text-emerald-400 z-10 relative">
             {registrations.length > 0
               ? `${Math.round(
                   (summary.recordedCount / registrations.length) * 100
                 )}%`
               : "0%"}
           </p>
-          <p className="mt-1 text-xs text-muted">
+          <p className="mt-1 text-xs text-emerald-400/70 z-10 relative">
             {summary.recordedCount} of {registrations.length} total entries
           </p>
         </div>
@@ -201,8 +245,12 @@ export function AdminPaymentsPage() {
             <tbody className="divide-y divide-white/[0.05]">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted">
-                    No payment records match your filters.
+                  <td colSpan={6} className="px-4 py-16 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03] text-muted">
+                      <Receipt className="h-6 w-6" />
+                    </div>
+                    <p className="mt-4 text-sm font-medium text-foreground">No payments found</p>
+                    <p className="mt-1 text-xs text-muted">No payment records match your current filters.</p>
                   </td>
                 </tr>
               ) : (

@@ -44,16 +44,16 @@ function NavItem({
       onClick={onClick}
       className={({ isActive }) =>
         cn(
-          "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
+          "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-200",
           isActive
-            ? "bg-primary/15 text-primary-soft shadow-[inset_0_0_0_1px_rgba(124,58,237,0.25)]"
-            : "text-muted hover:bg-surface hover:text-foreground"
+            ? "bg-primary/10 text-primary-soft shadow-[inset_3px_0_0_0_#7c3aed]"
+            : "text-muted hover:bg-white/[0.03] hover:text-foreground"
         )
       }
     >
       <Icon
         className={cn(
-          "h-4 w-4 shrink-0 transition-colors",
+          "h-4 w-4 shrink-0 transition-transform duration-200 group-hover:scale-110",
           "group-[.active]:text-primary-soft"
         )}
         aria-hidden
@@ -92,7 +92,7 @@ export function AdminLayout() {
       {/* Navigation */}
       <nav
         aria-label="Admin navigation"
-        className="flex-1 overflow-y-auto p-3 space-y-0.5"
+        className="flex-1 overflow-y-auto p-3 space-y-1"
       >
         {navItems.map((item) => (
           <NavItem
@@ -102,6 +102,17 @@ export function AdminLayout() {
           />
         ))}
       </nav>
+
+      {/* System Status */}
+      <div className="px-3 pb-3">
+        <div className="rounded-lg border border-white/[0.05] bg-[#161616] p-3 text-xs transition-colors hover:border-white/[0.1]">
+          <div className="flex items-center gap-2 font-semibold text-emerald-400">
+            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+            SYSTEM ACTIVE
+          </div>
+          <p className="mt-1 text-[10px] text-muted">Event Command Center</p>
+        </div>
+      </div>
 
       {/* Admin user + sign-out */}
       <div className="shrink-0 border-t border-white/[0.06] p-3">
@@ -168,7 +179,16 @@ export function AdminLayout() {
             <Menu className="h-4 w-4" aria-hidden />
           </button>
 
-          <div className="flex-1" />
+          <div className="flex-1 flex items-center">
+            <div className="hidden sm:block">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+                Admin Console
+              </p>
+              <p className="text-sm font-semibold text-foreground">
+                Command Center
+              </p>
+            </div>
+          </div>
 
           {/* Quick sign-out on desktop header */}
           <button

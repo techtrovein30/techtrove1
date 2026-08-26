@@ -81,7 +81,7 @@ export function AdminSettingsPage() {
       </div>
 
       {/* Account Info */}
-      <section className="rounded-xl border border-white/[0.07] bg-[#161616] p-6 space-y-4">
+      <section className="group relative overflow-hidden rounded-xl border border-white/[0.07] bg-[#161616] p-6 space-y-4 transition-colors hover:border-white/[0.12] hover:bg-white/[0.02]">
         <div className="flex items-center gap-3 border-b border-white/[0.07] pb-4">
           <Shield className="h-5 w-5 text-primary-soft" />
           <div>
@@ -129,7 +129,7 @@ export function AdminSettingsPage() {
       </section>
 
       {/* Security / Password Change */}
-      <section className="rounded-xl border border-white/[0.07] bg-[#161616] p-6 space-y-4">
+      <section className="group relative overflow-hidden rounded-xl border border-white/[0.07] bg-[#161616] p-6 space-y-4 transition-colors hover:border-white/[0.12] hover:bg-white/[0.02]">
         <div className="flex items-center gap-3 border-b border-white/[0.07] pb-4">
           <Key className="h-5 w-5 text-primary-soft" />
           <div>
@@ -163,7 +163,7 @@ export function AdminSettingsPage() {
               type="password"
               value={currentPass}
               onChange={(e) => setCurrentPass(e.target.value)}
-              className="w-full border border-white/10 bg-[#0f0a0a] px-3.5 py-2.5 text-sm text-foreground outline-none focus:border-primary/60"
+              className="w-full rounded-lg border border-white/10 bg-[#0f0a0a] px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary/60 focus:ring-1 focus:ring-primary/60"
             />
           </div>
 
@@ -175,7 +175,7 @@ export function AdminSettingsPage() {
               type="password"
               value={newPass}
               onChange={(e) => setNewPass(e.target.value)}
-              className="w-full border border-white/10 bg-[#0f0a0a] px-3.5 py-2.5 text-sm text-foreground outline-none focus:border-primary/60"
+              className="w-full rounded-lg border border-white/10 bg-[#0f0a0a] px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary/60 focus:ring-1 focus:ring-primary/60"
             />
           </div>
 
@@ -187,7 +187,7 @@ export function AdminSettingsPage() {
               type="password"
               value={confirmPass}
               onChange={(e) => setConfirmPass(e.target.value)}
-              className="w-full border border-white/10 bg-[#0f0a0a] px-3.5 py-2.5 text-sm text-foreground outline-none focus:border-primary/60"
+              className="w-full rounded-lg border border-white/10 bg-[#0f0a0a] px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary/60 focus:ring-1 focus:ring-primary/60"
             />
           </div>
 
@@ -202,7 +202,7 @@ export function AdminSettingsPage() {
       </section>
 
       {/* Storage & Architecture Summary */}
-      <section className="rounded-xl border border-white/[0.07] bg-[#161616] p-6 space-y-4">
+      <section className="group relative overflow-hidden rounded-xl border border-white/[0.07] bg-[#161616] p-6 space-y-4 transition-colors hover:border-white/[0.12] hover:bg-white/[0.02]">
         <div className="flex items-center gap-3 border-b border-white/[0.07] pb-4">
           <Database className="h-5 w-5 text-primary-soft" />
           <div>

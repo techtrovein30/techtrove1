@@ -134,10 +134,29 @@ function StudentDetail({
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
+            <div className="flex flex-col items-center justify-center space-y-3 pb-6 pt-2 border-b border-white/[0.06]">
+              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/20 text-2xl font-bold text-primary-soft shadow-[0_0_30px_rgba(124,58,237,0.15)] ring-1 ring-primary/30">
+                {student.fullName.charAt(0).toUpperCase()}
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-bold text-foreground">{student.fullName}</h3>
+                <p className="text-xs text-muted">@{student.username}</p>
+                <span
+                  className={`mt-2 inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                    student.participantType === "internal"
+                      ? "bg-primary/20 text-primary-soft"
+                      : "bg-white/10 text-muted"
+                  }`}
+                >
+                  {student.participantType}
+                </span>
+              </div>
+            </div>
+
             {/* Profile */}
             <section>
               <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
-                Profile
+                Profile Details
               </h3>
               {editing ? (
                 <div className="space-y-3">
@@ -406,8 +425,12 @@ export function AdminStudentsPage() {
             <tbody className="divide-y divide-white/[0.05]">
               {paged.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted">
-                    No students match your search.
+                  <td colSpan={6} className="px-4 py-16 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03] text-muted">
+                      <Search className="h-6 w-6" />
+                    </div>
+                    <p className="mt-4 text-sm font-medium text-foreground">No students found</p>
+                    <p className="mt-1 text-xs text-muted">No participants match your current search filters.</p>
                   </td>
                 </tr>
               ) : (
@@ -418,11 +441,16 @@ export function AdminStudentsPage() {
                     onClick={() => setSelected(u)}
                   >
                     <td className="px-4 py-3">
-                      <div>
-                        <p className="font-medium text-foreground">
-                          {u.fullName}
-                        </p>
-                        <p className="text-xs text-muted">@{u.username}</p>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary-soft">
+                          {u.fullName.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground transition-colors group-hover:text-primary-soft">
+                            {u.fullName}
+                          </p>
+                          <p className="text-xs text-muted">@{u.username}</p>
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">

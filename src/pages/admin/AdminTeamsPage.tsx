@@ -51,51 +51,53 @@ export function AdminTeamsPage() {
       {selectedTeam && (
         <div className="fixed inset-0 z-40 flex justify-end bg-black/60 backdrop-blur-sm">
           <div className="flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-white/[0.07] bg-[#121212]">
-            <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.07] px-5">
-              <h2 className="text-sm font-semibold text-foreground">
-                Team Roster · {selectedTeam.teamName}
-              </h2>
+            <div className="flex h-14 shrink-0 items-center gap-3 border-b border-white/[0.07] px-5">
               <button
                 onClick={() => setSelectedTeam(null)}
                 className="flex h-8 w-8 items-center justify-center rounded text-muted hover:text-foreground"
               >
                 <X className="h-4 w-4" />
               </button>
+              <h2 className="text-sm font-semibold text-foreground">
+                Team Roster · {selectedTeam.teamName}
+              </h2>
             </div>
+            
             <div className="flex-1 overflow-y-auto p-5 space-y-6">
-              <div className="rounded-lg border border-white/[0.07] bg-[#1a1a1a] p-4 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted">Registration Code</span>
-                  <span className="font-mono text-primary-soft font-semibold">
-                    {selectedTeam.registrationCode}
-                  </span>
+              <div className="flex flex-col items-center justify-center space-y-3 pb-6 pt-2 border-b border-white/[0.06]">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/10 text-primary-soft">
+                  <Users className="h-7 w-7" />
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Event</span>
-                  <span>
-                    {events.find((e) => e.id === selectedTeam.eventId)?.name ??
-                      selectedTeam.eventId}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Captain</span>
-                  <span>{selectedTeam.captainName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted">Fee Status</span>
-                  <span
-                    className={`font-semibold capitalize ${
-                      selectedTeam.paymentStatus === "recorded"
-                        ? "text-emerald-400"
-                        : "text-amber-400"
-                    }`}
-                  >
-                    {selectedTeam.paymentStatus} ({formatFee(selectedTeam.fee)})
-                  </span>
+                <div className="text-center">
+                  <h3 className="text-lg font-bold text-foreground">{selectedTeam.teamName}</h3>
+                  <p className="text-xs font-mono text-primary-soft">{selectedTeam.registrationCode}</p>
                 </div>
               </div>
 
-              <div>
+              <section>
+                <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+                  Registration Details
+                </h3>
+                <dl className="divide-y divide-white/[0.06]">
+                  {[
+                    { term: "Event", value: events.find((e) => e.id === selectedTeam.eventId)?.name ?? selectedTeam.eventId },
+                    { term: "Captain", value: selectedTeam.captainName },
+                    { 
+                      term: "Fee Status", 
+                      value: <span className={`font-semibold capitalize ${selectedTeam.paymentStatus === "recorded" ? "text-emerald-400" : "text-amber-400"}`}>
+                        {selectedTeam.paymentStatus} ({formatFee(selectedTeam.fee)})
+                      </span> 
+                    },
+                  ].map((r) => (
+                    <div key={r.term} className="flex justify-between gap-4 py-2.5 text-sm">
+                      <dt className="shrink-0 text-muted">{r.term}</dt>
+                      <dd className="min-w-0 break-all text-right text-foreground">{r.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+
+              <section>
                 <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
                   Player Roster ({selectedTeam.members.length})
                 </h3>
@@ -103,10 +105,12 @@ export function AdminTeamsPage() {
                   {selectedTeam.members.map((m, i) => (
                     <div
                       key={i}
-                      className="flex items-center justify-between rounded bg-[#1a1a1a] px-3.5 py-2.5 text-sm"
+                      className="flex items-center justify-between rounded-lg bg-[#1a1a1a] border border-white/[0.04] px-3.5 py-3 text-sm"
                     >
-                      <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-muted" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.05] text-[10px] font-bold text-muted">
+                          {m.name.charAt(0).toUpperCase()}
+                        </div>
                         <span className="font-medium text-foreground">{m.name}</span>
                       </div>
                       <span
@@ -121,7 +125,7 @@ export function AdminTeamsPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
             </div>
           </div>
         </div>
@@ -166,8 +170,12 @@ export function AdminTeamsPage() {
 
       {/* Grouped Team List */}
       {Object.keys(eventGrouped).length === 0 ? (
-        <div className="rounded-xl border border-white/[0.07] bg-[#161616] p-12 text-center text-muted">
-          No teams found matching your query.
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03] text-muted">
+            <Users className="h-6 w-6" />
+          </div>
+          <p className="mt-4 text-sm font-medium text-foreground">No teams found</p>
+          <p className="mt-1 text-xs text-muted">Try adjusting your search or filters.</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -191,37 +199,39 @@ export function AdminTeamsPage() {
                     {teams.length} Team{teams.length !== 1 ? "s" : ""}
                   </span>
                 </div>
-                <div className="divide-y divide-white/[0.05]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-5 bg-white/[0.01]">
                   {teams.map((t) => (
                     <div
                       key={t.id}
                       onClick={() => setSelectedTeam(t)}
-                      className="flex cursor-pointer items-center justify-between px-5 py-3.5 transition-colors hover:bg-white/[0.025]"
+                      className="group cursor-pointer rounded-xl border border-white/[0.06] bg-[#1a1a1a] p-4 transition-all hover:-translate-y-0.5 hover:border-white/[0.12] hover:bg-white/[0.04] hover:shadow-lg hover:shadow-black/20"
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-foreground">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="font-bold text-foreground transition-colors group-hover:text-primary-soft">
                             {t.teamName}
+                          </h3>
+                          <p className="text-xs font-mono text-muted group-hover:text-primary-soft/70">
+                            {t.registrationCode}
                           </p>
-                          <span className="font-mono text-xs text-primary-soft">
-                            ({t.registrationCode})
-                          </span>
                         </div>
-                        <p className="mt-0.5 text-xs text-muted">
-                          Captain: {t.captainName} · {t.members.length} Members
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
                         <span
-                          className={`border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
+                          className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
                             t.paymentStatus === "recorded"
-                              ? "border-emerald-500/40 text-emerald-400"
-                              : "border-amber-500/40 text-amber-400"
+                              ? "bg-emerald-500/10 text-emerald-400"
+                              : "bg-amber-500/10 text-amber-400"
                           }`}
                         >
                           {t.paymentStatus}
                         </span>
-                        <ChevronRight className="h-4 w-4 text-muted" />
+                      </div>
+                      
+                      <div className="mt-4 space-y-1.5 text-xs text-muted">
+                        <p>Captain: <span className="font-medium text-foreground">{t.captainName}</span></p>
+                        <div className="flex items-center gap-1.5">
+                          <Users className="h-3.5 w-3.5 opacity-70" />
+                          <span>{t.members.length} Members</span>
+                        </div>
                       </div>
                     </div>
                   ))}

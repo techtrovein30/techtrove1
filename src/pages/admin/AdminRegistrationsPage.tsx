@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   Clock,
   ChevronLeft,
+  Download,
+  ClipboardList,
 } from "lucide-react";
 import type { Registration } from "../../lib/mockApi";
 import {
@@ -256,6 +258,34 @@ export function AdminRegistrationsPage() {
     setSelected(updated);
   }, []);
 
+  function exportCSV() {
+    if (filtered.length === 0) return;
+    const headers = ["Registration Code", "Event", "Team Name", "Captain", "Fee", "Status", "Date"];
+    const rows = filtered.map(r => {
+      const ev = events.find(e => e.id === r.eventId);
+      return [
+        r.registrationCode,
+        ev?.name ?? r.eventId,
+        r.teamName,
+        r.captainName,
+        r.fee.toString(),
+        r.paymentStatus,
+        new Date(r.createdAt).toISOString()
+      ].map(field => `"${field}"`).join(",");
+    });
+    
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `techtrove_registrations_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-6">
       {selected && (
@@ -276,6 +306,14 @@ export function AdminRegistrationsPage() {
             {registrations.length !== 1 ? "ies" : ""}
           </p>
         </div>
+        <button
+          onClick={exportCSV}
+          disabled={filtered.length === 0}
+          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.06] disabled:opacity-50"
+        >
+          <Download className="h-4 w-4 text-muted" />
+          Export CSV
+        </button>
       </div>
 
       {/* Search + Filters */}
@@ -354,8 +392,12 @@ export function AdminRegistrationsPage() {
             <tbody className="divide-y divide-white/[0.05]">
               {paged.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-muted">
-                    No registrations match your search.
+                  <td colSpan={7} className="px-4 py-16 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03] text-muted">
+                      <ClipboardList className="h-6 w-6" />
+                    </div>
+                    <p className="mt-4 text-sm font-medium text-foreground">No registrations found</p>
+                    <p className="mt-1 text-xs text-muted">No team entries match your current filters.</p>
                   </td>
                 </tr>
               ) : (

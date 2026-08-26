@@ -8,13 +8,18 @@ import {
   Clock,
   CheckCircle2,
   ArrowRight,
+  Plus,
+  UsersRound,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import { getAdminStats } from "../../lib/adminApi";
 import { getAllEvents } from "../../lib/eventStore";
 import { formatFee } from "../../lib/utils";
 import { StatCard } from "../../components/admin/StatCard";
 
 export function AdminDashboardPage() {
+  const { user } = useAuth();
+
   const stats = useMemo(() => {
     try {
       return getAdminStats();
@@ -36,11 +41,35 @@ export function AdminDashboardPage() {
   return (
     <div className="space-y-8">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="mt-1 text-sm text-muted">
-          Live overview of TechTrove 3.0 registrations and participants.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-5">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary-soft mb-1">
+            Command Center
+          </p>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            Welcome back, {user?.fullName?.split(" ")[0] ?? "Admin"}
+          </h1>
+          <p className="mt-2 text-sm text-muted">
+            Here's what's happening with TechTrove 3.0 today.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            to="/wch1925/students"
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.06]"
+          >
+            <UsersRound className="h-4 w-4 text-muted" />
+            Students
+          </Link>
+          <Link
+            to="/wch1925/events"
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white shadow-[0_0_15px_rgba(124,58,237,0.3)] transition-all hover:bg-primary-soft hover:shadow-[0_0_20px_rgba(124,58,237,0.5)]"
+          >
+            <Plus className="h-4 w-4" />
+            Manage Events
+          </Link>
+        </div>
       </div>
 
       {/* Primary stats */}
@@ -172,32 +201,36 @@ export function AdminDashboardPage() {
             </Link>
           </div>
           {stats.recentRegistrations.length === 0 ? (
-            <p className="text-sm text-muted">
-              No registrations yet. Students who register will appear here.
-            </p>
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03] text-muted">
+                <ClipboardList className="h-6 w-6" />
+              </div>
+              <p className="mt-3 text-sm font-medium text-foreground">No recent registrations</p>
+              <p className="mt-1 text-xs text-muted">Registrations will appear here.</p>
+            </div>
           ) : (
-            <div className="divide-y divide-white/[0.06]">
+            <div className="flex flex-col gap-2">
               {stats.recentRegistrations.map((reg) => {
                 const ev = events.find((e) => e.id === reg.eventId);
                 return (
                   <div
                     key={reg.id}
-                    className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+                    className="group flex items-center justify-between rounded-lg border border-white/[0.04] bg-white/[0.01] p-3 transition-colors hover:border-white/[0.08] hover:bg-white/[0.03]"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
+                      <p className="truncate text-sm font-medium text-foreground transition-colors group-hover:text-primary-soft">
                         {reg.teamName}
                       </p>
                       <p className="truncate text-[11px] text-muted">
-                        {ev?.name ?? reg.eventId} ·{" "}
-                        {reg.registrationCode}
+                        {ev?.name ?? reg.eventId} <span className="mx-1 opacity-50">·</span>{" "}
+                        <span className="font-mono">{reg.registrationCode}</span>
                       </p>
                     </div>
                     <span
-                      className={`shrink-0 border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
+                      className={`shrink-0 rounded px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] ${
                         reg.paymentStatus === "recorded"
-                          ? "border-emerald-500/40 text-emerald-400"
-                          : "border-amber-500/40 text-amber-400"
+                          ? "bg-emerald-500/10 text-emerald-400"
+                          : "bg-amber-500/10 text-amber-400"
                       }`}
                     >
                       {reg.paymentStatus === "recorded" ? "Paid" : "Pending"}
