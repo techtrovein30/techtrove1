@@ -1,10 +1,11 @@
 import { useSearchParams } from "react-router-dom";
-import { days } from "../data/techtrove";
+import { getDays } from "../lib/eventStore";
 import { DaySelector } from "../components/site/DaySelector";
 import { EventCard } from "../components/site/EventCard";
 import { ComingSoon } from "../components/site/ComingSoon";
 
 export function EventsPage() {
+  const days = getDays();
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get("day") ?? days[0].id;
   const activeDay = days.find((d) => d.id === requested) ?? days[0];

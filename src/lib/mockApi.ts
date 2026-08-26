@@ -1,4 +1,4 @@
-import { getEvent } from "../data/techtrove";
+import { getEvent } from "./eventStore";
 import { storageGet, storageRemove, storageSet } from "./storage";
 
 export type ParticipantType = "internal" | "external";
@@ -12,6 +12,7 @@ export interface User {
   regNumber?: string;
   college?: string;
   phone?: string;
+  role?: "user" | "admin";
 }
 
 export interface Session {

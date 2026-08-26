@@ -1,10 +1,12 @@
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
-import { days, siteConfig } from "../data/techtrove";
+import { siteConfig } from "../data/techtrove";
+import { getDays } from "../lib/eventStore";
 import { EventCard } from "../components/site/EventCard";
 import { Marquee } from "../components/site/Marquee";
 
 export function HomePage() {
+  const days = getDays();
   const day1 = days[0];
   const featured = day1.events.slice(0, 3);
 
