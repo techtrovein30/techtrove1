@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, BadgeCheck } from "lucide-react";
-import { getEvent } from "../data/techtrove";
+import { getEvent } from "../lib/eventStore";
 import { formatFee } from "../lib/utils";
 import { api } from "../lib/mockApi";
 import type { Registration } from "../lib/mockApi";

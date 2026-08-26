@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { days, schedule, siteConfig } from "../data/techtrove";
+import { schedule, siteConfig } from "../data/techtrove";
+import { getDays } from "../lib/eventStore";
 
 export function SchedulePage() {
   return (
@@ -18,7 +19,7 @@ export function SchedulePage() {
 
       <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
         <div className="space-y-14 pb-16 md:pb-24">
-          {days.map((day) => {
+          {getDays().map((day) => {
             const items = schedule[day.id] ?? [];
             return (
               <article key={day.id}>

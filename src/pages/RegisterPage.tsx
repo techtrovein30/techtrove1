@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Info, Lock } from "lucide-react";
-import { allEvents, getEvent } from "../data/techtrove";
-import type { TechEvent } from "../data/techtrove";
+import { getAllEvents, getEvent } from "../lib/eventStore";
+import type { TechEvent } from "../lib/eventStore";
 import { formatFee } from "../lib/utils";
 import { api } from "../lib/mockApi";
 import { useAuth } from "../context/AuthContext";
@@ -246,7 +246,7 @@ const STEP_IDS: StepId[] = ["sport", "terms", "team", "members", "review", "paym
 /* ------------------------------ Steps ------------------------------ */
 
 function SportStep({ selectedId, onSelect }: { selectedId: string | null; onSelect: (ev: TechEvent) => void }) {
-  const openEvents = allEvents.filter((e) => e.registrationOpen);
+  const openEvents = getAllEvents().filter((e) => e.registrationOpen);
 
   return (
     <StepShell title="Select your sport" lead="Pick the Day 1 sport your team is entering. You can register additional teams separately.">

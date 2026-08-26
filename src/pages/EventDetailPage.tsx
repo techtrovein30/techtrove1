@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, CalendarDays, MapPin, Ticket, UserPlus, Users } from "lucide-react";
-import { getDay, getEvent } from "../data/techtrove";
+import { getDay, getEvent } from "../lib/eventStore";
 import { formatFee } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 
