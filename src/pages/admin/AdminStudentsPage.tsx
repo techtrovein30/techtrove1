@@ -14,6 +14,7 @@ import {
   adminGetUserRegistrations,
   adminUpdateUser,
   adminDeleteUser,
+  adminGetAllRegistrationCounts,
 } from "../../lib/adminApi";
 import { getAllEvents } from "../../lib/eventStore";
 import { formatFee } from "../../lib/utils";
@@ -313,14 +314,10 @@ export function AdminStudentsPage() {
 
   useEffect(() => {
     adminListUsers().then(setAllUsers).catch(() => {});
+    adminGetAllRegistrationCounts().then(setRegistrationCounts).catch(() => {});
   }, []);
 
-  // Registration counts are shown in the detail panel — zero here is fine
-  const registrationCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const u of allUsers) counts[u.id] = 0;
-    return counts;
-  }, [allUsers]);
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();

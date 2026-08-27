@@ -55,8 +55,8 @@ export function RegisterSuccessPage() {
 
       {notFound && (
         <p role="alert" className="mx-auto mt-8 max-w-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
-          We could not find this registration in this browser. Demo registrations are stored
-          locally, so they disappear if browser data is cleared.
+          We could not find this registration. It may have been created in a
+          different session or the registration code is invalid.
         </p>
       )}
 

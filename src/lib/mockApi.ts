@@ -279,14 +279,6 @@ export const api = {
     return profileToUser(profile);
   },
 
-  // ── Restore session on page load ──────────────────────────────────────────
-  restoreSession(): User | null {
-    // Supabase restores the session automatically from localStorage.
-    // AuthContext uses onAuthStateChange, so this is a best-effort sync check.
-    // The async version is handled in AuthContext.
-    return null;
-  },
-
   // ── Sign out ──────────────────────────────────────────────────────────────
   signOut(): void {
     // Fire-and-forget — AuthContext listens for the state change

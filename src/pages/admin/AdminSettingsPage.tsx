@@ -238,11 +238,12 @@ export function AdminSettingsPage() {
 
         <div className="rounded-lg border border-white/10 bg-[#0f0a0a] p-4 text-xs text-muted space-y-2">
           <p className="font-semibold text-foreground">
-            Architecture Status: LocalStorage Layer Active
+            Architecture Status: Supabase Active
           </p>
           <p>
-            All admin data calls (`adminApi.ts` and `eventStore.ts`) are decoupled from
-            the UI layer. When migrating to a centralized database (Node.js/Express + PostgreSQL/SQLite), only the storage calls inside `adminApi.ts` and `eventStore.ts` need to be replaced with API `fetch()` endpoints.
+            All data operations use Supabase Auth and Postgres. User
+            authentication, profiles, and registrations are persisted in the
+            cloud database with Row Level Security policies.
           </p>
         </div>
       </section>

@@ -7,6 +7,10 @@ export interface TechEvent {
   name: string;
   description: string;
   image?: string;
+  venue?: string;
+  time?: string;
+  duration?: string;
+  coordinator?: string;
   registrationOpen: boolean;
   registrationType?: RegistrationType;
   requiredPlayers?: number;
@@ -14,6 +18,7 @@ export interface TechEvent {
   registrationFee?: number;
   rules?: string[];
   eligibility?: string[];
+  prizes?: string[];
 }
 
 export type DayStatus = "active" | "coming-soon";

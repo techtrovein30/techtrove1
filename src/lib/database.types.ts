@@ -59,6 +59,8 @@ export interface Database {
           duration: string | null;
           coordinator: string | null;
           registration_fee: number;
+          registration_type: string | null;
+          eligibility: string | null;
           required_players: number;
           max_substitutes: number;
           registration_open: boolean;
@@ -77,6 +79,8 @@ export interface Database {
           duration?: string | null;
           coordinator?: string | null;
           registration_fee?: number;
+          registration_type?: string | null;
+          eligibility?: string | null;
           required_players?: number;
           max_substitutes?: number;
           registration_open?: boolean;
@@ -94,6 +98,8 @@ export interface Database {
           duration?: string | null;
           coordinator?: string | null;
           registration_fee?: number;
+          registration_type?: string | null;
+          eligibility?: string | null;
           required_players?: number;
           max_substitutes?: number;
           registration_open?: boolean;
@@ -144,6 +150,7 @@ export interface Database {
   };
 }
 
+/** Used by the registrations.members JSON column */
 export interface RegistrationMember {
   name: string;
   role: "player" | "substitute";

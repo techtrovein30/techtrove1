@@ -103,11 +103,10 @@ export function seedAdminIfNeeded(): void {
  * For a fully authoritative check, use requireAdmin() (async).
  */
 export function isCurrentUserAdmin(): boolean {
-  // We rely on AuthContext to keep `user.role` up to date.
-  // This is called by AdminRoute which receives the user from AuthContext.
-  // Returning true here; the actual guard is the role stored in AuthContext.
-  // Components should pass down user.role and check it themselves.
-  return true; // AdminRoute checks user.role from context
+  // AdminRoute passes user.role from AuthContext — that is the actual guard.
+  // This function is kept for backward compatibility but callers should
+  // prefer checking user.role directly.
+  return false; // Forces callers to use the async requireAdmin() path
 }
 
 // ─── Admin sign-in ─────────────────────────────────────────────────────────
@@ -251,6 +250,20 @@ export async function adminGetUserRegistrations(userId: string): Promise<Registr
   return (data ?? []).map(rowToRegistration);
 }
 
+/** Returns registration counts keyed by user_id for all non-admin users. */
+export async function adminGetAllRegistrationCounts(): Promise<Record<string, number>> {
+  await requireAdmin();
+  const { data, error } = await supabase
+    .from("registrations")
+    .select("user_id");
+  if (error) throw new Error(error.message);
+  const counts: Record<string, number> = {};
+  for (const row of data ?? []) {
+    counts[row.user_id] = (counts[row.user_id] ?? 0) + 1;
+  }
+  return counts;
+}
+
 export interface AdminUserPatch {
   fullName?: string;
   college?: string;
@@ -370,10 +383,19 @@ export async function getAdminAccountInfo(): Promise<AdminAccountInfo> {
 }
 
 export async function adminChangePassword(
-  _currentPassword: string,
+  currentPassword: string,
   newPassword: string
 ): Promise<void> {
-  // Supabase handles current-password verification via re-auth
+  // Re-authenticate with current password before allowing the change
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  if (!authUser?.email) throw new Error("Not authenticated.");
+
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: authUser.email,
+    password: currentPassword,
+  });
+  if (signInError) throw new Error("Current password is incorrect.");
+
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) throw new Error(error.message);
 }
@@ -393,6 +415,6 @@ export async function getStorageUsageSummary(): Promise<{
   return {
     users: users ?? 0,
     registrations: registrations ?? 0,
-    estimatedBytes: 0, // Not applicable for Postgres
+    estimatedBytes: ((users ?? 0) * 256) + ((registrations ?? 0) * 512),
   };
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import type { ParticipantType } from "../lib/mockApi";
 import { Field } from "../components/ui/Field";
@@ -451,10 +451,6 @@ export function LoginPage() {
           </p>
         )}
 
-        <p className="mt-8 flex items-start gap-2 border-t border-edge pt-6 text-xs leading-relaxed text-muted">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          Demo mode: accounts are stored only in this browser. No real authentication is performed.
-        </p>
       </section>
     </div>
   );
