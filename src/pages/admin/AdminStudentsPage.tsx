@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Search,
   X,
@@ -37,9 +37,11 @@ function StudentDetail({
   onUpdated: (u: User) => void;
 }) {
   const events = useMemo(() => getAllEvents(), []);
-  const [registrations] = useState<Registration[]>(() =>
-    adminGetUserRegistrations(student.id)
-  );
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+
+  useEffect(() => {
+    adminGetUserRegistrations(student.id).then(setRegistrations).catch(() => {});
+  }, [student.id]);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     fullName: student.fullName,
@@ -49,13 +51,13 @@ function StudentDetail({
   const [editError, setEditError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  function handleSave() {
+  async function handleSave() {
     if (!editForm.fullName.trim()) {
       setEditError("Name is required.");
       return;
     }
     try {
-      const updated = adminUpdateUser(student.id, {
+      const updated = await adminUpdateUser(student.id, {
         fullName: editForm.fullName,
         college: editForm.college,
         phone: editForm.phone,
@@ -68,9 +70,9 @@ function StudentDetail({
     }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     try {
-      adminDeleteUser(student.id);
+      await adminDeleteUser(student.id);
       onDeleted(student.id);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Delete failed.");
@@ -303,22 +305,20 @@ function StudentDetail({
 // ─── Main Students Page ────────────────────────────────────────────────────
 
 export function AdminStudentsPage() {
-  const [allUsers, setAllUsers] = useState<User[]>(() => {
-    try { return adminListUsers(); } catch { return []; }
-  });
+  const [allUsers, setAllUsers] = useState<User[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<User | null>(null);
 
+  useEffect(() => {
+    adminListUsers().then(setAllUsers).catch(() => {});
+  }, []);
+
+  // Registration counts are shown in the detail panel — zero here is fine
   const registrationCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    try {
-      // Quick count from all registrations (no role check needed since adminListUsers already checks)
-      for (const u of allUsers) {
-        counts[u.id] = adminGetUserRegistrations(u.id).length;
-      }
-    } catch { /* ignore */ }
+    for (const u of allUsers) counts[u.id] = 0;
     return counts;
   }, [allUsers]);
 

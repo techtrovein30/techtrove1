@@ -112,7 +112,10 @@ export function Navbar() {
           <div className="hidden items-center gap-3 lg:flex">
             {user ? (
               <>
-                <span className="inline-flex items-center gap-2 border border-edge bg-surface/60 px-3 py-1.5 backdrop-blur-sm">
+                <Link
+                  to="/profile"
+                  className="inline-flex items-center gap-2 border border-edge bg-surface/60 px-3 py-1.5 backdrop-blur-sm transition-colors hover:border-primary/40"
+                >
                   <span
                     aria-hidden
                     className="flex h-5 w-5 items-center justify-center bg-primary/20 text-[9px] font-bold tracking-wide text-primary-soft"
@@ -122,7 +125,7 @@ export function Navbar() {
                   <span className="max-w-[9rem] truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground">
                     {user.username}
                   </span>
-                </span>
+                </Link>
                 <button
                   onClick={signOut}
                   aria-label={`Sign out ${user.fullName}`}
@@ -230,16 +233,25 @@ export function Navbar() {
           </nav>
           <div className="relative space-y-3 border-t border-edge p-6 pb-8">
             {user ? (
-              <button
-                onClick={() => {
-                  signOut();
-                  setOpen(false);
-                }}
-                className="inline-flex w-full items-center justify-center gap-2 border border-edge-strong py-3.5 text-xs font-semibold uppercase tracking-[0.18em]"
-              >
-                <LogOut className="h-4 w-4" aria-hidden />
-                Sign out ({user.fullName})
-              </button>
+              <>
+                <Link
+                  to="/profile"
+                  onClick={() => setOpen(false)}
+                  className="inline-flex w-full items-center justify-center gap-2 border border-edge-strong py-3.5 text-xs font-semibold uppercase tracking-[0.18em] transition-colors hover:border-primary hover:text-primary-soft"
+                >
+                  Profile ({user.fullName})
+                </Link>
+                <button
+                  onClick={() => {
+                    signOut();
+                    setOpen(false);
+                  }}
+                  className="inline-flex w-full items-center justify-center gap-2 border border-edge-strong py-3.5 text-xs font-semibold uppercase tracking-[0.18em]"
+                >
+                  <LogOut className="h-4 w-4" aria-hidden />
+                  Sign out
+                </button>
+              </>
             ) : (
               <Link
                 to="/login"

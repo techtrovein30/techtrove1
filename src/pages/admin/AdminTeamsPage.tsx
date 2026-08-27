@@ -1,18 +1,16 @@
-import { useState, useMemo } from "react";
-import { Search, Users, ChevronRight, X } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Search, Users, X } from "lucide-react";
 import type { Registration } from "../../lib/mockApi";
 import { adminListRegistrations } from "../../lib/adminApi";
 import { getAllEvents } from "../../lib/eventStore";
 import { formatFee } from "../../lib/utils";
 
 export function AdminTeamsPage() {
-  const [registrations] = useState<Registration[]>(() => {
-    try {
-      return adminListRegistrations();
-    } catch {
-      return [];
-    }
-  });
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+
+  useEffect(() => {
+    adminListRegistrations().then(setRegistrations).catch(() => {});
+  }, []);
 
   const events = useMemo(() => getAllEvents(), []);
   const [query, setQuery] = useState("");

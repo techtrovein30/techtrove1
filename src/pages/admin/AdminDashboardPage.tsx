@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Users,
@@ -12,20 +12,17 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { getAdminStats } from "../../lib/adminApi";
+import { getAdminStats, type AdminStats } from "../../lib/adminApi";
 import { getAllEvents } from "../../lib/eventStore";
 import { formatFee } from "../../lib/utils";
 import { StatCard } from "../../components/admin/StatCard";
 
 export function AdminDashboardPage() {
   const { user } = useAuth();
+  const [stats, setStats] = useState<AdminStats | null>(null);
 
-  const stats = useMemo(() => {
-    try {
-      return getAdminStats();
-    } catch {
-      return null;
-    }
+  useEffect(() => {
+    getAdminStats().then(setStats).catch(() => setStats(null));
   }, []);
 
   const events = useMemo(() => getAllEvents(), []);

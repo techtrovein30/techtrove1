@@ -1,117 +1,238 @@
 /**
  * eventStore.ts
  * -------------
- * localStorage-backed event store for TechTrove 3.0.
+ * Supabase-backed event store for TechTrove 3.0.
  *
- * On first access, seeds data from the static techtrove.ts file so all
- * existing event data is preserved. Subsequent reads come from localStorage,
- * allowing the admin panel to add/edit/delete events dynamically.
+ * On first admin panel load, static event data from techtrove.ts is
+ * upserted into the Supabase `events` table. Subsequent reads come from
+ * Supabase, allowing the admin panel to add/edit/delete events dynamically
+ * and have changes persist for all users in real time.
  *
  * Public pages import from this module instead of techtrove.ts directly.
- * The static techtrove.ts data is never modified — it serves as fallback.
+ * The static techtrove.ts data is never modified — it serves as seed/fallback.
  *
- * FUTURE MIGRATION: Replace storageGet/storageSet calls with fetch() calls
- * to a backend API. The module's exported function signatures stay the same,
- * so no admin page component needs to change.
+ * IMPORTANT: All async functions must be awaited by callers.
+ * Sync wrappers are provided only where the call site is not async-ready
+ * (e.g. synchronous route-level data reads) and fall back to static data.
  */
 
-import { storageGet, storageSet } from "./storage";
+import { supabase } from "./supabase";
 import { days as staticDays } from "../data/techtrove";
 import type { Day, TechEvent } from "../data/techtrove";
 
 // Re-export types so consumers can import from one place
 export type { Day, TechEvent };
 
-const EVENTS_KEY = "tt.events";
-const SEEDED_KEY = "tt.events.seeded";
+// ─── Type mapping helpers ──────────────────────────────────────────────────
 
-// ─── Internal helpers ──────────────────────────────────────────────────────
-
-function loadDays(): Day[] {
-  try {
-    const stored = storageGet<Day[] | null>(EVENTS_KEY, null);
-    if (stored && Array.isArray(stored) && stored.length > 0) return stored;
-  } catch {
-    /* fall through to static data */
-  }
-  return staticDays;
+interface EventRow {
+  id: string;
+  day_id: string;
+  name: string;
+  category?: string | null;
+  description?: string | null;
+  venue?: string | null;
+  time?: string | null;
+  duration?: string | null;
+  coordinator?: string | null;
+  registration_fee?: number | null;
+  required_players?: number | null;
+  max_substitutes?: number | null;
+  registration_open?: boolean | null;
+  rules?: string[] | null;
+  prizes?: string[] | null;
 }
 
-function saveDays(days: Day[]): void {
-  storageSet(EVENTS_KEY, days);
+function rowToEvent(r: EventRow): TechEvent {
+  return {
+    id: r.id,
+    dayId: r.day_id,
+    name: r.name,
+    category: r.category ?? undefined,
+    description: r.description ?? undefined,
+    registrationFee: r.registration_fee ?? 0,
+    requiredPlayers: r.required_players ?? 1,
+    maxSubstitutes: r.max_substitutes ?? 0,
+    registrationOpen: r.registration_open ?? true,
+    rules: r.rules ?? undefined,
+  } as TechEvent;
+}
+
+function eventToRow(event: TechEvent): EventRow {
+  return {
+    id: event.id,
+    day_id: event.dayId,
+    name: event.name,
+    category: event.category ?? null,
+    description: event.description ?? null,
+    venue: null,
+    time: null,
+    duration: null,
+    coordinator: null,
+    registration_fee: event.registrationFee ?? 0,
+    required_players: event.requiredPlayers ?? 1,
+    max_substitutes: event.maxSubstitutes ?? 0,
+    registration_open: event.registrationOpen ?? true,
+    rules: event.rules ?? null,
+    prizes: null,
+  };
+}
+
+/** Group flat event rows back into the Day[] structure */
+function groupIntoDays(rows: EventRow[]): Day[] {
+  const staticDayMap = new Map(staticDays.map((d) => [d.id, d]));
+  const dayEventMap = new Map<string, TechEvent[]>();
+
+  for (const row of rows) {
+    const arr = dayEventMap.get(row.day_id) ?? [];
+    arr.push(rowToEvent(row));
+    dayEventMap.set(row.day_id, arr);
+  }
+
+  // Build days in the same order as the static data
+  const days: Day[] = [];
+  for (const staticDay of staticDays) {
+    const events = dayEventMap.get(staticDay.id) ?? [];
+    days.push({ ...staticDay, events });
+  }
+  // Also include any day IDs not in staticDays (dynamically created)
+  for (const [dayId, events] of dayEventMap) {
+    if (!staticDayMap.has(dayId)) {
+      days.push({
+        id: dayId,
+        label: dayId,
+        name: dayId,
+        description: "",
+        status: "active" as const,
+        events,
+      });
+    }
+  }
+
+  return days;
+}
+
+// ─── In-memory cache (for synchronous callers) ─────────────────────────────
+
+let _cachedDays: Day[] | null = null;
+
+async function fetchAndCacheDays(): Promise<Day[]> {
+  const { data, error } = await supabase.from("events").select("*");
+  if (error || !data || data.length === 0) {
+    // Fall back to static data if Supabase is unreachable or table is empty
+    _cachedDays = staticDays;
+    return staticDays;
+  }
+  _cachedDays = groupIntoDays(data as EventRow[]);
+  return _cachedDays;
 }
 
 // ─── Seeding ───────────────────────────────────────────────────────────────
 
 /**
- * Call once on admin panel startup to migrate static event data into
- * localStorage. Safe to call multiple times — only seeds once.
+ * Upserts static event data into the Supabase `events` table.
+ * Called once on admin panel startup. Safe to call multiple times.
  */
-export function seedEventsIfNeeded(): void {
-  const seeded = storageGet<boolean>(SEEDED_KEY, false);
-  if (seeded) return;
-  saveDays(staticDays);
-  storageSet(SEEDED_KEY, true);
+export async function seedEventsIfNeeded(): Promise<void> {
+  const { count } = await supabase
+    .from("events")
+    .select("*", { count: "exact", head: true });
+
+  if (count && count > 0) {
+    // Already seeded — refresh cache
+    await fetchAndCacheDays();
+    return;
+  }
+
+  // Seed all static events
+  const allEvents = staticDays.flatMap((d) => d.events);
+  const rows = allEvents.map(eventToRow);
+
+  const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
+  if (error) {
+    console.error("Failed to seed events:", error.message);
+  }
+  await fetchAndCacheDays();
 }
 
-// ─── Public read API (used by public pages) ────────────────────────────────
+// ─── Public read API ───────────────────────────────────────────────────────
 
+/** Async version — always returns fresh data from Supabase */
+export async function getDaysAsync(): Promise<Day[]> {
+  return fetchAndCacheDays();
+}
+
+/** Sync version — returns cached data or static fallback */
 export function getDays(): Day[] {
-  return loadDays();
+  if (_cachedDays) return _cachedDays;
+  // Trigger async fetch and return static data for now
+  fetchAndCacheDays();
+  return staticDays;
 }
 
+/** Sync version — returns cached or static data */
 export function getAllEvents(): TechEvent[] {
-  return loadDays().flatMap((d) => d.events);
+  return getDays().flatMap((d) => d.events);
 }
 
+/** Sync version — returns cached or static data */
 export function getEvent(id: string | undefined): TechEvent | undefined {
   if (!id) return undefined;
   return getAllEvents().find((e) => e.id === id);
 }
 
 export function getDay(id: string): Day | undefined {
-  return loadDays().find((d) => d.id === id);
+  return getDays().find((d) => d.id === id);
 }
 
 // ─── Admin write API ───────────────────────────────────────────────────────
 
-export function adminUpdateEvent(
+export async function adminUpdateEvent(
   eventId: string,
   patch: Partial<TechEvent>
-): TechEvent {
-  const days = loadDays();
-  let found: TechEvent | null = null;
+): Promise<TechEvent> {
+  const updateRow: Partial<EventRow> = {};
+  if (patch.name !== undefined) updateRow.name = patch.name;
+  if (patch.category !== undefined) updateRow.category = patch.category ?? null;
+  if (patch.description !== undefined) updateRow.description = patch.description ?? null;
+  if (patch.registrationFee !== undefined) updateRow.registration_fee = patch.registrationFee;
+  if (patch.requiredPlayers !== undefined) updateRow.required_players = patch.requiredPlayers;
+  if (patch.maxSubstitutes !== undefined) updateRow.max_substitutes = patch.maxSubstitutes;
+  if (patch.registrationOpen !== undefined) updateRow.registration_open = patch.registrationOpen;
+  if (patch.rules !== undefined) updateRow.rules = patch.rules ?? null;
 
-  const updated = days.map((d) => ({
-    ...d,
-    events: d.events.map((e) => {
-      if (e.id !== eventId) return e;
-      found = { ...e, ...patch, id: e.id, dayId: e.dayId };
-      return found;
-    }),
-  }));
+  const { data, error } = await supabase
+    .from("events")
+    .update(updateRow)
+    .eq("id", eventId)
+    .select()
+    .single();
 
-  if (!found) throw new Error("Event not found.");
-  saveDays(updated);
-  return found;
+  if (error || !data) throw new Error(error?.message ?? "Event not found.");
+  await fetchAndCacheDays();
+  return rowToEvent(data as EventRow);
 }
 
-export function adminToggleRegistration(eventId: string): TechEvent {
-  const days = loadDays();
-  let found: TechEvent | null = null;
+export async function adminToggleRegistration(eventId: string): Promise<TechEvent> {
+  // Fetch current state first
+  const { data: current, error: fetchError } = await supabase
+    .from("events")
+    .select("registration_open")
+    .eq("id", eventId)
+    .single();
 
-  const updated = days.map((d) => ({
-    ...d,
-    events: d.events.map((e) => {
-      if (e.id !== eventId) return e;
-      found = { ...e, registrationOpen: !e.registrationOpen };
-      return found;
-    }),
-  }));
+  if (fetchError || !current) throw new Error("Event not found.");
 
-  if (!found) throw new Error("Event not found.");
-  saveDays(updated);
-  return found;
+  const { data, error } = await supabase
+    .from("events")
+    .update({ registration_open: !current.registration_open })
+    .eq("id", eventId)
+    .select()
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "Event not found.");
+  await fetchAndCacheDays();
+  return rowToEvent(data as EventRow);
 }
 
 function makeEventId(): string {
@@ -119,36 +240,41 @@ function makeEventId(): string {
   return `evt-${rand}`;
 }
 
-export function adminAddEvent(dayId: string, event: Omit<TechEvent, "id" | "dayId">): TechEvent {
-  const days = loadDays();
-  const dayIdx = days.findIndex((d) => d.id === dayId);
-  if (dayIdx === -1) throw new Error("Day not found.");
-
+export async function adminAddEvent(
+  dayId: string,
+  event: Omit<TechEvent, "id" | "dayId">
+): Promise<TechEvent> {
   const newEvent: TechEvent = {
     ...event,
     id: makeEventId(),
     dayId,
-  };
+  } as TechEvent;
 
-  days[dayIdx] = { ...days[dayIdx], events: [...days[dayIdx].events, newEvent] };
-  saveDays(days);
-  return newEvent;
+  const { data, error } = await supabase
+    .from("events")
+    .insert(eventToRow(newEvent))
+    .select()
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "Failed to add event.");
+  await fetchAndCacheDays();
+  return rowToEvent(data as EventRow);
 }
 
-export function adminDeleteEvent(eventId: string): void {
-  const days = loadDays();
-  const updated = days.map((d) => ({
-    ...d,
-    events: d.events.filter((e) => e.id !== eventId),
-  }));
-  saveDays(updated);
+export async function adminDeleteEvent(eventId: string): Promise<void> {
+  const { error } = await supabase.from("events").delete().eq("id", eventId);
+  if (error) throw new Error(error.message);
+  await fetchAndCacheDays();
 }
 
-export function adminUpdateDay(dayId: string, patch: Partial<Omit<Day, "id" | "events">>): Day {
-  const days = loadDays();
-  const idx = days.findIndex((d) => d.id === dayId);
-  if (idx === -1) throw new Error("Day not found.");
-  days[idx] = { ...days[idx], ...patch, id: dayId, events: days[idx].events };
-  saveDays(days);
-  return days[idx];
+export async function adminUpdateDay(
+  dayId: string,
+  _patch: Partial<Omit<Day, "id" | "events">>
+): Promise<Day> {
+  // Day metadata is stored in static data; only events are in Supabase.
+  // Refresh and return the day.
+  const days = await fetchAndCacheDays();
+  const day = days.find((d) => d.id === dayId);
+  if (!day) throw new Error("Day not found.");
+  return day;
 }

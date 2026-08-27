@@ -6,18 +6,61 @@ import { getAllEvents, getEvent } from "../lib/eventStore";
 import type { TechEvent } from "../lib/eventStore";
 import { formatFee } from "../lib/utils";
 import { api } from "../lib/mockApi";
+import type { ParticipantType, RegistrationMember } from "../lib/mockApi";
 import { useAuth } from "../context/AuthContext";
 import { Field } from "../components/ui/Field";
 import { RegistrationStepper, StepShell } from "../components/registration/RegistrationStepper";
 import type { StepId } from "../components/registration/RegistrationStepper";
+
+interface MemberDraft {
+  name: string;
+  role: "player" | "substitute";
+  position: number;
+  email: string;
+  regNumber: string;
+  phone: string;
+}
 
 interface Draft {
   eventId: string | null;
   termsAccepted: boolean;
   captainName: string;
   teamName: string;
-  players: string[];
-  substitutes: string[];
+  members: MemberDraft[];
+}
+
+function makeEmptyMembers(required: number, maxSubs: number): MemberDraft[] {
+  const players: MemberDraft[] = Array.from({ length: required }, (_, i) => ({
+    name: "",
+    role: "player",
+    position: i + 1,
+    email: "",
+    regNumber: "",
+    phone: "",
+  }));
+  const subs: MemberDraft[] = Array.from({ length: maxSubs }, (_, i) => ({
+    name: "",
+    role: "substitute",
+    position: i + 1,
+    email: "",
+    regNumber: "",
+    phone: "",
+  }));
+  return [...players, ...subs];
+}
+
+function buildMembersFromDraft(draftMembers: MemberDraft[], teamType: ParticipantType): RegistrationMember[] {
+  return draftMembers
+    .filter((m) => m.name.trim())
+    .map((m) => ({
+      name: m.name.trim(),
+      role: m.role,
+      position: m.position,
+      participantType: teamType,
+      email: m.email.trim(),
+      regNumber: m.regNumber.trim() || undefined,
+      phone: m.phone.trim() || undefined,
+    }));
 }
 
 const initialDraft: Draft = {
@@ -25,8 +68,7 @@ const initialDraft: Draft = {
   termsAccepted: false,
   captainName: "",
   teamName: "",
-  players: [],
-  substitutes: [],
+  members: [],
 };
 
 export function RegisterPage() {
@@ -74,6 +116,8 @@ function LoginFirstPanel({ eventId }: { eventId: string | null }) {
 
 function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const teamType: ParticipantType = user?.participantType ?? "internal";
 
   const [step, setStep] = useState<StepId>(preselectedId ? "terms" : "sport");
   const [draft, setDraft] = useState<Draft>(() => {
@@ -83,8 +127,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     return {
       ...initialDraft,
       eventId: ev.id,
-      players: Array.from({ length: ev.requiredPlayers ?? 1 }, () => ""),
-      substitutes: Array.from({ length: ev.maxSubstitutes ?? 0 }, () => ""),
+      members: makeEmptyMembers(ev.requiredPlayers ?? 1, ev.maxSubstitutes ?? 0),
     };
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -95,10 +138,16 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     setDraft((d) => ({
       ...d,
       eventId: ev.id,
-      players: Array.from({ length: ev.requiredPlayers ?? 1 }, (_, i) => d.players[i] ?? ""),
-      substitutes: Array.from({ length: ev.maxSubstitutes ?? 0 }, (_, i) => d.substitutes[i] ?? ""),
+      members: makeEmptyMembers(ev.requiredPlayers ?? 1, ev.maxSubstitutes ?? 0),
     }));
     setErrors({});
+  }
+
+  function updateMember(index: number, patch: Partial<MemberDraft>) {
+    setDraft((d) => ({
+      ...d,
+      members: d.members.map((m, i) => (i === index ? { ...m, ...patch } : m)),
+    }));
   }
 
   function goNext() {
@@ -119,8 +168,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       eventId: event.id,
       teamName: draft.teamName,
       captainName: draft.captainName,
-      players: draft.players,
-      substitutes: draft.substitutes,
+      members: buildMembersFromDraft(draft.members, teamType),
       termsAccepted: draft.termsAccepted,
     });
     navigate(`/register/success?code=${encodeURIComponent(registration.registrationCode)}`);
@@ -158,12 +206,12 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
             event={event}
             draft={draft}
             errors={errors}
-            onChangePlayers={(players) => setDraft((d) => ({ ...d, players }))}
-            onChangeSubstitutes={(substitutes) => setDraft((d) => ({ ...d, substitutes }))}
+            teamType={teamType}
+            onUpdateMember={updateMember}
           />
         );
       case "review":
-        return event && <ReviewStep event={event} draft={draft} />;
+        return event && <ReviewStep event={event} draft={draft} teamType={teamType} />;
       case "payment":
         return event && <PaymentStep event={event} draft={draft} onPay={handlePayment} />;
     }
@@ -188,11 +236,24 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
     if (step === "members" && event) {
       const required = event.requiredPlayers ?? 0;
-      draft.players.forEach((p, i) => {
-        if (!p.trim()) nextErrors[`player-${i}`] = `Player ${String(i + 1).padStart(2, "0")} name is required.`;
+      draft.members.forEach((m, i) => {
+        if (m.role === "player" && !m.name.trim()) {
+          nextErrors[`member-${i}-name`] = `Player ${String(m.position).padStart(2, "0")} name is required.`;
+        }
+        if (m.name.trim() && !m.email.trim()) {
+          nextErrors[`member-${i}-email`] = `Email is required for ${m.name || `member ${m.position}`}.`;
+        }
+        if (m.name.trim() && teamType === "internal" && !m.regNumber.trim()) {
+          nextErrors[`member-${i}-reg`] = `Registration number is required for SIMATS students.`;
+        }
+        if (m.name.trim() && teamType === "external" && !m.phone.trim()) {
+          nextErrors[`member-${i}-phone`] = `Phone number is required for external participants.`;
+        }
       });
-      const all = [...draft.players, ...draft.substitutes].map((n) => n.trim().toLowerCase()).filter(Boolean);
-      if (all.length < required) nextErrors.step = "Fill in every required player.";
+      const filledPlayers = draft.members.filter((m) => m.role === "player" && m.name.trim()).length;
+      if (filledPlayers < required) {
+        nextErrors.step = `Fill in all ${required} required player slots.`;
+      }
     }
 
     setErrors(nextErrors);
@@ -384,63 +445,146 @@ function MembersStep({
   event,
   draft,
   errors,
-  onChangePlayers,
-  onChangeSubstitutes,
+  teamType,
+  onUpdateMember,
 }: {
   event?: TechEvent;
   draft: Draft;
   errors: Record<string, string>;
-  onChangePlayers: (players: string[]) => void;
-  onChangeSubstitutes: (subs: string[]) => void;
+  teamType: ParticipantType;
+  onUpdateMember: (index: number, patch: Partial<MemberDraft>) => void;
 }) {
   const required = event?.requiredPlayers ?? 0;
   const maxSubs = event?.maxSubstitutes ?? 0;
 
+  const players = draft.members.filter((m) => m.role === "player");
+  const subs = draft.members.filter((m) => m.role === "substitute");
+
   return (
     <StepShell
       title="Team members"
-      lead={`${required} players are mandatory${maxSubs > 0 ? `, plus up to ${maxSubs} optional substitutes` : ""} for ${event?.name ?? "this event"}.`}
+      lead={`${required} players are mandatory${maxSubs > 0 ? `, plus up to ${maxSubs} optional substitutes` : ""} for ${event?.name ?? "this event"}. All members are ${teamType === "internal" ? "SIMATS students" : "external participants"} since you are registering as ${teamType === "internal" ? "a SIMATS student" : "an external participant"}.`}
     >
       <fieldset>
         <legend className="eyebrow mb-4">Players · required</legend>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {Array.from({ length: required }).map((_, i) => (
-            <Field
-              key={i}
-              label={`Player ${String(i + 1).padStart(2, "0")}`}
-              required
-              value={draft.players[i] ?? ""}
-              onChange={(e) => {
-                const players = [...draft.players];
-                players[i] = e.target.value;
-                onChangePlayers(players);
-              }}
-              error={errors[`player-${i}`]}
-            />
-          ))}
+        <div className="space-y-6">
+          {players.map((m) => {
+            const globalIdx = draft.members.indexOf(m);
+            return (
+              <MemberCard
+                key={globalIdx}
+                member={m}
+                index={globalIdx}
+                label={`Player ${String(m.position).padStart(2, "0")}`}
+                teamType={teamType}
+                errors={errors}
+                onUpdate={(patch) => onUpdateMember(globalIdx, patch)}
+              />
+            );
+          })}
         </div>
       </fieldset>
 
-      {maxSubs > 0 && (
+      {maxSubs > 0 && subs.length > 0 && (
         <fieldset className="mt-9">
           <legend className="eyebrow mb-4">Substitutes · optional</legend>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {Array.from({ length: maxSubs }).map((_, i) => (
-              <Field
-                key={i}
-                label={`Substitute ${String(i + 1).padStart(2, "0")}`}
-                value={draft.substitutes[i] ?? ""}
-                onChange={(e) => {
-                  const subs = [...draft.substitutes];
-                  subs[i] = e.target.value;
-                  onChangeSubstitutes(subs);
-                }}
-              />
-            ))}
+          <div className="space-y-6">
+            {subs.map((m) => {
+              const globalIdx = draft.members.indexOf(m);
+              return (
+                <MemberCard
+                  key={globalIdx}
+                  member={m}
+                  index={globalIdx}
+                  label={`Substitute ${String(m.position).padStart(2, "0")}`}
+                  teamType={teamType}
+                  errors={errors}
+                  onUpdate={(patch) => onUpdateMember(globalIdx, patch)}
+                />
+              );
+            })}
           </div>
         </fieldset>
       )}
     </StepShell>
+  );
+}
+
+function MemberCard({
+  member,
+  index,
+  label,
+  teamType,
+  errors,
+  onUpdate,
+}: {
+  member: MemberDraft;
+  index: number;
+  label: string;
+  teamType: ParticipantType;
+  errors: Record<string, string>;
+  onUpdate: (patch: Partial<MemberDraft>) => void;
+}) {
+  const isInternal = teamType === "internal";
+
+  return (
+    <div className="border border-edge bg-surface/40 p-5 transition-colors hover:border-primary/30">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <span className="display text-lg text-foreground">{label}</span>
+        <span
+          className={
+            "border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] " +
+            (isInternal
+              ? "border-primary/50 bg-primary/10 text-primary-soft"
+              : "border-edge-strong bg-surface text-muted")
+          }
+        >
+          {isInternal ? "SIMATS Student" : "External"}
+        </span>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Full name"
+          required
+          value={member.name}
+          onChange={(e) => onUpdate({ name: e.target.value })}
+          error={errors[`member-${index}-name`]}
+          autoComplete="off"
+        />
+        <Field
+          label="Email"
+          required
+          type="email"
+          value={member.email}
+          onChange={(e) => onUpdate({ email: e.target.value })}
+          error={errors[`member-${index}-email`]}
+          autoComplete="off"
+        />
+        {isInternal ? (
+          <Field
+            label="Registration number"
+            required
+            value={member.regNumber}
+            onChange={(e) => onUpdate({ regNumber: e.target.value })}
+            error={errors[`member-${index}-reg`]}
+            placeholder="e.g. 230701XXX"
+            autoComplete="off"
+          />
+        ) : (
+          <Field
+            label="Phone number"
+            required
+            type="tel"
+            value={member.phone}
+            onChange={(e) => onUpdate({ phone: e.target.value })}
+            error={errors[`member-${index}-phone`]}
+            placeholder="e.g. 9876543210"
+            autoComplete="off"
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -453,8 +597,8 @@ function ReviewRow({ term, children }: { term: string; children: ReactNode }) {
   );
 }
 
-function ReviewStep({ event, draft }: { event: TechEvent; draft: Draft }) {
-  const filledSubs = draft.substitutes.filter((s) => s.trim());
+function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft; teamType: ParticipantType }) {
+  const filledMembers = draft.members.filter((m) => m.name.trim());
 
   return (
     <StepShell title="Review your entry" lead="Check everything carefully. Changes after payment cannot be made.">
@@ -463,15 +607,44 @@ function ReviewStep({ event, draft }: { event: TechEvent; draft: Draft }) {
         <ReviewRow term="Category">{event.category}</ReviewRow>
         <ReviewRow term="Team name">{draft.teamName}</ReviewRow>
         <ReviewRow term="Captain">{draft.captainName}</ReviewRow>
-        <ReviewRow term="Players">
-          <span className="block whitespace-pre-line text-left sm:inline">
-            {draft.players.filter(Boolean).join(", ")}
+        <ReviewRow term="Team type">
+          <span
+            className={
+              "inline-flex border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] " +
+              (teamType === "internal"
+                ? "border-primary/50 bg-primary/10 text-primary-soft"
+                : "border-edge-strong bg-surface text-muted")
+            }
+          >
+            {teamType === "internal" ? "SIMATS Students" : "External Participants"}
           </span>
         </ReviewRow>
-        <ReviewRow term="Substitutes">{filledSubs.length > 0 ? filledSubs.join(", ") : "None"}</ReviewRow>
         <ReviewRow term="Registration fee">{formatFee(event.registrationFee)}</ReviewRow>
         <ReviewRow term="Terms accepted">{draft.termsAccepted ? "Yes" : "No"}</ReviewRow>
       </dl>
+
+      <div className="mt-6 border-t border-edge pt-6">
+        <span className="eyebrow block text-muted mb-4">Team members ({filledMembers.length})</span>
+        <div className="space-y-3">
+          {filledMembers.map((m, i) => (
+            <div key={i} className="border border-edge bg-surface/40 p-4">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <span className="text-sm font-semibold text-foreground">{m.name}</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted">
+                  {m.role} · #{m.position}
+                </span>
+              </div>
+              <div className="grid gap-1 text-xs text-muted sm:grid-cols-3">
+                <span>{m.email}</span>
+                {teamType === "internal" && m.regNumber && (
+                  <span className="font-mono text-primary-soft">{m.regNumber}</span>
+                )}
+                {teamType === "external" && m.phone && <span>{m.phone}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <p className="mt-6 text-xs text-muted">
         Something wrong? Use Back to revisit earlier steps and correct your details.

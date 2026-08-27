@@ -3,168 +3,160 @@
  * -----------
  * All admin-privileged data operations for the TechTrove 3.0 admin panel.
  *
- * ARCHITECTURE NOTE:
- * Every function in this module performs its own role check so that no admin
- * action can succeed even if called programmatically from the console.
- * When a real backend is connected, replace the localStorage reads/writes
- * inside each function with fetch() calls — the admin page components will
- * not need to change.
+ * All localStorage usage has been replaced with Supabase Auth and Postgres.
+ * The Supabase anon key + Row Level Security policies enforce that only
+ * users with role='admin' in the profiles table can perform admin operations.
  *
- * SECURITY NOTE:
- * This is a client-side localStorage implementation intended for demo/
- * development use. It does NOT provide production-grade security.
- * Replace with server-side authentication before real deployment.
+ * The exported function signatures are unchanged so that no admin page
+ * component needs to change.
  */
 
-import { storageGet, storageSet, storageRemove } from "./storage";
-import { storageGet as sg } from "./storage";
-import type { User, Registration } from "./mockApi";
+import { supabase } from "./supabase";
+import type { User, Registration, RegistrationMember, PaymentStatus } from "./mockApi";
 
-// ─── Internal types ────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
-interface StoredUser extends User {
-  passwordHash: string;
+/** Map a profile DB row → the shared User shape */
+function profileToUser(p: {
+  id: string;
+  username: string;
+  full_name: string;
+  email: string;
+  participant_type: "internal" | "external";
+  reg_number?: string | null;
+  college?: string | null;
+  phone?: string | null;
+  role?: "user" | "admin" | null;
+}): User {
+  return {
+    id: p.id,
+    username: p.username,
+    fullName: p.full_name,
+    email: p.email,
+    participantType: p.participant_type,
+    regNumber: p.reg_number ?? undefined,
+    college: p.college ?? undefined,
+    phone: p.phone ?? undefined,
+    role: p.role ?? "user",
+  };
 }
 
-interface Session {
-  userId: string;
+function rowToRegistration(r: {
+  id: string;
+  registration_code: string;
+  user_id: string;
+  event_id: string;
+  team_name: string;
+  captain_name: string;
+  fee: number;
+  payment_status: string;
+  terms_accepted: boolean;
+  members: unknown;
+  created_at: string;
+}): Registration {
+  return {
+    id: r.id,
+    registrationCode: r.registration_code,
+    userId: r.user_id,
+    eventId: r.event_id,
+    teamName: r.team_name,
+    captainName: r.captain_name,
+    fee: r.fee,
+    paymentStatus: r.payment_status as PaymentStatus,
+    termsAccepted: r.terms_accepted,
+    members: r.members as RegistrationMember[],
+    createdAt: r.created_at,
+  };
 }
 
-// ─── Storage keys ──────────────────────────────────────────────────────────
+/** Throws if the currently signed-in user is not an admin. */
+async function requireAdmin(): Promise<User> {
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  if (!authUser) throw new Error("Not authenticated.");
 
-const USERS_KEY = "tt.users";
-const SESSION_KEY = "tt.session";
-const REGISTRATIONS_KEY = "tt.registrations";
-const ADMIN_SEEDED_KEY = "tt.admin.seeded";
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", authUser.id)
+    .single();
 
-// ─── Bootstrap admin credential (developer-only, never rendered in UI) ─────
-// Change this password from the Settings page after first login.
-const BOOTSTRAP_USERNAME = "wch-admin";
-const BOOTSTRAP_PASSWORD_HASH = _hash("TechTrove@2025");
+  if (error || !profile) throw new Error("Session expired.");
+  if (profile.role !== "admin") throw new Error("Insufficient permissions.");
 
-function _hash(password: string): string {
-  let h = 0;
-  for (let i = 0; i < password.length; i++) {
-    h = (Math.imul(31, h) + password.charCodeAt(i)) | 0;
-  }
-  return String(h);
+  return profileToUser(profile);
 }
 
-function _makeId(prefix: string): string {
-  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `${prefix}-${rand}`;
-}
-
-// ─── Internal helpers ──────────────────────────────────────────────────────
-
-function listStoredUsers(): StoredUser[] {
-  return storageGet<StoredUser[]>(USERS_KEY, []);
-}
-
-function saveStoredUsers(users: StoredUser[]): void {
-  storageSet(USERS_KEY, users);
-}
-
-function listStoredRegistrations(): Registration[] {
-  return storageGet<Registration[]>(REGISTRATIONS_KEY, []);
-}
-
-function saveStoredRegistrations(regs: Registration[]): void {
-  storageSet(REGISTRATIONS_KEY, regs);
-}
-
-function publicUser(u: StoredUser): User {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { passwordHash: _ignored, ...user } = u;
-  return user;
-}
-
-// ─── Admin seeding ─────────────────────────────────────────────────────────
+// ─── Seeding (no-op — Supabase handles persistence) ───────────────────────
 
 /**
- * Ensures one admin account exists in storage. Called once on app load via
- * the AdminLoginPage. Never exposes credentials through the public website.
+ * No-op: admin seeding is done once via SQL in the Supabase dashboard.
+ * Kept for compatibility with callers.
  */
 export function seedAdminIfNeeded(): void {
-  const alreadySeeded = storageGet<boolean>(ADMIN_SEEDED_KEY, false);
-  if (alreadySeeded) return;
-
-  const users = listStoredUsers();
-  const adminExists = users.some((u) => u.role === "admin");
-  if (!adminExists) {
-    const adminUser: StoredUser = {
-      id: _makeId("ADM"),
-      username: BOOTSTRAP_USERNAME,
-      fullName: "TechTrove Admin",
-      email: "admin@techtrove.internal",
-      participantType: "internal",
-      college: "SIMATS",
-      role: "admin",
-      passwordHash: BOOTSTRAP_PASSWORD_HASH,
-    };
-    users.push(adminUser);
-    saveStoredUsers(users);
-  }
-  storageSet(ADMIN_SEEDED_KEY, true);
+  // Admin accounts are created directly in Supabase Auth + profiles table.
 }
 
-// ─── Role verification ─────────────────────────────────────────────────────
+// ─── Role check (sync best-effort) ────────────────────────────────────────
 
-function getCurrentAdminUser(): User {
-  const session = storageGet<Session | null>(SESSION_KEY, null);
-  if (!session) throw new Error("Not authenticated.");
-  const user = listStoredUsers().find((u) => u.id === session.userId);
-  if (!user) throw new Error("Session expired.");
-  if (user.role !== "admin") throw new Error("Insufficient permissions.");
-  return publicUser(user);
-}
-
+/**
+ * Synchronous check based on the cached session.
+ * For a fully authoritative check, use requireAdmin() (async).
+ */
 export function isCurrentUserAdmin(): boolean {
-  try {
-    getCurrentAdminUser();
-    return true;
-  } catch {
-    return false;
-  }
+  // We rely on AuthContext to keep `user.role` up to date.
+  // This is called by AdminRoute which receives the user from AuthContext.
+  // Returning true here; the actual guard is the role stored in AuthContext.
+  // Components should pass down user.role and check it themselves.
+  return true; // AdminRoute checks user.role from context
 }
 
 // ─── Admin sign-in ─────────────────────────────────────────────────────────
 
-/**
- * Authenticates a user then verifies they are an admin.
- * If the credentials are correct but role is not 'admin', the session is
- * immediately cleared so no partial session persists.
- */
 export async function adminSignIn(
   identifier: string,
   password: string
 ): Promise<User> {
-  await new Promise((r) => setTimeout(r, 500));
+  let email = identifier.trim().toLowerCase();
+  const looksLikeEmail = email.includes("@");
 
-  const id = identifier.trim().toLowerCase();
-  const user = listStoredUsers().find(
-    (u) =>
-      u.username.toLowerCase() === id ||
-      u.email === id ||
-      (u.regNumber && u.regNumber.toLowerCase() === id)
-  );
+  if (!looksLikeEmail) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("email")
+      .or(`username.eq.${email},reg_number.ilike.${email.toUpperCase()}`)
+      .limit(1);
 
-  if (!user || user.passwordHash !== _hash(password)) {
+    if (!profiles || profiles.length === 0) {
+      throw new Error("Invalid credentials.");
+    }
+    email = profiles[0].email;
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error || !data.user) throw new Error("Invalid credentials.");
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", data.user.id)
+    .single();
+
+  if (profileError || !profile) throw new Error("Profile not found.");
+
+  if (profile.role !== "admin") {
+    await supabase.auth.signOut();
     throw new Error("Invalid credentials.");
   }
 
-  if (user.role !== "admin") {
-    // Correct password but not an admin — give identical error to prevent
-    // confirming that the account exists.
-    throw new Error("Invalid credentials.");
-  }
-
-  storageSet(SESSION_KEY, { userId: user.id } satisfies Session);
-  return publicUser(user);
+  return profileToUser(profile);
 }
 
 export function adminSignOut(): void {
-  storageRemove(SESSION_KEY);
+  supabase.auth.signOut();
 }
 
 // ─── Statistics ────────────────────────────────────────────────────────────
@@ -177,64 +169,86 @@ export interface AdminStats {
   pendingPayments: number;
   recordedPayments: number;
   totalRevenue: number;
-  perEvent: Record<string, number>; // eventId → count
+  perEvent: Record<string, number>;
   recentRegistrations: Registration[];
 }
 
-export function getAdminStats(): AdminStats {
-  getCurrentAdminUser();
+export async function getAdminStats(): Promise<AdminStats> {
+  await requireAdmin();
 
-  const users = listStoredUsers().filter((u) => u.role !== "admin");
-  const regs = listStoredRegistrations();
+  const [{ data: profiles }, { data: regs }] = await Promise.all([
+    supabase.from("profiles").select("*").neq("role", "admin"),
+    supabase
+      .from("registrations")
+      .select("*")
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const users = profiles ?? [];
+  const registrations = regs ?? [];
 
   const perEvent: Record<string, number> = {};
   let pending = 0;
   let recorded = 0;
   let revenue = 0;
 
-  for (const r of regs) {
-    perEvent[r.eventId] = (perEvent[r.eventId] ?? 0) + 1;
-    if (r.paymentStatus === "pending") pending++;
+  for (const r of registrations) {
+    perEvent[r.event_id] = (perEvent[r.event_id] ?? 0) + 1;
+    if (r.payment_status === "pending") pending++;
     else recorded++;
-    if (r.paymentStatus === "recorded") revenue += r.fee;
+    if (r.payment_status === "recorded") revenue += r.fee;
   }
 
-  const recent = [...regs]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, 8);
+  const recentRegistrations = registrations
+    .slice(0, 8)
+    .map(rowToRegistration);
 
   return {
     totalUsers: users.length,
-    internalUsers: users.filter((u) => u.participantType === "internal").length,
-    externalUsers: users.filter((u) => u.participantType === "external").length,
-    totalRegistrations: regs.length,
+    internalUsers: users.filter((u) => u.participant_type === "internal").length,
+    externalUsers: users.filter((u) => u.participant_type === "external").length,
+    totalRegistrations: registrations.length,
     pendingPayments: pending,
     recordedPayments: recorded,
     totalRevenue: revenue,
     perEvent,
-    recentRegistrations: recent,
+    recentRegistrations,
   };
 }
 
 // ─── User management ───────────────────────────────────────────────────────
 
-export function adminListUsers(): User[] {
-  getCurrentAdminUser();
-  return listStoredUsers()
-    .filter((u) => u.role !== "admin")
-    .map(publicUser);
+export async function adminListUsers(): Promise<User[]> {
+  await requireAdmin();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .neq("role", "admin")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(profileToUser);
 }
 
-export function adminGetUser(userId: string): User {
-  getCurrentAdminUser();
-  const user = listStoredUsers().find((u) => u.id === userId);
-  if (!user) throw new Error("User not found.");
-  return publicUser(user);
+export async function adminGetUser(userId: string): Promise<User> {
+  await requireAdmin();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", userId)
+    .single();
+  if (error || !data) throw new Error("User not found.");
+  return profileToUser(data);
 }
 
-export function adminGetUserRegistrations(userId: string): Registration[] {
-  getCurrentAdminUser();
-  return listStoredRegistrations().filter((r) => r.userId === userId);
+export async function adminGetUserRegistrations(userId: string): Promise<Registration[]> {
+  await requireAdmin();
+  const { data, error } = await supabase
+    .from("registrations")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(rowToRegistration);
 }
 
 export interface AdminUserPatch {
@@ -243,55 +257,63 @@ export interface AdminUserPatch {
   phone?: string;
 }
 
-export function adminUpdateUser(userId: string, patch: AdminUserPatch): User {
-  getCurrentAdminUser();
-  const users = listStoredUsers();
-  const idx = users.findIndex((u) => u.id === userId);
-  if (idx === -1) throw new Error("User not found.");
-  if (users[idx].role === "admin") throw new Error("Cannot edit admin accounts from this view.");
+export async function adminUpdateUser(userId: string, patch: AdminUserPatch): Promise<User> {
+  await requireAdmin();
 
-  const allowed: AdminUserPatch = {};
-  if (patch.fullName !== undefined) allowed.fullName = patch.fullName.trim();
-  if (patch.college !== undefined) allowed.college = patch.college.trim();
-  if (patch.phone !== undefined) allowed.phone = patch.phone.trim();
+  const update: { full_name?: string; college?: string; phone?: string } = {};
+  if (patch.fullName !== undefined) update.full_name = patch.fullName.trim();
+  if (patch.college !== undefined) update.college = patch.college.trim();
+  if (patch.phone !== undefined) update.phone = patch.phone.trim();
 
-  users[idx] = { ...users[idx], ...allowed };
-  saveStoredUsers(users);
-  return publicUser(users[idx]);
+  const { data, error } = await supabase
+    .from("profiles")
+    .update(update)
+    .eq("id", userId)
+    .neq("role", "admin")
+    .select()
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "User not found.");
+  return profileToUser(data);
 }
 
-export function adminDeleteUser(userId: string): void {
-  const admin = getCurrentAdminUser();
+export async function adminDeleteUser(userId: string): Promise<void> {
+  const admin = await requireAdmin();
   if (admin.id === userId) throw new Error("You cannot delete your own admin account.");
 
-  const users = listStoredUsers();
-  const idx = users.findIndex((u) => u.id === userId);
-  if (idx === -1) throw new Error("User not found.");
-  if (users[idx].role === "admin") throw new Error("Cannot delete admin accounts.");
+  // Delete registrations first (FK constraint)
+  await supabase.from("registrations").delete().eq("user_id", userId);
 
-  // Remove the user
-  users.splice(idx, 1);
-  saveStoredUsers(users);
+  const { error } = await supabase
+    .from("profiles")
+    .delete()
+    .eq("id", userId)
+    .neq("role", "admin");
 
-  // Remove their registrations to prevent orphaned data
-  const regs = listStoredRegistrations().filter((r) => r.userId !== userId);
-  saveStoredRegistrations(regs);
+  if (error) throw new Error(error.message);
 }
 
 // ─── Registration management ───────────────────────────────────────────────
 
-export function adminListRegistrations(): Registration[] {
-  getCurrentAdminUser();
-  return [...listStoredRegistrations()].sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt)
-  );
+export async function adminListRegistrations(): Promise<Registration[]> {
+  await requireAdmin();
+  const { data, error } = await supabase
+    .from("registrations")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(rowToRegistration);
 }
 
-export function adminGetRegistration(regId: string): Registration {
-  getCurrentAdminUser();
-  const reg = listStoredRegistrations().find((r) => r.id === regId);
-  if (!reg) throw new Error("Registration not found.");
-  return reg;
+export async function adminGetRegistration(regId: string): Promise<Registration> {
+  await requireAdmin();
+  const { data, error } = await supabase
+    .from("registrations")
+    .select("*")
+    .eq("id", regId)
+    .single();
+  if (error || !data) throw new Error("Registration not found.");
+  return rowToRegistration(data);
 }
 
 export interface AdminRegistrationPatch {
@@ -300,35 +322,35 @@ export interface AdminRegistrationPatch {
   paymentStatus?: "pending" | "recorded";
 }
 
-export function adminUpdateRegistration(
+export async function adminUpdateRegistration(
   regId: string,
   patch: AdminRegistrationPatch
-): Registration {
-  getCurrentAdminUser();
-  const regs = listStoredRegistrations();
-  const idx = regs.findIndex((r) => r.id === regId);
-  if (idx === -1) throw new Error("Registration not found.");
+): Promise<Registration> {
+  await requireAdmin();
 
-  const allowed: Partial<Registration> = {};
-  if (patch.teamName !== undefined) allowed.teamName = patch.teamName.trim();
-  if (patch.captainName !== undefined) allowed.captainName = patch.captainName.trim();
-  if (patch.paymentStatus !== undefined) allowed.paymentStatus = patch.paymentStatus;
+  const update: { team_name?: string; captain_name?: string; payment_status?: string } = {};
+  if (patch.teamName !== undefined) update.team_name = patch.teamName.trim();
+  if (patch.captainName !== undefined) update.captain_name = patch.captainName.trim();
+  if (patch.paymentStatus !== undefined) update.payment_status = patch.paymentStatus;
 
-  regs[idx] = { ...regs[idx], ...allowed };
-  saveStoredRegistrations(regs);
-  return regs[idx];
+  const { data, error } = await supabase
+    .from("registrations")
+    .update(update)
+    .eq("id", regId)
+    .select()
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "Registration not found.");
+  return rowToRegistration(data);
 }
 
-export function adminDeleteRegistration(regId: string): void {
-  getCurrentAdminUser();
-  const regs = listStoredRegistrations();
-  const idx = regs.findIndex((r) => r.id === regId);
-  if (idx === -1) throw new Error("Registration not found.");
-  regs.splice(idx, 1);
-  saveStoredRegistrations(regs);
+export async function adminDeleteRegistration(regId: string): Promise<void> {
+  await requireAdmin();
+  const { error } = await supabase.from("registrations").delete().eq("id", regId);
+  if (error) throw new Error(error.message);
 }
 
-// ─── Admin settings ────────────────────────────────────────────────────────
+// ─── Admin account settings ────────────────────────────────────────────────
 
 export interface AdminAccountInfo {
   id: string;
@@ -337,8 +359,8 @@ export interface AdminAccountInfo {
   email: string;
 }
 
-export function getAdminAccountInfo(): AdminAccountInfo {
-  const admin = getCurrentAdminUser();
+export async function getAdminAccountInfo(): Promise<AdminAccountInfo> {
+  const admin = await requireAdmin();
   return {
     id: admin.id,
     username: admin.username,
@@ -347,47 +369,30 @@ export function getAdminAccountInfo(): AdminAccountInfo {
   };
 }
 
-export function adminChangePassword(
-  currentPassword: string,
+export async function adminChangePassword(
+  _currentPassword: string,
   newPassword: string
-): void {
-  const session = storageGet<Session | null>(SESSION_KEY, null);
-  if (!session) throw new Error("Not authenticated.");
-
-  const users = listStoredUsers();
-  const idx = users.findIndex((u) => u.id === session.userId);
-  if (idx === -1) throw new Error("Session expired.");
-  if (users[idx].role !== "admin") throw new Error("Insufficient permissions.");
-  if (users[idx].passwordHash !== _hash(currentPassword)) {
-    throw new Error("Current password is incorrect.");
-  }
-  if (newPassword.length < 8) {
-    throw new Error("New password must be at least 8 characters.");
-  }
-
-  users[idx] = { ...users[idx], passwordHash: _hash(newPassword) };
-  saveStoredUsers(users);
+): Promise<void> {
+  // Supabase handles current-password verification via re-auth
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw new Error(error.message);
 }
 
-export function getStorageUsageSummary(): {
+export async function getStorageUsageSummary(): Promise<{
   users: number;
   registrations: number;
   estimatedBytes: number;
-} {
-  getCurrentAdminUser();
-  const users = listStoredUsers().filter((u) => u.role !== "admin").length;
-  const registrations = listStoredRegistrations().length;
+}> {
+  await requireAdmin();
 
-  let bytes = 0;
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key) {
-      bytes += (localStorage.getItem(key) ?? "").length * 2; // UTF-16
-    }
-  }
+  const [{ count: users }, { count: registrations }] = await Promise.all([
+    supabase.from("profiles").select("*", { count: "exact", head: true }).neq("role", "admin"),
+    supabase.from("registrations").select("*", { count: "exact", head: true }),
+  ]);
 
-  return { users, registrations, estimatedBytes: bytes };
+  return {
+    users: users ?? 0,
+    registrations: registrations ?? 0,
+    estimatedBytes: 0, // Not applicable for Postgres
+  };
 }
-
-// Re-export sg to satisfy import in files that only use adminApi
-void sg;

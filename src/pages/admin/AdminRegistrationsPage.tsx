@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Search,
   X,
@@ -39,11 +39,11 @@ function RegistrationDetail({
   const event = events.find((e) => e.id === registration.eventId);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  function togglePaymentStatus() {
+  async function togglePaymentStatus() {
     try {
       const nextStatus =
         registration.paymentStatus === "recorded" ? "pending" : "recorded";
-      const updated = adminUpdateRegistration(registration.id, {
+      const updated = await adminUpdateRegistration(registration.id, {
         paymentStatus: nextStatus,
       });
       onUpdated(updated);
@@ -52,9 +52,9 @@ function RegistrationDetail({
     }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     try {
-      adminDeleteRegistration(registration.id);
+      await adminDeleteRegistration(registration.id);
       onDeleted(registration.id);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Delete failed.");
@@ -212,13 +212,11 @@ function RegistrationDetail({
 }
 
 export function AdminRegistrationsPage() {
-  const [registrations, setRegistrations] = useState<Registration[]>(() => {
-    try {
-      return adminListRegistrations();
-    } catch {
-      return [];
-    }
-  });
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+
+  useEffect(() => {
+    adminListRegistrations().then(setRegistrations).catch(() => {});
+  }, []);
 
   const events = useMemo(() => getAllEvents(), []);
   const [query, setQuery] = useState("");

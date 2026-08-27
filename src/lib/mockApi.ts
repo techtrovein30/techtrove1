@@ -1,5 +1,19 @@
+/**
+ * mockApi.ts
+ * ----------
+ * User-facing data layer for TechTrove 3.0.
+ *
+ * All localStorage usage has been replaced with Supabase Auth (for
+ * sign-up / sign-in / sign-out) and Supabase Postgres (for registrations).
+ *
+ * The exported `api` object and all TypeScript types keep the same
+ * signatures as before so that no page component needs to change.
+ */
+
+import { supabase } from "./supabase";
 import { getEvent } from "./eventStore";
-import { storageGet, storageRemove, storageSet } from "./storage";
+
+// ─── Public types (unchanged) ──────────────────────────────────────────────
 
 export type ParticipantType = "internal" | "external";
 
@@ -25,6 +39,10 @@ export interface RegistrationMember {
   name: string;
   role: MemberRole;
   position: number;
+  participantType: "internal" | "external";
+  email: string;
+  regNumber?: string;
+  phone?: string;
 }
 
 export type PaymentStatus = "pending" | "recorded";
@@ -43,25 +61,10 @@ export interface Registration {
   createdAt: string;
 }
 
-interface StoredUser extends User {
-  passwordHash: string;
-}
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
-const USERS_KEY = "tt.users";
-const SESSION_KEY = "tt.session";
-const REGISTRATIONS_KEY = "tt.registrations";
-
-function delay(ms = 500): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function hashPassword(password: string): string {
-  // Demo only. A real backend must never see or store passwords like this.
-  let h = 0;
-  for (let i = 0; i < password.length; i++) {
-    h = (Math.imul(31, h) + password.charCodeAt(i)) | 0;
-  }
-  return String(h);
+function isSaveethaEmail(email: string): boolean {
+  return /^[^\s@]+@saveetha\.[a-z.]+$/i.test(email.trim());
 }
 
 function makeId(prefix: string): string {
@@ -79,80 +82,102 @@ function deriveUsername(fullName: string): string {
   return parts.length > 0 ? parts.join(".") : "member";
 }
 
-function uniqueUsername(users: StoredUser[], fullName: string): string {
-  const base = deriveUsername(fullName);
-  if (!users.some((u) => u.username === base)) return base;
-  for (let i = 2; ; i++) {
-    const candidate = `${base}${i}`;
-    if (!users.some((u) => u.username === candidate)) return candidate;
-  }
+/** Map a Supabase profile row → our User shape */
+function profileToUser(profile: {
+  id: string;
+  username: string;
+  full_name: string;
+  email: string;
+  participant_type: "internal" | "external";
+  reg_number?: string | null;
+  college?: string | null;
+  phone?: string | null;
+  role?: "user" | "admin" | null;
+}): User {
+  return {
+    id: profile.id,
+    username: profile.username,
+    fullName: profile.full_name,
+    email: profile.email,
+    participantType: profile.participant_type,
+    regNumber: profile.reg_number ?? undefined,
+    college: profile.college ?? undefined,
+    phone: profile.phone ?? undefined,
+    role: profile.role ?? "user",
+  };
 }
 
-function isSaveethaEmail(email: string): boolean {
-  return /^[^\s@]+@saveetha\.[a-z.]+$/i.test(email.trim());
-}
-
-function listUsers(): StoredUser[] {
-  // Backfill usernames for accounts created before usernames existed.
-  return storageGet<StoredUser[]>(USERS_KEY, []).map((u) => ({
-    ...u,
-    username: u.username ?? deriveUsername(u.fullName),
-  }));
-}
-
-function saveUsers(users: StoredUser[]): void {
-  storageSet(USERS_KEY, users);
-}
-
-function publicUser(u: StoredUser): User {
-  const { passwordHash: _ignored, ...user } = u;
-  return user;
-}
-
-function requireSession(): User {
-  const session = storageGet<Session | null>(SESSION_KEY, null);
-  if (!session) throw new Error("You need to sign in first.");
-  const user = listUsers().find((u) => u.id === session.userId);
-  if (!user) throw new Error("Session expired. Please sign in again.");
-  return publicUser(user);
-}
+// ─── API ───────────────────────────────────────────────────────────────────
 
 export const api = {
+  // ── Sign up: internal students (Saveetha email required) ─────────────────
   async signUpInternal(input: {
     fullName: string;
     regNumber: string;
     email: string;
     password: string;
   }): Promise<User> {
-    await delay();
-    const users = listUsers();
     const email = input.email.trim().toLowerCase();
     if (!isSaveethaEmail(email)) {
-      throw new Error("Internal students must register with their Saveetha email (e.g. name@saveetha.com).");
+      throw new Error(
+        "Internal students must register with their Saveetha email (e.g. name@saveetha.com)."
+      );
     }
-    const regNumber = input.regNumber.trim().toUpperCase();
-    if (users.some((u) => u.regNumber === regNumber)) {
-      throw new Error("An account with this registration number already exists. Try signing in.");
-    }
-    if (users.some((u) => u.email === email)) {
-      throw new Error("An account with this email already exists. Try signing in.");
-    }
-    const user: StoredUser = {
-      id: makeId("U"),
-      username: uniqueUsername(users, input.fullName),
-      fullName: input.fullName.trim(),
+
+    const username = deriveUsername(input.fullName);
+
+    const { data, error } = await supabase.auth.signUp({
       email,
-      participantType: "internal",
-      regNumber,
-      college: "SIMATS",
-      passwordHash: hashPassword(input.password),
-    };
-    users.push(user);
-    saveUsers(users);
-    storageSet(SESSION_KEY, { userId: user.id } satisfies Session);
-    return publicUser(user);
+      password: input.password,
+      options: {
+        data: {
+          full_name: input.fullName.trim(),
+          username,
+          participant_type: "internal",
+          reg_number: input.regNumber.trim().toUpperCase(),
+          college: "SIMATS",
+          role: "user",
+        },
+      },
+    });
+
+    if (error) {
+      // Map Supabase errors to user-friendly messages
+      if (error.message.includes("already registered")) {
+        throw new Error(
+          "An account with this email already exists. Try signing in."
+        );
+      }
+      throw new Error(error.message);
+    }
+
+    if (!data.user) throw new Error("Sign-up failed. Please try again.");
+
+    // Fetch the profile created by the DB trigger
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", data.user.id)
+      .single();
+
+    if (profileError || !profile) {
+      // Profile will be created asynchronously by the trigger — build from metadata
+      return {
+        id: data.user.id,
+        username,
+        fullName: input.fullName.trim(),
+        email,
+        participantType: "internal",
+        regNumber: input.regNumber.trim().toUpperCase(),
+        college: "SIMATS",
+        role: "user",
+      };
+    }
+
+    return profileToUser(profile);
   },
 
+  // ── Sign up: external participants ────────────────────────────────────────
   async signUpExternal(input: {
     fullName: string;
     email: string;
@@ -160,80 +185,136 @@ export const api = {
     phone: string;
     password: string;
   }): Promise<User> {
-    await delay();
-    const users = listUsers();
     const email = input.email.trim().toLowerCase();
-    if (users.some((u) => u.email === email)) {
-      throw new Error("An account with this email already exists. Try signing in.");
-    }
-    const user: StoredUser = {
-      id: makeId("U"),
-      username: uniqueUsername(users, input.fullName),
-      fullName: input.fullName.trim(),
+    const username = deriveUsername(input.fullName);
+
+    const { data, error } = await supabase.auth.signUp({
       email,
-      participantType: "external",
-      college: input.college.trim(),
-      phone: input.phone.trim(),
-      passwordHash: hashPassword(input.password),
-    };
-    users.push(user);
-    saveUsers(users);
-    storageSet(SESSION_KEY, { userId: user.id } satisfies Session);
-    return publicUser(user);
+      password: input.password,
+      options: {
+        data: {
+          full_name: input.fullName.trim(),
+          username,
+          participant_type: "external",
+          college: input.college.trim(),
+          phone: input.phone.trim(),
+          role: "user",
+        },
+      },
+    });
+
+    if (error) {
+      if (error.message.includes("already registered")) {
+        throw new Error(
+          "An account with this email already exists. Try signing in."
+        );
+      }
+      throw new Error(error.message);
+    }
+
+    if (!data.user) throw new Error("Sign-up failed. Please try again.");
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", data.user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return {
+        id: data.user.id,
+        username,
+        fullName: input.fullName.trim(),
+        email,
+        participantType: "external",
+        college: input.college.trim(),
+        phone: input.phone.trim(),
+        role: "user",
+      };
+    }
+
+    return profileToUser(profile);
   },
 
+  // ── Sign in ───────────────────────────────────────────────────────────────
   async signIn(identifier: string, password: string): Promise<User> {
-    await delay();
-    const id = identifier.trim().toLowerCase();
-    const user = listUsers().find(
-      (u) =>
-        u.username.toLowerCase() === id ||
-        u.email === id ||
-        (u.regNumber && u.regNumber.toLowerCase() === id),
-    );
-    if (!user || user.passwordHash !== hashPassword(password)) {
+    // Supabase Auth requires email. If they passed a username/reg-number,
+    // we look up the email first.
+    let email = identifier.trim().toLowerCase();
+    const looksLikeEmail = email.includes("@");
+
+    if (!looksLikeEmail) {
+      // Try matching by username or reg_number
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("email")
+        .or(`username.eq.${email},reg_number.ilike.${email.toUpperCase()}`)
+        .limit(1);
+
+      if (!profiles || profiles.length === 0) {
+        throw new Error("Invalid credentials. Check your details and try again.");
+      }
+      email = profiles[0].email;
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error || !data.user) {
       throw new Error("Invalid credentials. Check your details and try again.");
     }
-    storageSet(SESSION_KEY, { userId: user.id } satisfies Session);
-    return publicUser(user);
-  },
 
-  restoreSession(): User | null {
-    try {
-      return requireSession();
-    } catch {
-      return null;
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", data.user.id)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error("Account profile not found. Please contact support.");
     }
+
+    return profileToUser(profile);
   },
 
+  // ── Restore session on page load ──────────────────────────────────────────
+  restoreSession(): User | null {
+    // Supabase restores the session automatically from localStorage.
+    // AuthContext uses onAuthStateChange, so this is a best-effort sync check.
+    // The async version is handled in AuthContext.
+    return null;
+  },
+
+  // ── Sign out ──────────────────────────────────────────────────────────────
   signOut(): void {
-    storageRemove(SESSION_KEY);
+    // Fire-and-forget — AuthContext listens for the state change
+    supabase.auth.signOut();
   },
 
+  // ── Create a registration ─────────────────────────────────────────────────
   async createRegistration(input: {
     eventId: string;
     teamName: string;
     captainName: string;
-    players: string[];
-    substitutes: string[];
+    members: RegistrationMember[];
     termsAccepted: boolean;
   }): Promise<Registration> {
-    await delay(700);
-
-    // Server-side style validation, mirroring what a real backend enforces.
     if (!input.termsAccepted) throw new Error("Terms and conditions must be accepted.");
 
     const event = getEvent(input.eventId);
     if (!event) throw new Error("Event not found.");
     if (!event.registrationOpen) throw new Error("Registration for this event is closed.");
 
-    const user = requireSession();
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) throw new Error("You need to sign in first.");
 
     const required = event.requiredPlayers ?? 1;
     const maxSubs = event.maxSubstitutes ?? 0;
 
-    const players = input.players.map((p) => p.trim()).filter(Boolean);
-    const substitutes = input.substitutes.map((p) => p.trim()).filter(Boolean);
+    const players = input.members.filter((m) => m.role === "player");
+    const substitutes = input.members.filter((m) => m.role === "substitute");
 
     if (players.length !== required) {
       throw new Error(`This event requires exactly ${required} players.`);
@@ -242,57 +323,128 @@ export const api = {
       throw new Error(`This event allows at most ${maxSubs} substitutes.`);
     }
 
-    const existing = listRegistrations();
-    if (
-      existing.some((r) => r.userId === user.id && r.eventId === event.id)
-    ) {
-      throw new Error("You have already registered for this event.");
+    // Validate each member has required fields
+    for (const m of input.members) {
+      if (!m.name.trim()) throw new Error("All team members must have a name.");
+      if (!m.email.trim()) throw new Error(`Email is required for ${m.name}.`);
+      if (m.participantType === "internal" && !m.regNumber?.trim()) {
+        throw new Error(`Registration number is required for SIMATS student ${m.name}.`);
+      }
+      if (m.participantType === "external" && !m.phone?.trim()) {
+        throw new Error(`Phone number is required for external participant ${m.name}.`);
+      }
     }
 
-    const registration: Registration = {
-      id: makeId("R"),
-      registrationCode: makeId("TT"),
-      userId: user.id,
-      eventId: event.id,
-      teamName: input.teamName.trim(),
-      captainName: input.captainName.trim(),
-      fee: event.registrationFee ?? 0,
-      paymentStatus: "pending",
-      termsAccepted: true,
-      members: [
-        ...players.map((name, i) => ({ name, role: "player" as const, position: i + 1 })),
-        ...substitutes.map((name, i) => ({
-          name,
-          role: "substitute" as const,
-          position: i + 1,
-        })),
-      ],
-      createdAt: new Date().toISOString(),
+    // Check for duplicate registration
+    const { data: existing } = await supabase
+      .from("registrations")
+      .select("id")
+      .eq("user_id", authUser.id)
+      .eq("event_id", event.id)
+      .maybeSingle();
+
+    if (existing) throw new Error("You have already registered for this event.");
+
+    const members: RegistrationMember[] = input.members.map((m) => ({
+      name: m.name.trim(),
+      role: m.role,
+      position: m.position,
+      participantType: m.participantType,
+      email: m.email.trim(),
+      regNumber: m.regNumber?.trim() || undefined,
+      phone: m.phone?.trim() || undefined,
+    }));
+
+    const regId = makeId("R");
+    const regCode = makeId("TT");
+
+    const { data: reg, error } = await supabase
+      .from("registrations")
+      .insert({
+        id: regId,
+        registration_code: regCode,
+        user_id: authUser.id,
+        event_id: event.id,
+        team_name: input.teamName.trim(),
+        captain_name: input.captainName.trim(),
+        fee: event.registrationFee ?? 0,
+        payment_status: "pending",
+        terms_accepted: true,
+        members,
+      })
+      .select()
+      .single();
+
+    if (error || !reg) {
+      throw new Error(error?.message ?? "Failed to create registration.");
+    }
+
+    return {
+      id: reg.id,
+      registrationCode: reg.registration_code,
+      userId: reg.user_id,
+      eventId: reg.event_id,
+      teamName: reg.team_name,
+      captainName: reg.captain_name,
+      fee: reg.fee,
+      paymentStatus: reg.payment_status as PaymentStatus,
+      termsAccepted: reg.terms_accepted,
+      members: reg.members as RegistrationMember[],
+      createdAt: reg.created_at,
     };
-
-    existing.push(registration);
-    storageSet(REGISTRATIONS_KEY, existing);
-    return registration;
   },
 
+  // ── List registrations for the signed-in user ─────────────────────────────
   async listMyRegistrations(): Promise<Registration[]> {
-    await delay(300);
-    const user = requireSession();
-    return listRegistrations()
-      .filter((r) => r.userId === user.id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) throw new Error("You need to sign in first.");
+
+    const { data, error } = await supabase
+      .from("registrations")
+      .select("*")
+      .eq("user_id", authUser.id)
+      .order("created_at", { ascending: false });
+
+    if (error) throw new Error(error.message);
+
+    return (data ?? []).map((r) => ({
+      id: r.id,
+      registrationCode: r.registration_code,
+      userId: r.user_id,
+      eventId: r.event_id,
+      teamName: r.team_name,
+      captainName: r.captain_name,
+      fee: r.fee,
+      paymentStatus: r.payment_status as PaymentStatus,
+      termsAccepted: r.terms_accepted,
+      members: r.members as RegistrationMember[],
+      createdAt: r.created_at,
+    }));
   },
 
+  // ── Look up a registration by code (public, e.g. for receipt page) ────────
   async getRegistrationByCode(code: string): Promise<Registration> {
-    await delay(300);
-    const reg = listRegistrations().find(
-      (r) => r.registrationCode.toLowerCase() === code.toLowerCase(),
-    );
-    if (!reg) throw new Error("Registration not found.");
-    return reg;
+    const { data, error } = await supabase
+      .from("registrations")
+      .select("*")
+      .ilike("registration_code", code)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("Registration not found.");
+
+    return {
+      id: data.id,
+      registrationCode: data.registration_code,
+      userId: data.user_id,
+      eventId: data.event_id,
+      teamName: data.team_name,
+      captainName: data.captain_name,
+      fee: data.fee,
+      paymentStatus: data.payment_status as PaymentStatus,
+      termsAccepted: data.terms_accepted,
+      members: data.members as RegistrationMember[],
+      createdAt: data.created_at,
+    };
   },
 };
-
-function listRegistrations(): Registration[] {
-  return storageGet<Registration[]>(REGISTRATIONS_KEY, []);
-}

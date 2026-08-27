@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Pencil,
@@ -7,7 +7,7 @@ import {
   Calendar,
 } from "lucide-react";
 import {
-  getDays,
+  getDaysAsync,
   getAllEvents,
   adminToggleRegistration,
   adminUpdateEvent,
@@ -16,6 +16,7 @@ import {
   adminUpdateDay,
 } from "../../lib/eventStore";
 import type { TechEvent, Day } from "../../lib/eventStore";
+import type { Registration } from "../../lib/mockApi";
 import { adminListRegistrations } from "../../lib/adminApi";
 import { formatFee } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
@@ -39,7 +40,7 @@ function EventModal({
   const [subs, setSubs] = useState(event?.maxSubstitutes ?? 3);
   const [error, setError] = useState<string | null>(null);
 
-  function handleSave() {
+  async function handleSave() {
     if (!name.trim()) {
       setError("Event name is required.");
       return;
@@ -47,7 +48,7 @@ function EventModal({
 
     try {
       if (event) {
-        adminUpdateEvent(event.id, {
+        await adminUpdateEvent(event.id, {
           name: name.trim(),
           category: category.trim(),
           description: description.trim(),
@@ -56,7 +57,7 @@ function EventModal({
           maxSubstitutes: Number(subs),
         });
       } else {
-        adminAddEvent(dayId, {
+        await adminAddEvent(dayId, {
           name: name.trim(),
           category: category.trim(),
           description: description.trim(),
@@ -200,13 +201,13 @@ function DayModal({
   const [description, setDescription] = useState(day.description);
   const [error, setError] = useState<string | null>(null);
 
-  function handleSave() {
+  async function handleSave() {
     if (!name.trim()) {
       setError("Day name is required.");
       return;
     }
     try {
-      adminUpdateDay(day.id, { name: name.trim(), description: description.trim() });
+      await adminUpdateDay(day.id, { name: name.trim(), description: description.trim() });
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
@@ -272,53 +273,52 @@ function DayModal({
 }
 
 export function AdminEventsPage() {
-  const [days, setDays] = useState(() => getDays());
+  const [days, setDays] = useState<Day[]>([]);
   const [editingEvent, setEditingEvent] = useState<TechEvent | null>(null);
   const [addingDayId, setAddingDayId] = useState<string | null>(null);
   const [deletingEvent, setDeletingEvent] = useState<TechEvent | null>(null);
   const [editingDay, setEditingDay] = useState<Day | null>(null);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
 
-  const registrations = useMemo(() => {
-    try {
-      return adminListRegistrations();
-    } catch {
-      return [];
-    }
+  useEffect(() => {
+    getDaysAsync().then(setDays).catch(() => {});
+    adminListRegistrations().then(setRegistrations).catch(() => {});
   }, []);
 
-  function refresh() {
-    setDays([...getDays()]);
+  async function refresh() {
+    const newDays = await getDaysAsync();
+    setDays(newDays);
     setEditingEvent(null);
     setAddingDayId(null);
     setDeletingEvent(null);
     setEditingDay(null);
   }
 
-  function handleToggleOpen(eventId: string) {
+  async function handleToggleOpen(eventId: string) {
     try {
-      adminToggleRegistration(eventId);
-      refresh();
+      await adminToggleRegistration(eventId);
+      await refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Toggle failed.");
     }
   }
 
-  function handleToggleDayStatus(dayId: string, currentStatus: string) {
+  async function handleToggleDayStatus(dayId: string, currentStatus: string) {
     try {
-      adminUpdateDay(dayId, {
+      await adminUpdateDay(dayId, {
         status: currentStatus === "active" ? "coming-soon" : "active",
       });
-      refresh();
+      await refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Update failed.");
     }
   }
 
-  function handleDeleteConfirm() {
+  async function handleDeleteConfirm() {
     if (!deletingEvent) return;
     try {
-      adminDeleteEvent(deletingEvent.id);
-      refresh();
+      await adminDeleteEvent(deletingEvent.id);
+      await refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Delete failed.");
     }

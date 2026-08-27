@@ -14,10 +14,10 @@ export function AdminLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Seed admin account and event store on first visit
+  // Seed event store on first admin visit
   useEffect(() => {
     seedAdminIfNeeded();
-    seedEventsIfNeeded();
+    seedEventsIfNeeded(); // Now returns a Promise — call fire-and-forget
   }, []);
 
   // If already authenticated as admin, redirect immediately

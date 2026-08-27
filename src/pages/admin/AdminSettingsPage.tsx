@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Shield, Key, Database, LogOut, Check, AlertCircle } from "lucide-react";
 import {
   getAdminAccountInfo,
@@ -8,20 +8,12 @@ import {
 } from "../../lib/adminApi";
 
 export function AdminSettingsPage() {
-  const adminInfo = useMemo(() => {
-    try {
-      return getAdminAccountInfo();
-    } catch {
-      return null;
-    }
-  }, []);
+  const [adminInfo, setAdminInfo] = useState<{ id: string; username: string; fullName: string; email: string } | null>(null);
+  const [storageSummary, setStorageSummary] = useState<{ users: number; registrations: number; estimatedBytes: number } | null>(null);
 
-  const storageSummary = useMemo(() => {
-    try {
-      return getStorageUsageSummary();
-    } catch {
-      return null;
-    }
+  useEffect(() => {
+    getAdminAccountInfo().then(setAdminInfo).catch(() => {});
+    getStorageUsageSummary().then(setStorageSummary).catch(() => {});
   }, []);
 
   const [currentPass, setCurrentPass] = useState("");
@@ -31,7 +23,7 @@ export function AdminSettingsPage() {
   const [passSuccess, setPassSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  function handleChangePassword(e: React.FormEvent) {
+  async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
     setPassError(null);
     setPassSuccess(null);
@@ -51,7 +43,7 @@ export function AdminSettingsPage() {
 
     setBusy(true);
     try {
-      adminChangePassword(currentPass, newPass);
+      await adminChangePassword(currentPass, newPass);
       setPassSuccess("Password updated successfully.");
       setCurrentPass("");
       setNewPass("");

@@ -6,6 +6,7 @@ import { useAuth } from "../../context/AuthContext";
  * ----------
  * Protects all /wch1925/* management pages.
  *
+ * - Loading → show nothing (prevents flash).
  * - No session → redirect to /wch1925 (admin login).
  * - Session exists but role !== 'admin' → redirect to / (silent, does not
  *   confirm the admin URL exists to normal users).
@@ -15,6 +16,20 @@ import { useAuth } from "../../context/AuthContext";
  * <Outlet /> is used when nested inside a React Router <Route>.
  */
 export function AdminRoute({ children }: { children?: React.ReactNode }) {
-  // Auth bypassed for local dev — go straight to admin dashboard
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    // Prevent flash of unauthenticated content while session restores
+    return null;
+  }
+
+  if (!user) {
+    return <Navigate to="/wch1925" replace />;
+  }
+
+  if (user.role !== "admin") {
+    return <Navigate to="/" replace />;
+  }
+
   return children ? <>{children}</> : <Outlet />;
 }

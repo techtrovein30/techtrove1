@@ -16,6 +16,7 @@ import { ContactPage } from "./pages/ContactPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { RegisterSuccessPage } from "./pages/RegisterSuccessPage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 // Admin pages
@@ -45,7 +46,7 @@ export default function App() {
         <Routes>
           {/* ── Admin Area ─────────────────────── */}
           <Route path="/wch1925">
-            <Route index element={<Navigate to="/wch1925/dashboard" replace />} />
+            <Route index element={<AdminLoginPage />} />
             
             <Route element={
               <AdminRoute>
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/register/success" element={<RegisterSuccessPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
