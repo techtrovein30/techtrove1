@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
@@ -45,11 +45,21 @@ export function LoginPage() {
     phone: "",
     password: "",
   });
-  const { signIn, signUp, signInWithGoogle, googlePendingProfile, completeGoogleProfile } = useAuth();
+  const { user, loading, signIn, signUp, signInWithGoogle, googlePendingProfile, completeGoogleProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const next = searchParams.get("next") ?? "/register";
   const [createdUsername, setCreatedUsername] = useState<string | null>(null);
+
+  // After OAuth (or any sign-in), the browser lands back on /login with an
+  // active session. Only move the user onward once they have a completed
+  // profile. Google users without one must finish the "Complete profile"
+  // (internal/external details) form first.
+  useEffect(() => {
+    if (!loading && user && !googlePendingProfile) {
+      navigate(next, { replace: true });
+    }
+  }, [loading, user, googlePendingProfile, next, navigate]);
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -333,10 +343,32 @@ export function LoginPage() {
               </>
             )}
 
-            {/* ── Participant type tabs (sign-up only) ─────────────────────── */}
+            {/* ── Sign-up mode ─────────────────────── */}
             {mode === "signup" && (
               <>
-                <div role="tablist" aria-label="Participant type" className="mt-8 grid grid-cols-2 gap-px border border-edge bg-edge">
+                {/* Google OAuth button */}
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={busy}
+                  className="mt-8 flex w-full items-center justify-center gap-3 border border-edge-strong bg-background px-6 py-4 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-surface disabled:opacity-50"
+                >
+                  <GoogleIcon className="h-5 w-5" />
+                  Sign up with Google
+                </button>
+
+                {/* Divider */}
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-edge" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="bg-background px-4 text-muted uppercase tracking-[0.14em]">or</span>
+                  </div>
+                </div>
+
+                {/* ── Participant type tabs ─────────────────────── */}
+                <div role="tablist" aria-label="Participant type" className="grid grid-cols-2 gap-px border border-edge bg-edge">
                   {(["internal", "external"] as ParticipantType[]).map((type) => (
                     <button
                       key={type}
