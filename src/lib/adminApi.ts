@@ -3,31 +3,31 @@
  * -----------
  * All admin-privileged data operations for the TechTrove 3.0 admin panel.
  *
- * All localStorage usage has been replaced with Supabase Auth and Postgres.
- * The Supabase anon key + Row Level Security policies enforce that only
- * users with role='admin' in the profiles table can perform admin operations.
- *
- * The exported function signatures are unchanged so that no admin page
- * component needs to change.
+ * Works against the split internal/external participant and registration
+ * tables. The Supabase anon key + app-level requireAdmin() guard enforce that
+ * only users with role='admin' in a participant table can perform admin ops.
  */
 
 import { supabase } from "./supabase";
 import type { User, Registration, RegistrationMember, PaymentStatus } from "./mockApi";
+import { resolveEmailByIdentifier } from "./mockApi";
+import {
+  PARTICIPANT_TABLE_FOR,
+  ALL_REGISTRATION_TABLES,
+  getParticipantById,
+  getAllParticipants,
+  getAllRegistrations,
+  getRegistrationsByUser,
+  getRegistrationCountsByUser,
+  getRegistrationById,
+  findRegistrationTableById,
+} from "./db";
+import type { ParticipantRow, RegistrationRow } from "./db";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-/** Map a profile DB row → the shared User shape */
-function profileToUser(p: {
-  id: string;
-  username: string;
-  full_name: string;
-  email: string;
-  participant_type: "internal" | "external";
-  reg_number?: string | null;
-  college?: string | null;
-  phone?: string | null;
-  role?: "user" | "admin" | null;
-}): User {
+/** Map a participant row → the shared User shape */
+function profileToUser(p: ParticipantRow): User {
   return {
     id: p.id,
     username: p.username,
@@ -41,19 +41,7 @@ function profileToUser(p: {
   };
 }
 
-function rowToRegistration(r: {
-  id: string;
-  registration_code: string;
-  user_id: string;
-  event_id: string;
-  team_name: string;
-  captain_name: string;
-  fee: number;
-  payment_status: string;
-  terms_accepted: boolean;
-  members: unknown;
-  created_at: string;
-}): Registration {
+function rowToRegistration(r: RegistrationRow): Registration {
   return {
     id: r.id,
     registrationCode: r.registration_code,
@@ -74,13 +62,8 @@ async function requireAdmin(): Promise<User> {
   const { data: { user: authUser } } = await supabase.auth.getUser();
   if (!authUser) throw new Error("Not authenticated.");
 
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", authUser.id)
-    .single();
-
-  if (error || !profile) throw new Error("Session expired.");
+  const profile = await getParticipantById(authUser.id);
+  if (!profile) throw new Error("Session expired.");
   if (profile.role !== "admin") throw new Error("Insufficient permissions.");
 
   return profileToUser(profile);
@@ -93,7 +76,7 @@ async function requireAdmin(): Promise<User> {
  * Kept for compatibility with callers.
  */
 export function seedAdminIfNeeded(): void {
-  // Admin accounts are created directly in Supabase Auth + profiles table.
+  // Admin accounts are created directly in Supabase Auth + participant tables.
 }
 
 // ─── Role check (sync best-effort) ────────────────────────────────────────
@@ -119,16 +102,11 @@ export async function adminSignIn(
   const looksLikeEmail = email.includes("@");
 
   if (!looksLikeEmail) {
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("email")
-      .or(`username.eq.${email},reg_number.ilike.${email.toUpperCase()}`)
-      .limit(1);
-
-    if (!profiles || profiles.length === 0) {
+    const resolved = await resolveEmailByIdentifier(email);
+    if (!resolved) {
       throw new Error("Invalid credentials.");
     }
-    email = profiles[0].email;
+    email = resolved;
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -138,13 +116,8 @@ export async function adminSignIn(
 
   if (error || !data.user) throw new Error("Invalid credentials.");
 
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", data.user.id)
-    .single();
-
-  if (profileError || !profile) throw new Error("Profile not found.");
+  const profile = await getParticipantById(data.user.id);
+  if (!profile) throw new Error("Profile not found.");
 
   if (profile.role !== "admin") {
     await supabase.auth.signOut();
@@ -156,6 +129,36 @@ export async function adminSignIn(
 
 export function adminSignOut(): void {
   supabase.auth.signOut();
+}
+
+/**
+ * Begins the admin Google OAuth flow. After the user returns from Google,
+ * they land back on /wch1925?oauth=google, where adminResolveOAuthAccess()
+ * decides whether they get in (server-side allowlist check).
+ */
+export async function adminSignInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: window.location.origin + "/wch1925?oauth=google",
+    },
+  });
+  if (error) throw error;
+}
+
+/**
+ * Called once after the Google OAuth round-trip.
+ * Returns true only if the signed-in account's email is on the
+ * admin_allowlist (checked server-side by the ensure_admin_access RPC),
+ * in which case the participant row is created/promoted to role='admin'.
+ */
+export async function adminResolveOAuthAccess(): Promise<boolean> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return false;
+
+  const { data, error } = await supabase.rpc("ensure_admin_access");
+  if (error) throw error;
+  return data === true;
 }
 
 // ─── Statistics ────────────────────────────────────────────────────────────
@@ -175,16 +178,8 @@ export interface AdminStats {
 export async function getAdminStats(): Promise<AdminStats> {
   await requireAdmin();
 
-  const [{ data: profiles }, { data: regs }] = await Promise.all([
-    supabase.from("profiles").select("*").neq("role", "admin"),
-    supabase
-      .from("registrations")
-      .select("*")
-      .order("created_at", { ascending: false }),
-  ]);
-
-  const users = profiles ?? [];
-  const registrations = regs ?? [];
+  const users = (await getAllParticipants()).filter((u) => u.role !== "admin");
+  const registrations = await getAllRegistrations();
 
   const perEvent: Record<string, number> = {};
   let pending = 0;
@@ -198,9 +193,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     if (r.payment_status === "recorded") revenue += r.fee;
   }
 
-  const recentRegistrations = registrations
-    .slice(0, 8)
-    .map(rowToRegistration);
+  const recentRegistrations = registrations.slice(0, 8).map(rowToRegistration);
 
   return {
     totalUsers: users.length,
@@ -219,49 +212,29 @@ export async function getAdminStats(): Promise<AdminStats> {
 
 export async function adminListUsers(): Promise<User[]> {
   await requireAdmin();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .neq("role", "admin")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map(profileToUser);
+  const users = (await getAllParticipants())
+    .filter((u) => u.role !== "admin")
+    .sort((a, b) => (a.created_at > b.created_at ? -1 : 1));
+  return users.map(profileToUser);
 }
 
 export async function adminGetUser(userId: string): Promise<User> {
   await requireAdmin();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", userId)
-    .single();
-  if (error || !data) throw new Error("User not found.");
-  return profileToUser(data);
+  const row = await getParticipantById(userId);
+  if (!row) throw new Error("User not found.");
+  return profileToUser(row);
 }
 
 export async function adminGetUserRegistrations(userId: string): Promise<Registration[]> {
   await requireAdmin();
-  const { data, error } = await supabase
-    .from("registrations")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map(rowToRegistration);
+  const rows = await getRegistrationsByUser(userId);
+  return rows.map(rowToRegistration);
 }
 
 /** Returns registration counts keyed by user_id for all non-admin users. */
 export async function adminGetAllRegistrationCounts(): Promise<Record<string, number>> {
   await requireAdmin();
-  const { data, error } = await supabase
-    .from("registrations")
-    .select("user_id");
-  if (error) throw new Error(error.message);
-  const counts: Record<string, number> = {};
-  for (const row of data ?? []) {
-    counts[row.user_id] = (counts[row.user_id] ?? 0) + 1;
-  }
-  return counts;
+  return getRegistrationCountsByUser();
 }
 
 export interface AdminUserPatch {
@@ -273,13 +246,17 @@ export interface AdminUserPatch {
 export async function adminUpdateUser(userId: string, patch: AdminUserPatch): Promise<User> {
   await requireAdmin();
 
+  const row = await getParticipantById(userId);
+  if (!row) throw new Error("User not found.");
+  const table = PARTICIPANT_TABLE_FOR[row.participant_type];
+
   const update: { full_name?: string; college?: string; phone?: string } = {};
   if (patch.fullName !== undefined) update.full_name = patch.fullName.trim();
   if (patch.college !== undefined) update.college = patch.college.trim();
   if (patch.phone !== undefined) update.phone = patch.phone.trim();
 
   const { data, error } = await supabase
-    .from("profiles")
+    .from(table)
     .update(update)
     .eq("id", userId)
     .neq("role", "admin")
@@ -287,18 +264,24 @@ export async function adminUpdateUser(userId: string, patch: AdminUserPatch): Pr
     .single();
 
   if (error || !data) throw new Error(error?.message ?? "User not found.");
-  return profileToUser(data);
+  return profileToUser(data as unknown as ParticipantRow);
 }
 
 export async function adminDeleteUser(userId: string): Promise<void> {
   const admin = await requireAdmin();
   if (admin.id === userId) throw new Error("You cannot delete your own admin account.");
 
-  // Delete registrations first (FK constraint)
-  await supabase.from("registrations").delete().eq("user_id", userId);
+  // Delete registrations first (FK constraint) from both registration tables
+  for (const table of ALL_REGISTRATION_TABLES) {
+    await supabase.from(table).delete().eq("user_id", userId);
+  }
+
+  const row = await getParticipantById(userId);
+  if (!row) throw new Error("User not found.");
+  const table = PARTICIPANT_TABLE_FOR[row.participant_type];
 
   const { error } = await supabase
-    .from("profiles")
+    .from(table)
     .delete()
     .eq("id", userId)
     .neq("role", "admin");
@@ -310,23 +293,15 @@ export async function adminDeleteUser(userId: string): Promise<void> {
 
 export async function adminListRegistrations(): Promise<Registration[]> {
   await requireAdmin();
-  const { data, error } = await supabase
-    .from("registrations")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map(rowToRegistration);
+  const rows = await getAllRegistrations();
+  return rows.map(rowToRegistration);
 }
 
 export async function adminGetRegistration(regId: string): Promise<Registration> {
   await requireAdmin();
-  const { data, error } = await supabase
-    .from("registrations")
-    .select("*")
-    .eq("id", regId)
-    .single();
-  if (error || !data) throw new Error("Registration not found.");
-  return rowToRegistration(data);
+  const row = await getRegistrationById(regId);
+  if (!row) throw new Error("Registration not found.");
+  return rowToRegistration(row);
 }
 
 export interface AdminRegistrationPatch {
@@ -341,25 +316,30 @@ export async function adminUpdateRegistration(
 ): Promise<Registration> {
   await requireAdmin();
 
+  const table = await findRegistrationTableById(regId);
+  if (!table) throw new Error("Registration not found.");
+
   const update: { team_name?: string; captain_name?: string; payment_status?: string } = {};
   if (patch.teamName !== undefined) update.team_name = patch.teamName.trim();
   if (patch.captainName !== undefined) update.captain_name = patch.captainName.trim();
   if (patch.paymentStatus !== undefined) update.payment_status = patch.paymentStatus;
 
   const { data, error } = await supabase
-    .from("registrations")
+    .from(table)
     .update(update)
     .eq("id", regId)
     .select()
     .single();
 
   if (error || !data) throw new Error(error?.message ?? "Registration not found.");
-  return rowToRegistration(data);
+  return rowToRegistration(data as unknown as RegistrationRow);
 }
 
 export async function adminDeleteRegistration(regId: string): Promise<void> {
   await requireAdmin();
-  const { error } = await supabase.from("registrations").delete().eq("id", regId);
+  const table = await findRegistrationTableById(regId);
+  if (!table) throw new Error("Registration not found.");
+  const { error } = await supabase.from(table).delete().eq("id", regId);
   if (error) throw new Error(error.message);
 }
 
@@ -407,14 +387,19 @@ export async function getStorageUsageSummary(): Promise<{
 }> {
   await requireAdmin();
 
-  const [{ count: users }, { count: registrations }] = await Promise.all([
-    supabase.from("profiles").select("*", { count: "exact", head: true }).neq("role", "admin"),
-    supabase.from("registrations").select("*", { count: "exact", head: true }),
+  const counts = await Promise.all([
+    supabase.from("internal_participants").select("*", { count: "exact", head: true }).neq("role", "admin"),
+    supabase.from("external_participants").select("*", { count: "exact", head: true }).neq("role", "admin"),
+    supabase.from("registrations_internal").select("*", { count: "exact", head: true }),
+    supabase.from("registrations_external").select("*", { count: "exact", head: true }),
   ]);
 
+  const users = (counts[0].count ?? 0) + (counts[1].count ?? 0);
+  const registrations = (counts[2].count ?? 0) + (counts[3].count ?? 0);
+
   return {
-    users: users ?? 0,
-    registrations: registrations ?? 0,
-    estimatedBytes: ((users ?? 0) * 256) + ((registrations ?? 0) * 512),
+    users,
+    registrations,
+    estimatedBytes: (users * 256) + (registrations * 512),
   };
 }

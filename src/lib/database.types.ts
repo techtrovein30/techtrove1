@@ -11,6 +11,164 @@
 export interface Database {
   public: {
     Tables: {
+      admin_allowlist: {
+        Row: {
+          email: string;
+          created_at: string;
+        };
+        Insert: {
+          email: string;
+          created_at?: string;
+        };
+        Update: {
+          email?: string;
+          created_at?: string;
+        };
+      };
+      internal_participants: {
+        Row: {
+          id: string;
+          username: string;
+          full_name: string;
+          email: string;
+          participant_type: "internal" | "external";
+          reg_number: string | null;
+          college: string | null;
+          phone: string | null;
+          role: "user" | "admin";
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          username: string;
+          full_name: string;
+          email: string;
+          participant_type?: "internal" | "external";
+          reg_number?: string | null;
+          college?: string | null;
+          phone?: string | null;
+          role?: "user" | "admin";
+          created_at?: string;
+        };
+        Update: {
+          username?: string;
+          full_name?: string;
+          email?: string;
+          participant_type?: "internal" | "external";
+          reg_number?: string | null;
+          college?: string | null;
+          phone?: string | null;
+          role?: "user" | "admin";
+        };
+      };
+      external_participants: {
+        Row: {
+          id: string;
+          username: string;
+          full_name: string;
+          email: string;
+          participant_type: "internal" | "external";
+          reg_number: string | null;
+          college: string | null;
+          phone: string | null;
+          role: "user" | "admin";
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          username: string;
+          full_name: string;
+          email: string;
+          participant_type?: "internal" | "external";
+          reg_number?: string | null;
+          college?: string | null;
+          phone?: string | null;
+          role?: "user" | "admin";
+          created_at?: string;
+        };
+        Update: {
+          username?: string;
+          full_name?: string;
+          email?: string;
+          participant_type?: "internal" | "external";
+          reg_number?: string | null;
+          college?: string | null;
+          phone?: string | null;
+          role?: "user" | "admin";
+        };
+      };
+      registrations_internal: {
+        Row: {
+          id: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          team_name: string;
+          captain_name: string;
+          fee: number;
+          payment_status: "pending" | "recorded";
+          terms_accepted: boolean;
+          members: RegistrationMember[];
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          team_name: string;
+          captain_name: string;
+          fee?: number;
+          payment_status?: "pending" | "recorded";
+          terms_accepted?: boolean;
+          members?: RegistrationMember[];
+          created_at?: string;
+        };
+        Update: {
+          team_name?: string;
+          captain_name?: string;
+          fee?: number;
+          payment_status?: "pending" | "recorded";
+          terms_accepted?: boolean;
+          members?: RegistrationMember[];
+        };
+      };
+      registrations_external: {
+        Row: {
+          id: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          team_name: string;
+          captain_name: string;
+          fee: number;
+          payment_status: "pending" | "recorded";
+          terms_accepted: boolean;
+          members: RegistrationMember[];
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          team_name: string;
+          captain_name: string;
+          fee?: number;
+          payment_status?: "pending" | "recorded";
+          terms_accepted?: boolean;
+          members?: RegistrationMember[];
+          created_at?: string;
+        };
+        Update: {
+          team_name?: string;
+          captain_name?: string;
+          fee?: number;
+          payment_status?: "pending" | "recorded";
+          terms_accepted?: boolean;
+          members?: RegistrationMember[];
+        };
+      };
       profiles: {
         Row: {
           id: string;
@@ -145,7 +303,12 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      ensure_admin_access: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+    };
     Enums: Record<string, never>;
   };
 }

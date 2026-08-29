@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes, useLocation, Navigate } from "react-route
 import { AuthProvider } from "./context/AuthContext";
 import { PublicLayout } from "./components/layout/PublicLayout";
 import { AdminRoute } from "./components/admin/AdminRoute";
+import { seedEventsIfNeeded } from "./lib/eventStore";
 
 // Public pages
 import { HomePage } from "./pages/HomePage";
@@ -38,7 +39,16 @@ function ScrollToTop() {
   return null;
 }
 
+function useSeedEvents() {
+  useEffect(() => {
+    // Ensure the events table is populated on any site load so that
+    // registration inserts never hit a missing-event foreign key.
+    seedEventsIfNeeded();
+  }, []);
+}
+
 export default function App() {
+  useSeedEvents();
   return (
     <BrowserRouter>
       <AuthProvider>

@@ -90,7 +90,7 @@ function rowToEvent(r: EventRow): TechEvent {
   } as TechEvent;
 }
 
-function eventToRow(event: TechEvent): EventRow {
+export function eventToRow(event: TechEvent): EventRow {
   return {
     id: event.id,
     day_id: event.dayId,

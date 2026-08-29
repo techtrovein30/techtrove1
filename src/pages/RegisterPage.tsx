@@ -419,6 +419,7 @@ function TeamStep({
           onChange={(e) => onChange({ captainName: e.target.value })}
           error={errors.captainName}
           autoComplete="name"
+          hint="This name will be reflected on the certificate."
         />
         <Field
           label="Team name"
@@ -551,6 +552,7 @@ function MemberCard({
           onChange={(e) => onUpdate({ name: e.target.value })}
           error={errors[`member-${index}-name`]}
           autoComplete="off"
+          hint="This name will be reflected on the certificate."
         />
         <Field
           label="Email"

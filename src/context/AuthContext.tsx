@@ -15,6 +15,8 @@ import type { ReactNode } from "react";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/mockApi";
 import type { User, ParticipantType } from "../lib/mockApi";
+import { getParticipantById, PARTICIPANT_TABLE_FOR } from "../lib/db";
+import type { ParticipantRow } from "../lib/db";
 
 interface GooglePendingProfile {
   authUserId: string;
@@ -52,6 +54,27 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** Build the app User from a participant row (either split table). */
+function rowToAuthUser(p: ParticipantRow): User {
+  return {
+    id: p.id,
+    username: p.username,
+    fullName: p.full_name,
+    email: p.email,
+    participantType: p.participant_type,
+    regNumber: p.reg_number ?? undefined,
+    college: p.college ?? undefined,
+    phone: p.phone ?? undefined,
+    role: p.role ?? "user",
+  };
+}
+
+/** Resolve a signed-in auth user to an app User, or null if profile missing. */
+async function resolveSessionParticipant(authUserId: string): Promise<User | null> {
+  const profile = await getParticipantById(authUserId);
+  return profile ? rowToAuthUser(profile) : null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,26 +84,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Restore session on initial mount
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
+        const resolved = await resolveSessionParticipant(session.user.id);
 
-        if (profile) {
-          setUser({
-            id: profile.id,
-            username: profile.username,
-            fullName: profile.full_name,
-            email: profile.email,
-            participantType: profile.participant_type,
-            regNumber: profile.reg_number ?? undefined,
-            college: profile.college ?? undefined,
-            phone: profile.phone ?? undefined,
-            role: profile.role ?? "user",
-          });
+        if (resolved) {
+          setUser(resolved);
         } else {
-          // Google OAuth user without a profile yet
+          // Google OAuth user without a participant row yet
           const meta = session.user.user_metadata ?? {};
           setGooglePendingProfile({
             authUserId: session.user.id,
@@ -96,27 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (session?.user) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .single();
+          const resolved = await resolveSessionParticipant(session.user.id);
 
-          if (profile) {
-            setUser({
-              id: profile.id,
-              username: profile.username,
-              fullName: profile.full_name,
-              email: profile.email,
-              participantType: profile.participant_type,
-              regNumber: profile.reg_number ?? undefined,
-              college: profile.college ?? undefined,
-              phone: profile.phone ?? undefined,
-              role: profile.role ?? "user",
-            });
+          if (resolved) {
+            setUser(resolved);
             setGooglePendingProfile(null);
           } else {
-            // Google OAuth user without a profile yet
+            // Google OAuth user without a participant row yet
             const meta = session.user.user_metadata ?? {};
             setGooglePendingProfile({
               authUserId: session.user.id,
@@ -199,7 +194,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role: "user" as const,
         };
 
-        const { error } = await supabase.from("profiles").insert(profileData);
+        const table = PARTICIPANT_TABLE_FOR[input.participantType];
+        const { error } = await supabase.from(table).upsert(profileData, { onConflict: "id" });
         if (error) throw new Error(error.message);
 
         const newUser: User = {
