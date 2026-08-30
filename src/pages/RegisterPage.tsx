@@ -198,53 +198,58 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     navigate(`/register/success?code=${encodeURIComponent(registration.registrationCode)}`);
   }
 
-  const stepBody = useMemo(() => {
-    switch (step) {
-      case "sport":
-        return (
-          <SportStep
-            days={days}
-            selectedId={draft.eventId}
-            selectedDayId={selectedDayId}
-            onSelectDay={selectDay}
-            onSelect={(ev) => selectEvent(ev)}
-            events={allEvents}
-            loading={eventsLoading}
-          />
-        );
-      case "terms":
-        return event && (
-          <TermsStep
-            event={event}
-            accepted={draft.termsAccepted}
-            onAccept={(v) => setDraft((d) => ({ ...d, termsAccepted: v }))}
-          />
-        );
-      case "team":
-        return (
-          <TeamStep
-            event={event}
-            draft={draft}
-            errors={errors}
-            onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
-          />
-        );
-      case "members":
-        return (
-          <MembersStep
-            event={event}
-            draft={draft}
-            errors={errors}
-            teamType={teamType}
-            onUpdateMember={updateMember}
-          />
-        );
-      case "review":
-        return event && <ReviewStep event={event} draft={draft} teamType={teamType} />;
-      case "payment":
-        return event && <PaymentStep event={event} draft={draft} onPay={handlePayment} />;
-    }
-  }, [step, draft, errors, event]);
+  let stepBody: ReactNode;
+  switch (step) {
+    case "sport":
+      stepBody = (
+        <SportStep
+          days={days}
+          selectedId={draft.eventId}
+          selectedDayId={selectedDayId}
+          onSelectDay={selectDay}
+          onSelect={(ev) => selectEvent(ev)}
+          events={allEvents}
+          loading={eventsLoading}
+        />
+      );
+      break;
+    case "terms":
+      stepBody = event && (
+        <TermsStep
+          event={event}
+          accepted={draft.termsAccepted}
+          onAccept={(v) => setDraft((d) => ({ ...d, termsAccepted: v }))}
+        />
+      );
+      break;
+    case "team":
+      stepBody = (
+        <TeamStep
+          event={event}
+          draft={draft}
+          errors={errors}
+          onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+        />
+      );
+      break;
+    case "members":
+      stepBody = (
+        <MembersStep
+          event={event}
+          draft={draft}
+          errors={errors}
+          teamType={teamType}
+          onUpdateMember={updateMember}
+        />
+      );
+      break;
+    case "review":
+      stepBody = event && <ReviewStep event={event} draft={draft} teamType={teamType} />;
+      break;
+    case "payment":
+      stepBody = event && <PaymentStep event={event} draft={draft} onPay={handlePayment} />;
+      break;
+  }
 
   // Step-level validation before advancing.
   function validateAndNext(): void {
