@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import type { TechEvent } from "../../data/techtrove";
-import { formatFee, pad } from "../../lib/utils";
+import { formatPerPerson, pad } from "../../lib/utils";
 
 export function EventCard({ event, index }: { event: TechEvent; index: number }) {
   return (
@@ -41,8 +41,8 @@ export function EventCard({ event, index }: { event: TechEvent; index: number })
 
         <div className="mt-auto flex items-end justify-between border-t border-edge pt-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-muted">Registration fee</p>
-            <p className="display mt-1 text-xl text-foreground">{formatFee(event.registrationFee)}</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted">Fee per person</p>
+            <p className="display mt-1 text-xl text-foreground">{formatPerPerson(event.registrationFee)}</p>
           </div>
           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-soft">
             View details

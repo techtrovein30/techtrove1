@@ -7,6 +7,11 @@ export function formatFee(fee: number | undefined): string {
   return `Rs ${fee}`;
 }
 
+export function formatPerPerson(fee: number | undefined): string {
+  if (fee === undefined || fee === 0) return "Free";
+  return `Rs ${fee} / person`;
+}
+
 export function pad(n: number): string {
   return n.toString().padStart(2, "0");
 }

@@ -68,8 +68,11 @@ export function useEvents(): UseEventsResult {
   // Listens for any change on the `events` table and re-fetches the full
   // day+event tree.  This makes admin edits appear instantly everywhere.
   useEffect(() => {
+    // Use a unique channel name per subscription so re-mounts (React StrictMode
+    // double-invokes effects in dev) never collide on the same channel, which
+    // otherwise throws "cannot add postgres_changes callbacks after subscribe()".
     const channel = supabase
-      .channel("events-realtime")
+      .channel(`events-realtime-${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "events" },

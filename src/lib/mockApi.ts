@@ -379,6 +379,10 @@ export const api = {
       throw new Error(`This event allows at most ${maxSubs} substitutes.`);
     }
 
+    // Fee is charged per person: per-person rate × everyone entered (players + substitutes).
+    const perPersonFee = event.registrationFee ?? 0;
+    const totalFee = perPersonFee * input.members.length;
+
     // Validate each member has required fields
     for (const m of input.members) {
       if (!m.name.trim()) throw new Error("All team members must have a name.");
@@ -432,7 +436,7 @@ export const api = {
         event_id: event.id,
         team_name: input.teamName.trim(),
         captain_name: input.captainName.trim(),
-        fee: event.registrationFee ?? 0,
+        fee: totalFee,
         payment_status: "pending",
         terms_accepted: true,
         members,

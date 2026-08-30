@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Info, Lock } from "lucide-react";
 import { useAllEvents, useEvent } from "../lib/useEvents";
 import type { TechEvent, Day } from "../lib/eventStore";
 import { days as staticDays } from "../data/techtrove";
-import { formatFee } from "../lib/utils";
+import { formatFee, formatPerPerson } from "../lib/utils";
 import { cn } from "../lib/utils";
 import { api } from "../lib/mockApi";
 import type { ParticipantType, RegistrationMember } from "../lib/mockApi";
@@ -49,6 +49,11 @@ function makeEmptyMembers(required: number, maxSubs: number): MemberDraft[] {
     phone: "",
   }));
   return [...players, ...subs];
+}
+
+function computeTotalFee(event: TechEvent | undefined, members: MemberDraft[]): number {
+  const filled = members.filter((m) => m.name.trim()).length;
+  return (event?.registrationFee ?? 0) * filled;
 }
 
 function buildMembersFromDraft(draftMembers: MemberDraft[], teamType: ParticipantType): RegistrationMember[] {
@@ -447,7 +452,7 @@ function SportStep({
                 <span className="min-w-0 flex-1">
                   <span className="display block text-lg text-foreground">{ev.name}</span>
                   <span className="mt-0.5 block text-xs text-muted">
-                    {ev.requiredPlayers} player{ev.requiredPlayers === 1 ? "" : "s"} · {ev.maxSubstitutes} substitute{ev.maxSubstitutes === 1 ? "" : "s"} · {formatFee(ev.registrationFee)}
+                    {ev.requiredPlayers} player{ev.requiredPlayers === 1 ? "" : "s"} · {ev.maxSubstitutes} substitute{ev.maxSubstitutes === 1 ? "" : "s"} · {formatPerPerson(ev.registrationFee)}
                   </span>
                 </span>
                 {active && <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary-soft">Selected</span>}
@@ -494,8 +499,8 @@ function TermsStep({
         />
         <span className="text-sm leading-relaxed text-foreground">
           I agree to the Terms and Conditions, including that the registration fee of{" "}
-          <strong className="font-semibold">{formatFee(event.registrationFee)}</strong> is
-          non-refundable.
+          <strong className="font-semibold">{formatPerPerson(event.registrationFee)}</strong>
+          (charged for each player and substitute entered) is non-refundable.
         </span>
       </label>
     </StepShell>
@@ -705,6 +710,9 @@ function ReviewRow({ term, children }: { term: string; children: ReactNode }) {
 
 function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft; teamType: ParticipantType }) {
   const filledMembers = draft.members.filter((m) => m.name.trim());
+  const filledPlayers = filledMembers.filter((m) => m.role === "player").length;
+  const filledSubs = filledMembers.filter((m) => m.role === "substitute").length;
+  const totalFee = computeTotalFee(event, draft.members);
 
   return (
     <StepShell title="Review your entry" lead="Check everything carefully. Changes after payment cannot be made.">
@@ -725,7 +733,11 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
             {teamType === "internal" ? "SIMATS Students" : "External Participants"}
           </span>
         </ReviewRow>
-        <ReviewRow term="Registration fee">{formatFee(event.registrationFee)}</ReviewRow>
+        <ReviewRow term="Fee per person">{formatPerPerson(event.registrationFee)}</ReviewRow>
+        <ReviewRow term="Team members">
+          {filledPlayers} player{filledPlayers === 1 ? "" : "s"} · {filledSubs} substitute{filledSubs === 1 ? "" : "s"}
+        </ReviewRow>
+        <ReviewRow term="Total registration fee">{formatFee(totalFee)}</ReviewRow>
         <ReviewRow term="Terms accepted">{draft.termsAccepted ? "Yes" : "No"}</ReviewRow>
       </dl>
 
@@ -771,6 +783,9 @@ function PaymentStep({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const filledMembers = draft.members.filter((m) => m.name.trim());
+  const totalFee = computeTotalFee(event, draft.members);
+
   async function pay() {
     setBusy(true);
     setError(null);
@@ -788,16 +803,20 @@ function PaymentStep({
       <div className="border border-edge-strong bg-background p-6">
         <dl className="space-y-3 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-muted">{event.name} · registration fee</dt>
-            <dd>{formatFee(event.registrationFee)}</dd>
+            <dt className="text-muted">{event.name} · fee per person</dt>
+            <dd>{formatPerPerson(event.registrationFee)}</dd>
           </div>
           <div className="flex justify-between gap-4">
             <dt className="text-muted">Team</dt>
             <dd>{draft.teamName}</dd>
           </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted">Members</dt>
+            <dd>{filledMembers.length} entered ({filledMembers.filter((m) => m.role === "player").length} player · {filledMembers.filter((m) => m.role === "substitute").length} substitute)</dd>
+          </div>
           <div className="flex justify-between gap-4 border-t border-edge pt-3">
             <dt className="text-xs font-semibold uppercase tracking-[0.16em]">Amount payable</dt>
-            <dd className="display text-2xl text-primary-soft">{formatFee(event.registrationFee)}</dd>
+            <dd className="display text-2xl text-primary-soft">{formatFee(totalFee)}</dd>
           </div>
         </dl>
       </div>
@@ -820,7 +839,7 @@ function PaymentStep({
         disabled={busy}
         className="clip-angle mt-7 flex w-full items-center justify-center gap-2 bg-primary px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
       >
-        {busy ? "Processing" : `Pay ${formatFee(event.registrationFee)} (demo)`}
+        {busy ? "Processing" : `Pay ${formatFee(totalFee)} (demo)`}
       </button>
     </StepShell>
   );

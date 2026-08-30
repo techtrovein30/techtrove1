@@ -17,7 +17,7 @@ import {
 import type { TechEvent, Day } from "../../lib/eventStore";
 import type { Registration } from "../../lib/mockApi";
 import { adminListRegistrations } from "../../lib/adminApi";
-import { formatFee } from "../../lib/utils";
+import { formatPerPerson } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 
 function EventModal({
@@ -119,7 +119,7 @@ function EventModal({
             </div>
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted mb-1">
-                Fee (₹)
+                Fee per person (₹)
               </label>
               <input
                 type="number"
@@ -478,8 +478,8 @@ export function AdminEventsPage() {
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-lg font-bold text-primary-soft">{formatFee(event.registrationFee)}</p>
-                            <p className="text-[10px] uppercase tracking-[0.1em] text-muted">Entry Fee</p>
+                            <p className="text-lg font-bold text-primary-soft">{formatPerPerson(event.registrationFee)}</p>
+                            <p className="text-[10px] uppercase tracking-[0.1em] text-muted">Fee per person</p>
                           </div>
                         </div>
 
