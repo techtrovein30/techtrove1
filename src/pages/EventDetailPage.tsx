@@ -1,13 +1,25 @@
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, CalendarDays, MapPin, Ticket, UserPlus, Users } from "lucide-react";
-import { getDay, getEvent } from "../lib/eventStore";
+import { useEvent } from "../lib/useEvents";
 import { formatFee } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 
 export function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
-  const event = getEvent(eventId);
+  const { event, day, loading } = useEvent(eventId);
   const { user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 pb-24 pt-40 text-center sm:px-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-6 w-32 bg-surface mx-auto" />
+          <div className="h-16 w-2/3 bg-surface mx-auto" />
+          <div className="h-4 w-1/2 bg-surface mx-auto" />
+        </div>
+      </div>
+    );
+  }
 
   if (!event) {
     return (
@@ -27,7 +39,7 @@ export function EventDetailPage() {
     );
   }
 
-  const day = getDay(event.dayId);
+  const day2 = day;
   return (
     <div className="reveal-up">
       {/* Hero */}
@@ -56,7 +68,7 @@ export function EventDetailPage() {
               {event.category}
             </span>
             <span className="border border-edge px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
-              {day ? `${day.label} · ${day.name}` : "Symposium"}
+              {day2 ? `${day2.label} · ${day2.name}` : "Symposium"}
             </span>
           </div>
 

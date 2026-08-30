@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Users,
@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { getAdminStats, type AdminStats } from "../../lib/adminApi";
-import { getAllEvents } from "../../lib/eventStore";
+import { useAllEvents } from "../../lib/useEvents";
 import { formatFee } from "../../lib/utils";
 import { StatCard } from "../../components/admin/StatCard";
 
@@ -25,7 +25,7 @@ export function AdminDashboardPage() {
     getAdminStats().then(setStats).catch(() => setStats(null));
   }, []);
 
-  const events = useMemo(() => getAllEvents(), []);
+  const { events } = useAllEvents();
 
   if (!stats) {
     return (

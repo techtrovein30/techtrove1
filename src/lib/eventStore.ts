@@ -159,12 +159,14 @@ let _cachedDays: Day[] | null = null;
 
 async function fetchAndCacheDays(): Promise<Day[]> {
   const { data, error } = await supabase.from("events").select("*");
-  if (error || !data || data.length === 0) {
-    // Fall back to static data if Supabase is unreachable or table is empty
-    _cachedDays = staticDays;
-    return staticDays;
+  if (error) {
+    // Supabase unreachable — return whatever is cached (could be stale)
+    console.warn("eventStore: Supabase fetch failed:", error.message);
+    return _cachedDays ?? staticDays.map((d) => ({ ...d, events: [] }));
   }
-  _cachedDays = groupIntoDays(data as EventRow[]);
+  // data may be an empty array if the DB table is empty — that is fine;
+  // we do NOT fall back to the hardcoded static events.
+  _cachedDays = groupIntoDays((data ?? []) as EventRow[]);
   return _cachedDays;
 }
 
@@ -203,20 +205,24 @@ export async function getDaysAsync(): Promise<Day[]> {
   return fetchAndCacheDays();
 }
 
-/** Sync version — returns cached data or static fallback */
+/**
+ * Sync version — returns the DB-loaded cache.
+ * Returns empty events arrays until the first async fetch completes.
+ * Prefer useEvents() hook in React components.
+ */
 export function getDays(): Day[] {
   if (_cachedDays) return _cachedDays;
-  // Trigger async fetch and return static data for now
+  // Kick off background fetch; return day shells with no events for now
   fetchAndCacheDays();
-  return staticDays;
+  return staticDays.map((d) => ({ ...d, events: [] }));
 }
 
-/** Sync version — returns cached or static data */
+/** Sync version — returns DB-cached events (empty until first fetch). Prefer useAllEvents() hook. */
 export function getAllEvents(): TechEvent[] {
   return getDays().flatMap((d) => d.events);
 }
 
-/** Sync version — returns cached or static data */
+/** Sync version — returns DB-cached event (may be undefined until first fetch). Prefer useEvent() hook. */
 export function getEvent(id: string | undefined): TechEvent | undefined {
   if (!id) return undefined;
   return getAllEvents().find((e) => e.id === id);

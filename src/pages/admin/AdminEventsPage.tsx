@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 import {
   getDaysAsync,
-  getAllEvents,
   adminToggleRegistration,
   adminUpdateEvent,
   adminAddEvent,
@@ -324,7 +323,7 @@ export function AdminEventsPage() {
     }
   }
 
-  const allEvents = useMemo(() => getAllEvents(), [days]);
+  const allEvents = useMemo(() => days.flatMap((d) => d.events), [days]);
 
   return (
     <div className="space-y-6">

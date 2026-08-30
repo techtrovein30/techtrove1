@@ -3,7 +3,7 @@ import { BrowserRouter, Route, Routes, useLocation, Navigate } from "react-route
 import { AuthProvider } from "./context/AuthContext";
 import { PublicLayout } from "./components/layout/PublicLayout";
 import { AdminRoute } from "./components/admin/AdminRoute";
-import { seedEventsIfNeeded } from "./lib/eventStore";
+import { getDaysAsync } from "./lib/eventStore";
 
 // Public pages
 import { HomePage } from "./pages/HomePage";
@@ -39,16 +39,16 @@ function ScrollToTop() {
   return null;
 }
 
-function useSeedEvents() {
+function useWarmEventCache() {
   useEffect(() => {
-    // Ensure the events table is populated on any site load so that
-    // registration inserts never hit a missing-event foreign key.
-    seedEventsIfNeeded();
+    // Pre-fetch events from Supabase into memory on app start.
+    // This makes the first page render faster since the cache is already warm.
+    getDaysAsync().catch(() => {});
   }, []);
 }
 
 export default function App() {
-  useSeedEvents();
+  useWarmEventCache();
   return (
     <BrowserRouter>
       <AuthProvider>

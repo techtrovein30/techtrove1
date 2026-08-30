@@ -5,7 +5,7 @@ import {
   adminListRegistrations,
   adminUpdateRegistration,
 } from "../../lib/adminApi";
-import { getAllEvents } from "../../lib/eventStore";
+import { useAllEvents } from "../../lib/useEvents";
 import { formatFee } from "../../lib/utils";
 
 type StatusFilter = "all" | "pending" | "recorded";
@@ -17,7 +17,7 @@ export function AdminPaymentsPage() {
     adminListRegistrations().then(setRegistrations).catch(() => {});
   }, []);
 
-  const events = useMemo(() => getAllEvents(), []);
+  const { events } = useAllEvents();
   const [query, setQuery] = useState("");
   const [eventFilter, setEventFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");

@@ -2,9 +2,11 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Info, Lock } from "lucide-react";
-import { getAllEvents, getEvent } from "../lib/eventStore";
-import type { TechEvent } from "../lib/eventStore";
+import { useAllEvents, useEvent } from "../lib/useEvents";
+import type { TechEvent, Day } from "../lib/eventStore";
+import { days as staticDays } from "../data/techtrove";
 import { formatFee } from "../lib/utils";
+import { cn } from "../lib/utils";
 import { api } from "../lib/mockApi";
 import type { ParticipantType, RegistrationMember } from "../lib/mockApi";
 import { useAuth } from "../context/AuthContext";
@@ -74,7 +76,8 @@ const initialDraft: Draft = {
 export function RegisterPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const preselected = getEvent(searchParams.get("event") ?? undefined);
+  const preselectedEventId = searchParams.get("event") ?? undefined;
+  const { event: preselected } = useEvent(preselectedEventId);
 
   return (
     <div className="reveal-up mx-auto max-w-4xl px-4 pb-24 pt-28 sm:px-6 md:pt-36 lg:px-8">
@@ -86,7 +89,7 @@ export function RegisterPage() {
         {user ? (
           <RegistrationFlow preselectedId={preselected?.id ?? null} />
         ) : (
-          <LoginFirstPanel eventId={preselected?.id ?? null} />
+          <LoginFirstPanel eventId={preselectedEventId ?? null} />
         )}
       </div>
     </div>
@@ -118,21 +121,33 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const teamType: ParticipantType = user?.participantType ?? "internal";
+  const { days, events: allEvents, loading: eventsLoading } = useAllEvents();
+
+  // Resolve preselected event from DB data
+  const preselectedEvent = preselectedId ? allEvents.find((e) => e.id === preselectedId) : undefined;
 
   const [step, setStep] = useState<StepId>(preselectedId ? "terms" : "sport");
   const [draft, setDraft] = useState<Draft>(() => {
     if (!preselectedId) return initialDraft;
-    const ev = getEvent(preselectedId);
-    if (!ev || !ev.registrationOpen) return initialDraft;
-    return {
-      ...initialDraft,
-      eventId: ev.id,
-      members: makeEmptyMembers(ev.requiredPlayers ?? 1, ev.maxSubstitutes ?? 0),
-    };
+    // We can't use preselectedEvent here synchronously on first render — start with eventId set,
+    // members will be fixed once the event loads (see the effect below).
+    return { ...initialDraft, eventId: preselectedId, members: [] };
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
 
-  const event = draft.eventId ? getEvent(draft.eventId) : undefined;
+  // Once events load, populate members + selected day for pre-selected event if not already done
+  useMemo(() => {
+    if (preselectedEvent && draft.eventId === preselectedEvent.id && draft.members.length === 0) {
+      setDraft((d) => ({
+        ...d,
+        members: makeEmptyMembers(preselectedEvent.requiredPlayers ?? 1, preselectedEvent.maxSubstitutes ?? 0),
+      }));
+      setSelectedDayId(preselectedEvent.dayId);
+    }
+  }, [preselectedEvent]);
+
+  const event = draft.eventId ? allEvents.find((e) => e.id === draft.eventId) : undefined;
 
   function selectEvent(ev: TechEvent) {
     setDraft((d) => ({
@@ -140,6 +155,15 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       eventId: ev.id,
       members: makeEmptyMembers(ev.requiredPlayers ?? 1, ev.maxSubstitutes ?? 0),
     }));
+    setSelectedDayId(ev.dayId);
+    setErrors({});
+  }
+
+  function selectDay(dayId: string) {
+    setSelectedDayId(dayId);
+    // Switching days clears any previously chosen event so selection always
+    // belongs to the currently viewed day.
+    setDraft((d) => (d.eventId ? { ...d, eventId: null, members: [] } : d));
     setErrors({});
   }
 
@@ -163,7 +187,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   }
 
   async function handlePayment(): Promise<void> {
-    if (!event) throw new Error("Select a sport first.");
+    if (!event) throw new Error("Select an event first.");
     const registration = await api.createRegistration({
       eventId: event.id,
       teamName: draft.teamName,
@@ -179,8 +203,13 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       case "sport":
         return (
           <SportStep
+            days={days}
             selectedId={draft.eventId}
+            selectedDayId={selectedDayId}
+            onSelectDay={selectDay}
             onSelect={(ev) => selectEvent(ev)}
+            events={allEvents}
+            loading={eventsLoading}
           />
         );
       case "terms":
@@ -222,7 +251,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     const nextErrors: Record<string, string> = {};
 
     if (step === "sport") {
-      if (!draft.eventId) nextErrors.step = "Select a sport to continue.";
+      if (!draft.eventId) nextErrors.step = "Select an event to continue.";
     }
 
     if (step === "terms") {
@@ -306,16 +335,95 @@ const STEP_IDS: StepId[] = ["sport", "terms", "team", "members", "review", "paym
 
 /* ------------------------------ Steps ------------------------------ */
 
-function SportStep({ selectedId, onSelect }: { selectedId: string | null; onSelect: (ev: TechEvent) => void }) {
-  const openEvents = getAllEvents().filter((e) => e.registrationOpen);
+function SportStep({
+  days,
+  selectedId,
+  selectedDayId,
+  onSelectDay,
+  onSelect,
+  events,
+  loading,
+}: {
+  days: Day[];
+  selectedId: string | null;
+  selectedDayId: string | null;
+  onSelectDay: (id: string) => void;
+  onSelect: (ev: TechEvent) => void;
+  events: TechEvent[];
+  loading: boolean;
+}) {
+  // Day shells for the tabs always exist via static data, so the day selector
+  // renders immediately even before the async events fetch completes.
+  const dayTabs = days.length > 0 ? days : staticDays;
+
+  // Determine which day to display. If the selected event belongs to a day,
+  // restore that day even if the user navigated back to this step. Otherwise
+  // default to the first available day so events are visible immediately.
+  const chosenDayId =
+    (selectedId && events.find((e) => e.id === selectedId)?.dayId) || selectedDayId;
+  const defaultDayId = dayTabs.find((d) => d.events.some((e) => e.registrationOpen))?.id ?? dayTabs[0]?.id;
+  const activeDayId = chosenDayId || defaultDayId;
+
+  const activeDay = activeDayId ? dayTabs.find((d) => d.id === activeDayId) : undefined;
+  const dayEvents = events.filter((e) => e.dayId === activeDayId);
+  const openDayEvents = dayEvents.filter((e) => e.registrationOpen);
 
   return (
-    <StepShell title="Select your sport" lead="Pick the Day 1 sport your team is entering. You can register additional teams separately.">
-      {openEvents.length === 0 ? (
-        <p className="text-sm text-muted">No events are open for registration right now.</p>
+    <StepShell
+      title={activeDay ? `Select your ${activeDay.name.toLowerCase()} event` : "Select your event"}
+      lead={
+        activeDay
+          ? `You are viewing ${activeDay.label} · ${activeDay.name}. Pick the event your team is entering. You can register additional teams separately.`
+          : "Choose an event to register for."
+      }
+    >
+      <div role="tablist" aria-label="Select symposium day" className="grid grid-cols-3 gap-3">
+        {dayTabs.map((day) => {
+          const active = activeDayId === day.id;
+          return (
+            <button
+              key={day.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onSelectDay(day.id)}
+              className={cn(
+                "border p-5 text-center transition-colors",
+                active
+                  ? "border-primary bg-primary/20"
+                  : "border-edge-strong bg-background hover:border-primary/60"
+              )}
+            >
+              <span
+                className={cn(
+                  "display block text-2xl",
+                  active ? "text-primary-soft" : "text-foreground"
+                )}
+              >
+                {day.label}
+              </span>
+              <span
+                className={cn(
+                  "mt-1 block text-xs font-bold uppercase tracking-[0.16em]",
+                  active ? "text-primary-soft" : "text-muted"
+                )}
+              >
+                {day.name}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {loading ? (
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          {[1,2,3,4].map((i) => <div key={i} className="animate-pulse h-16 bg-white/10" />)}
+        </div>
+      ) : openDayEvents.length === 0 ? (
+        <p className="mt-6 text-sm text-muted">No events are open for registration on {activeDay!.label} right now.</p>
       ) : (
-        <div role="radiogroup" aria-label="Available sports" className="grid gap-3 sm:grid-cols-2">
-          {openEvents.map((ev) => {
+        <div role="radiogroup" aria-label={`Available events on ${activeDay!.name}`} className="mt-6 grid gap-3 sm:grid-cols-2">
+          {openDayEvents.map((ev) => {
             const active = ev.id === selectedId;
             return (
               <button
@@ -331,19 +439,10 @@ function SportStep({ selectedId, onSelect }: { selectedId: string | null; onSele
                     : "border-edge bg-background hover:border-primary/50")
                 }
               >
-                <span
-                  aria-hidden
-                  className={
-                    "flex h-10 w-10 shrink-0 items-center justify-center border text-xs font-bold " +
-                    (active ? "border-primary bg-primary text-white" : "border-edge-strong text-muted")
-                  }
-                >
-                  {ev.id.replace(/^sport-/, "")}
-                </span>
                 <span className="min-w-0 flex-1">
                   <span className="display block text-lg text-foreground">{ev.name}</span>
-                  <span className="mt-0.5 block truncate text-xs text-muted">
-                    {ev.requiredPlayers} players · {ev.maxSubstitutes} substitutes · {formatFee(ev.registrationFee)}
+                  <span className="mt-0.5 block text-xs text-muted">
+                    {ev.requiredPlayers} player{ev.requiredPlayers === 1 ? "" : "s"} · {ev.maxSubstitutes} substitute{ev.maxSubstitutes === 1 ? "" : "s"} · {formatFee(ev.registrationFee)}
                   </span>
                 </span>
                 {active && <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary-soft">Selected</span>}

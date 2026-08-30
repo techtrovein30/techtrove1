@@ -1,14 +1,44 @@
 import { useSearchParams } from "react-router-dom";
-import { getDays } from "../lib/eventStore";
+import { useEvents } from "../lib/useEvents";
 import { DaySelector } from "../components/site/DaySelector";
 import { EventCard } from "../components/site/EventCard";
 import { ComingSoon } from "../components/site/ComingSoon";
 
 export function EventsPage() {
-  const days = getDays();
+  const { days, loading, error } = useEvents();
   const [searchParams, setSearchParams] = useSearchParams();
-  const requested = searchParams.get("day") ?? days[0].id;
+  const requested = searchParams.get("day") ?? (days[0]?.id ?? "day-1");
   const activeDay = days.find((d) => d.id === requested) ?? days[0];
+
+  if (loading) {
+    return (
+      <div className="reveal-up">
+        <section className="border-b border-edge bg-surface/50">
+          <div className="mx-auto max-w-7xl px-4 pb-14 pt-32 sm:px-6 md:pb-16 md:pt-40 lg:px-8">
+            <p className="eyebrow">Events</p>
+            <h1 className="display mt-3 text-5xl animated-gradient-text drop-shadow-2xl sm:text-7xl">Explore events</h1>
+          </div>
+        </section>
+        <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="animate-pulse border border-edge bg-surface h-48" />
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (error || !days.length) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 pb-24 pt-40 text-center sm:px-6">
+        <p className="eyebrow">Error</p>
+        <h1 className="display mt-3 text-4xl text-foreground">Could not load events</h1>
+        <p className="mt-4 text-sm text-muted">{error ?? "No events found."}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="reveal-up">

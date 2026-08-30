@@ -4,7 +4,7 @@ import { ArrowRight, Copy, Check, CreditCard, Users, CalendarDays } from "lucide
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/mockApi";
 import type { Registration } from "../lib/mockApi";
-import { getEvent } from "../lib/eventStore";
+import { useEvent } from "../lib/useEvents";
 import type { TechEvent } from "../lib/eventStore";
 import { siteConfig } from "../data/techtrove";
 
@@ -48,7 +48,7 @@ function RegStatusBadge({ status }: { status: string }) {
 
 function RegistrationCard({ registration }: { registration: Registration }) {
   const [copied, setCopied] = useState(false);
-  const event: TechEvent | undefined = getEvent(registration.eventId);
+  const { event }: { event: TechEvent | undefined } = useEvent(registration.eventId);
 
   function copyCode() {
     navigator.clipboard.writeText(registration.registrationCode).then(() => {

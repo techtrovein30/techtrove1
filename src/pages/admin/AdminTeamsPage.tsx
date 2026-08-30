@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Search, Users, X } from "lucide-react";
 import type { Registration } from "../../lib/mockApi";
 import { adminListRegistrations } from "../../lib/adminApi";
-import { getAllEvents } from "../../lib/eventStore";
+import { useAllEvents } from "../../lib/useEvents";
 import { formatFee } from "../../lib/utils";
 
 export function AdminTeamsPage() {
@@ -12,7 +12,7 @@ export function AdminTeamsPage() {
     adminListRegistrations().then(setRegistrations).catch(() => {});
   }, []);
 
-  const events = useMemo(() => getAllEvents(), []);
+  const { events } = useAllEvents();
   const [query, setQuery] = useState("");
   const [eventFilter, setEventFilter] = useState("all");
   const [selectedTeam, setSelectedTeam] = useState<Registration | null>(null);

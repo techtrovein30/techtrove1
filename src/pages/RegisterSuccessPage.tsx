@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, BadgeCheck } from "lucide-react";
-import { getEvent } from "../lib/eventStore";
+import { useEvent } from "../lib/useEvents";
 import { formatFee } from "../lib/utils";
 import { api } from "../lib/mockApi";
 import type { Registration } from "../lib/mockApi";
@@ -32,7 +32,7 @@ export function RegisterSuccessPage() {
     };
   }, [code]);
 
-  const event = registration ? getEvent(registration.eventId) : undefined;
+  const { event } = useEvent(registration?.eventId);
 
   return (
     <div className="reveal-up mx-auto max-w-3xl px-4 pb-24 pt-28 text-center sm:px-6 md:pt-36">

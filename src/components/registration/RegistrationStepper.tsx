@@ -6,7 +6,7 @@ export const STEP_ORDER = ["sport", "terms", "team", "members", "review", "payme
 export type StepId = (typeof STEP_ORDER)[number];
 
 const LABELS: Record<StepId, string> = {
-  sport: "Sport",
+  sport: "Event",
   terms: "Terms",
   team: "Team",
   members: "Members",

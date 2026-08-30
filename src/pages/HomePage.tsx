@@ -1,14 +1,14 @@
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { siteConfig } from "../data/techtrove";
-import { getDays } from "../lib/eventStore";
+import { useEvents } from "../lib/useEvents";
 import { EventCard } from "../components/site/EventCard";
 import { Marquee } from "../components/site/Marquee";
 
 export function HomePage() {
-  const days = getDays();
-  const day1 = days[0];
-  const featured = day1.events.slice(0, 3);
+  const { days, loading } = useEvents();
+  const day1 = days.find((d) => d.id === "day-1");
+  const featured = day1?.events.slice(0, 3) ?? [];
 
   return (
     <div className="reveal-up">
@@ -160,9 +160,17 @@ export function HomePage() {
           </div>
 
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {featured.map((event, i) => (
-              <EventCard key={event.id} event={event} index={i} />
-            ))}
+            {loading ? (
+              [1, 2, 3].map((i) => (
+                <div key={i} className="animate-pulse border border-edge bg-surface h-48" />
+              ))
+            ) : featured.length > 0 ? (
+              featured.map((event, i) => (
+                <EventCard key={event.id} event={event} index={i} />
+              ))
+            ) : (
+              <p className="col-span-3 text-sm text-muted">Events loading from database…</p>
+            )}
           </div>
         </div>
       </section>

@@ -16,7 +16,7 @@ import {
   adminDeleteUser,
   adminGetAllRegistrationCounts,
 } from "../../lib/adminApi";
-import { getAllEvents } from "../../lib/eventStore";
+import { useAllEvents } from "../../lib/useEvents";
 import { formatFee } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 
@@ -37,7 +37,7 @@ function StudentDetail({
   onDeleted: (id: string) => void;
   onUpdated: (u: User) => void;
 }) {
-  const events = useMemo(() => getAllEvents(), []);
+  const { events } = useAllEvents();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
 
   useEffect(() => {
