@@ -1,21 +1,17 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt } from "lucide-react";
 import type { Registration } from "../../lib/mockApi";
 import {
-  adminListRegistrations,
   adminUpdateRegistration,
 } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
+import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
 
 type StatusFilter = "all" | "pending" | "recorded";
 
 export function AdminPaymentsPage() {
-  const [registrations, setRegistrations] = useState<Registration[]>([]);
-
-  useEffect(() => {
-    adminListRegistrations().then(setRegistrations).catch(() => {});
-  }, []);
+  const { registrations, refresh } = useAdminRegistrations();
 
   const { events } = useAllEvents();
   const [query, setQuery] = useState("");
@@ -62,12 +58,10 @@ export function AdminPaymentsPage() {
     try {
       const nextStatus =
         reg.paymentStatus === "recorded" ? "pending" : "recorded";
-      const updated = await adminUpdateRegistration(reg.id, {
+      await adminUpdateRegistration(reg.id, {
         paymentStatus: nextStatus,
       });
-      setRegistrations((prev) =>
-        prev.map((r) => (r.id === updated.id ? updated : r))
-      );
+      refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Update failed.");
     }

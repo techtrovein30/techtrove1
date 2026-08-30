@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Search,
   X,
@@ -12,11 +12,11 @@ import {
 } from "lucide-react";
 import type { Registration } from "../../lib/mockApi";
 import {
-  adminListRegistrations,
   adminUpdateRegistration,
   adminDeleteRegistration,
 } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
+import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 
@@ -212,11 +212,7 @@ function RegistrationDetail({
 }
 
 export function AdminRegistrationsPage() {
-  const [registrations, setRegistrations] = useState<Registration[]>([]);
-
-  useEffect(() => {
-    adminListRegistrations().then(setRegistrations).catch(() => {});
-  }, []);
+  const { registrations, refresh } = useAdminRegistrations();
 
   const { events } = useAllEvents();
   const [query, setQuery] = useState("");
@@ -246,15 +242,15 @@ export function AdminRegistrationsPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const handleDeleted = useCallback((id: string) => {
-    setRegistrations((prev) => prev.filter((r) => r.id !== id));
+  const handleDeleted = useCallback(() => {
+    refresh();
     setSelected(null);
-  }, []);
+  }, [refresh]);
 
   const handleUpdated = useCallback((updated: Registration) => {
-    setRegistrations((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+    refresh();
     setSelected(updated);
-  }, []);
+  }, [refresh]);
 
   function exportCSV() {
     if (filtered.length === 0) return;

@@ -16,21 +16,55 @@ import { getAdminStats, type AdminStats } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
 import { formatFee } from "../../lib/utils";
 import { StatCard } from "../../components/admin/StatCard";
+import { supabase } from "../../lib/supabase";
 
 export function AdminDashboardPage() {
   const { user } = useAuth();
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  function fetchStats() {
+    getAdminStats()
+      .then(setStats)
+      .catch((e) => {
+        console.error("Dashboard error:", e);
+        setErrorMsg(e instanceof Error ? e.message : String(e));
+        setStats(null);
+      });
+  }
+
+  // ... (keep useEffect and useAllEvents the same)
   useEffect(() => {
-    getAdminStats().then(setStats).catch(() => setStats(null));
+    fetchStats();
+
+    // Listen to changes on participant and registration tables
+    const channel = supabase
+      .channel("admin-dashboard-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, fetchStats)
+      .on("postgres_changes", { event: "*", schema: "public", table: "registrations_internal" }, fetchStats)
+      .on("postgres_changes", { event: "*", schema: "public", table: "registrations_external" }, fetchStats)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const { events } = useAllEvents();
 
+  if (errorMsg) {
+    return (
+      <div className="flex flex-col h-64 items-center justify-center text-red-500 gap-4">
+        <p className="font-bold">Unable to load statistics.</p>
+        <p className="font-mono text-sm bg-black/20 p-4 rounded-md">{errorMsg}</p>
+      </div>
+    );
+  }
+
   if (!stats) {
     return (
       <div className="flex h-64 items-center justify-center text-muted">
-        Unable to load statistics.
+        Loading statistics...
       </div>
     );
   }

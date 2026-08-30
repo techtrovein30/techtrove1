@@ -10,16 +10,6 @@ import type { ParticipantType } from "./mockApi";
 
 // ─── Table names ────────────────────────────────────────────────────────────
 
-export const PARTICIPANT_TABLE_FOR: Record<ParticipantType, string> = {
-  internal: "internal_participants",
-  external: "external_participants",
-};
-
-export const ALL_PARTICIPANT_TABLES = [
-  "internal_participants",
-  "external_participants",
-] as const;
-
 export const REGISTRATION_TABLE_FOR: Record<ParticipantType, string> = {
   internal: "registrations_internal",
   external: "registrations_external",
@@ -45,43 +35,32 @@ export interface ParticipantRow {
   created_at: string;
 }
 
-/** Look a participant up by id across both tables. Returns null if absent. */
+/** Look a participant up by id. Returns null if absent. */
 export async function getParticipantById(id: string): Promise<ParticipantRow | null> {
-  for (const table of ALL_PARTICIPANT_TABLES) {
-    const { data } = await supabase
-      .from(table)
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
-    if (data) return data as unknown as ParticipantRow;
-  }
-  return null;
+  const { data } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  return data ? (data as unknown as ParticipantRow) : null;
 }
 
-/** Look a participant up by email across both tables. Returns null if absent. */
+/** Look a participant up by email. Returns null if absent. */
 export async function getParticipantByEmail(email: string): Promise<ParticipantRow | null> {
   const normalized = email.trim().toLowerCase();
-  for (const table of ALL_PARTICIPANT_TABLES) {
-    const { data } = await supabase
-      .from(table)
-      .select("*")
-      .ilike("email", normalized)
-      .maybeSingle();
-    if (data) return data as unknown as ParticipantRow;
-  }
-  return null;
+  const { data } = await supabase
+    .from("profiles")
+    .select("*")
+    .ilike("email", normalized)
+    .maybeSingle();
+  return data ? (data as unknown as ParticipantRow) : null;
 }
 
-/** All participants from both tables (used by the admin panel). */
+/** All participants (used by the admin panel). */
 export async function getAllParticipants(): Promise<ParticipantRow[]> {
-  const [internal, external] = await Promise.all([
-    supabase.from("internal_participants").select("*"),
-    supabase.from("external_participants").select("*"),
-  ]);
-  return [
-    ...((internal.data ?? []) as unknown as ParticipantRow[]),
-    ...((external.data ?? []) as unknown as ParticipantRow[]),
-  ];
+  const { data, error } = await supabase.from("profiles").select("*");
+  if (error) console.error("getAllParticipants error:", error);
+  return (data ?? []) as unknown as ParticipantRow[];
 }
 
 // ─── Registration rows ──────────────────────────────────────────────────────
@@ -140,6 +119,10 @@ export async function getAllRegistrations(): Promise<RegistrationRow[]> {
       .select("*")
       .order("created_at", { ascending: false }),
   ]);
+  
+  if (internal.error) console.error("getAllRegistrations internal error:", internal.error);
+  if (external.error) console.error("getAllRegistrations external error:", external.error);
+
   return [
     ...((internal.data ?? []) as unknown as RegistrationRow[]),
     ...((external.data ?? []) as unknown as RegistrationRow[]),

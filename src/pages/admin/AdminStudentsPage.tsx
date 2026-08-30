@@ -10,13 +10,13 @@ import {
 } from "lucide-react";
 import type { User, Registration } from "../../lib/mockApi";
 import {
-  adminListUsers,
   adminGetUserRegistrations,
   adminUpdateUser,
   adminDeleteUser,
   adminGetAllRegistrationCounts,
 } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
+import { useAdminUsers } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 
@@ -306,14 +306,13 @@ function StudentDetail({
 // ─── Main Students Page ────────────────────────────────────────────────────
 
 export function AdminStudentsPage() {
-  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const { users: allUsers, refresh } = useAdminUsers();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<User | null>(null);
 
   useEffect(() => {
-    adminListUsers().then(setAllUsers).catch(() => {});
     adminGetAllRegistrationCounts().then(setRegistrationCounts).catch(() => {});
   }, []);
 
@@ -339,15 +338,15 @@ export function AdminStudentsPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const handleUserDeleted = useCallback((id: string) => {
-    setAllUsers((prev) => prev.filter((u) => u.id !== id));
+  const handleUserDeleted = useCallback(() => {
+    refresh();
     setSelected(null);
-  }, []);
+  }, [refresh]);
 
   const handleUserUpdated = useCallback((updated: User) => {
-    setAllUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    refresh();
     setSelected(updated);
-  }, []);
+  }, [refresh]);
 
   return (
     <div className="space-y-6">

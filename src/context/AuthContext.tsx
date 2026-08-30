@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
 import { supabase } from "../lib/supabase";
 import { api } from "../lib/mockApi";
 import type { User, ParticipantType } from "../lib/mockApi";
-import { getParticipantById, PARTICIPANT_TABLE_FOR } from "../lib/db";
+import { getParticipantById } from "../lib/db";
 import type { ParticipantRow } from "../lib/db";
 
 interface GooglePendingProfile {
@@ -197,8 +197,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role: "user" as const,
         };
 
-        const table = PARTICIPANT_TABLE_FOR[input.participantType];
-        const { error } = await supabase.from(table).upsert(profileData, { onConflict: "id" });
+        const { error } = await supabase
+          .from("profiles")
+          .insert(profileData)
+          .select()
+          .single();
         if (error) throw new Error(error.message);
 
         const newUser: User = {

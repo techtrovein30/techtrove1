@@ -1,20 +1,25 @@
 /**
  * useEvents.ts
  * ------------
- * React hooks that load event data exclusively from Supabase.
+ * React hooks that load event data exclusively from Supabase and subscribe
+ * to real-time changes so that admin edits are instantly reflected everywhere.
  *
- * All public pages and admin pages should use these hooks instead of
- * the synchronous getDays() / getAllEvents() / getEvent() calls so
- * that the displayed data always reflects what is in the database.
+ * Flow:
+ *   Admin saves event → Supabase events table updated
+ *     → Realtime channel fires
+ *       → getDaysAsync() re-fetches
+ *         → React state updates
+ *           → Every open tab shows new data immediately (no refresh needed)
  */
 
 import { useState, useEffect } from "react";
+import { supabase } from "./supabase";
 import { getDaysAsync } from "./eventStore";
 import type { Day, TechEvent } from "./eventStore";
 
-export type { Day }; 
+export type { Day };
 
-// ─── useEvents ─────────────────────────────────────────────────────────────
+// ─── useEvents ──────────────────────────────────────────────────────────────
 
 interface UseEventsResult {
   days: Day[];
@@ -24,19 +29,22 @@ interface UseEventsResult {
 }
 
 /**
- * Fetches all days (with their events) from Supabase.
- * Use on EventsPage, HomePage, etc.
+ * Fetches all days (with events) from Supabase and keeps them live via
+ * Supabase Realtime.  Any INSERT / UPDATE / DELETE on the `events` table
+ * will automatically re-fetch and update the returned `days` array.
  */
 export function useEvents(): UseEventsResult {
   const [days, setDays] = useState<Day[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
+  const [tick, setTick] = useState(0); // manual reload trigger
 
+  // ── initial fetch + re-fetch on manual reload ─────────────────────────
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+
     getDaysAsync()
       .then((d) => {
         if (!cancelled) {
@@ -50,13 +58,39 @@ export function useEvents(): UseEventsResult {
           setLoading(false);
         }
       });
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+    };
   }, [tick]);
+
+  // ── Supabase Realtime subscription ────────────────────────────────────
+  // Listens for any change on the `events` table and re-fetches the full
+  // day+event tree.  This makes admin edits appear instantly everywhere.
+  useEffect(() => {
+    const channel = supabase
+      .channel("events-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "events" },
+        () => {
+          // Re-fetch from Supabase when any event row changes
+          getDaysAsync()
+            .then(setDays)
+            .catch(() => {}); // silently ignore — we still have cached data
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []); // only once per mount
 
   return { days, loading, error, reload: () => setTick((t) => t + 1) };
 }
 
-// ─── useAllEvents ───────────────────────────────────────────────────────────
+// ─── useAllEvents ────────────────────────────────────────────────────────────
 
 interface UseAllEventsResult {
   days: Day[];
@@ -67,8 +101,8 @@ interface UseAllEventsResult {
 }
 
 /**
- * All days (with their events) plus a flat list of all events.
- * Use in admin pages and RegisterPage's event picker.
+ * All days (with their events) + a flat list of all events, kept live via
+ * Realtime.  Use in admin pages and RegisterPage's event picker.
  */
 export function useAllEvents(): UseAllEventsResult {
   const { days, loading, error, reload } = useEvents();
@@ -76,7 +110,7 @@ export function useAllEvents(): UseAllEventsResult {
   return { days, events, loading, error, reload };
 }
 
-// ─── useEvent ───────────────────────────────────────────────────────────────
+// ─── useEvent ────────────────────────────────────────────────────────────────
 
 interface UseEventResult {
   event: TechEvent | undefined;
@@ -86,7 +120,7 @@ interface UseEventResult {
 }
 
 /**
- * Looks up a single event by ID.
+ * Looks up a single event by ID, kept live via Realtime.
  * Use in EventDetailPage, RegisterSuccessPage, ProfilePage, etc.
  */
 export function useEvent(eventId: string | undefined): UseEventResult {

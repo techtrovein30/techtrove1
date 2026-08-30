@@ -12,7 +12,6 @@ import { supabase } from "./supabase";
 import type { User, Registration, RegistrationMember, PaymentStatus } from "./mockApi";
 import { resolveEmailByIdentifier } from "./mockApi";
 import {
-  PARTICIPANT_TABLE_FOR,
   ALL_REGISTRATION_TABLES,
   getParticipantById,
   getAllParticipants,
@@ -248,7 +247,6 @@ export async function adminUpdateUser(userId: string, patch: AdminUserPatch): Pr
 
   const row = await getParticipantById(userId);
   if (!row) throw new Error("User not found.");
-  const table = PARTICIPANT_TABLE_FOR[row.participant_type];
 
   const update: { full_name?: string; college?: string; phone?: string } = {};
   if (patch.fullName !== undefined) update.full_name = patch.fullName.trim();
@@ -256,7 +254,7 @@ export async function adminUpdateUser(userId: string, patch: AdminUserPatch): Pr
   if (patch.phone !== undefined) update.phone = patch.phone.trim();
 
   const { data, error } = await supabase
-    .from(table)
+    .from("profiles")
     .update(update)
     .eq("id", userId)
     .neq("role", "admin")
@@ -278,10 +276,9 @@ export async function adminDeleteUser(userId: string): Promise<void> {
 
   const row = await getParticipantById(userId);
   if (!row) throw new Error("User not found.");
-  const table = PARTICIPANT_TABLE_FOR[row.participant_type];
 
   const { error } = await supabase
-    .from(table)
+    .from("profiles")
     .delete()
     .eq("id", userId)
     .neq("role", "admin");
