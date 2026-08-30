@@ -45,6 +45,7 @@ interface AuthContextValue {
   /** Complete profile for a Google OAuth user who signed in for the first time */
   completeGoogleProfile: (input: {
     participantType: ParticipantType;
+    fullName: string;
     regNumber?: string;
     college?: string;
     phone?: string;
@@ -150,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 regNumber: input.regNumber ?? "",
                 email: input.email ?? "",
                 password: input.password,
+                phone: input.phone ?? "",
               })
             : await api.signUpExternal({
                 fullName: input.fullName,
@@ -173,7 +175,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async completeGoogleProfile(input) {
         if (!googlePendingProfile) throw new Error("No pending Google profile to complete.");
 
-        const { authUserId, email, fullName } = googlePendingProfile;
+        const { authUserId, email } = googlePendingProfile;
+        const fullName = input.fullName;
         const username = fullName
           .trim()
           .toLowerCase()

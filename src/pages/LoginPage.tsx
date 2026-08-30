@@ -51,6 +51,12 @@ export function LoginPage() {
   const next = searchParams.get("next") ?? "/register";
   const [createdUsername, setCreatedUsername] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (googlePendingProfile && !form.fullName) {
+      setForm((f) => ({ ...f, fullName: googlePendingProfile.fullName }));
+    }
+  }, [googlePendingProfile]);
+
   // After OAuth (or any sign-in), the browser lands back on /login with an
   // active session. Only move the user onward once they have a completed
   // profile. Google users without one must finish the "Complete profile"
@@ -80,17 +86,24 @@ export function LoginPage() {
     setError(null);
     setBusy(true);
     try {
+      if (!form.fullName.trim()) {
+        throw new Error("Full name is required.");
+      }
       if (participantType === "internal") {
-        if (!form.regNumber.trim()) {
-          throw new Error("Registration number is required for SIMATS students.");
+        if (!form.regNumber.trim() || !form.phone.trim()) {
+          throw new Error("Registration number and phone number are required for SIMATS students.");
         }
       } else {
         if (!form.college.trim() || !form.phone.trim()) {
           throw new Error("College and phone number are required for external participants.");
         }
       }
+      if (form.phone && !/^\d{10}$/.test(form.phone.trim())) {
+        throw new Error("Phone number must be exactly 10 digits.");
+      }
       await completeGoogleProfile({
         participantType,
+        fullName: form.fullName.trim(),
         regNumber: form.regNumber || undefined,
         college: form.college || undefined,
         phone: form.phone || undefined,
@@ -114,11 +127,14 @@ export function LoginPage() {
         }
         await signIn(form.identifier, form.password);
       } else if (participantType === "internal") {
-        if (!form.fullName.trim() || !form.regNumber.trim() || !form.email.trim() || !form.password) {
+        if (!form.fullName.trim() || !form.regNumber.trim() || !form.email.trim() || !form.phone.trim() || !form.password) {
           throw new Error("Fill in all required fields.");
         }
         if (!/^[^\s@]+@saveetha\.[a-z.]+$/i.test(form.email.trim())) {
           throw new Error("Internal students must register with their Saveetha email (e.g. name@saveetha.com).");
+        }
+        if (!/^\d{10}$/.test(form.phone.trim())) {
+          throw new Error("Phone number must be exactly 10 digits.");
         }
         if (form.password.length < 6) {
           throw new Error("Password must be at least 6 characters.");
@@ -138,6 +154,9 @@ export function LoginPage() {
         }
         if (!/^\S+@\S+\.\S+$/.test(form.email)) {
           throw new Error("Enter a valid email address.");
+        }
+        if (!/^\d{10}$/.test(form.phone.trim())) {
+          throw new Error("Phone number must be exactly 10 digits.");
         }
         if (form.password.length < 6) {
           throw new Error("Password must be at least 6 characters.");
@@ -232,10 +251,11 @@ export function LoginPage() {
             <form onSubmit={handleProfileComplete} noValidate className="mt-6 space-y-5">
               <Field
                 label="Full name"
-                value={googlePendingProfile.fullName}
-                readOnly
-                className="cursor-not-allowed text-muted"
-                hint="From your Google account."
+                required
+                value={form.fullName}
+                onChange={set("fullName")}
+                autoComplete="name"
+                hint="Please verify your name."
               />
               <Field
                 label="Email"
@@ -246,14 +266,24 @@ export function LoginPage() {
               />
 
               {participantType === "internal" ? (
-                <Field
-                  label="Registration number"
-                  required
-                  value={form.regNumber}
-                  onChange={set("regNumber")}
-                  autoComplete="off"
-                  placeholder="e.g. 230701XXX"
-                />
+                <>
+                  <Field
+                    label="Registration number"
+                    required
+                    value={form.regNumber}
+                    onChange={set("regNumber")}
+                    autoComplete="off"
+                    placeholder="e.g. 230701XXX"
+                  />
+                  <Field
+                    label="Phone number"
+                    required
+                    type="tel"
+                    value={form.phone}
+                    onChange={set("phone")}
+                    autoComplete="tel"
+                  />
+                </>
               ) : (
                 <>
                   <Field
@@ -430,6 +460,14 @@ export function LoginPage() {
                     onChange={set("email")}
                     autoComplete="email"
                     hint="Your official Saveetha mail id (e.g. name@saveetha.com)."
+                  />
+                  <Field
+                    label="Phone number"
+                    type="tel"
+                    required
+                    value={form.phone}
+                    onChange={set("phone")}
+                    autoComplete="tel"
                   />
                 </>
               ) : (

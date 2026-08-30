@@ -132,6 +132,7 @@ export const api = {
     regNumber: string;
     email: string;
     password: string;
+    phone: string;
   }): Promise<User> {
     const email = input.email.trim().toLowerCase();
     if (!isSaveethaEmail(email)) {
@@ -152,6 +153,7 @@ export const api = {
           participant_type: "internal",
           reg_number: input.regNumber.trim().toUpperCase(),
           college: "SIMATS",
+          phone: input.phone.trim(),
           role: "user",
         },
       },
@@ -179,7 +181,7 @@ export const api = {
       participant_type: "internal",
       reg_number: input.regNumber.trim().toUpperCase(),
       college: "SIMATS",
-      phone: null,
+      phone: input.phone.trim(),
       role: "user",
       created_at: new Date().toISOString(),
     };
@@ -213,6 +215,7 @@ export const api = {
         participantType: "internal",
         regNumber: input.regNumber.trim().toUpperCase(),
         college: "SIMATS",
+        phone: input.phone.trim(),
         role: "user",
       };
     }
