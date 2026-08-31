@@ -31,6 +31,7 @@ export interface ParticipantRow {
   reg_number: string | null;
   college: string | null;
   phone: string | null;
+  id_card_path?: string | null;
   role: "user" | "admin" | null;
   created_at: string;
 }
@@ -192,6 +193,7 @@ export interface RegistrationRow {
   members: unknown;
   created_at: string;
   utr_number?: string;
+  payment_screenshot_path?: string;
   payment_screenshot_url?: string;
 }
 

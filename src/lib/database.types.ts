@@ -35,6 +35,7 @@ export interface Database {
           reg_number: string | null;
           college: string | null;
           phone: string | null;
+          id_card_path: string | null;
           role: "user" | "admin";
           created_at: string;
         };
@@ -47,6 +48,7 @@ export interface Database {
           reg_number?: string | null;
           college?: string | null;
           phone?: string | null;
+          id_card_path?: string | null;
           role?: "user" | "admin";
           created_at?: string;
         };
@@ -58,6 +60,7 @@ export interface Database {
           reg_number?: string | null;
           college?: string | null;
           phone?: string | null;
+          id_card_path?: string | null;
           role?: "user" | "admin";
         };
       };
@@ -71,6 +74,7 @@ export interface Database {
           reg_number: string | null;
           college: string | null;
           phone: string | null;
+          id_card_path: string | null;
           role: "user" | "admin";
           created_at: string;
         };
@@ -83,6 +87,7 @@ export interface Database {
           reg_number?: string | null;
           college?: string | null;
           phone?: string | null;
+          id_card_path?: string | null;
           role?: "user" | "admin";
           created_at?: string;
         };
@@ -94,6 +99,7 @@ export interface Database {
           reg_number?: string | null;
           college?: string | null;
           phone?: string | null;
+          id_card_path?: string | null;
           role?: "user" | "admin";
         };
       };
@@ -146,6 +152,9 @@ export interface Database {
           terms_accepted: boolean;
           members: RegistrationMember[];
           created_at: string;
+          utr_number?: string | null;
+          payment_screenshot_path?: string | null;
+          payment_screenshot_url?: string | null;
         };
         Insert: {
           id?: string;
@@ -159,6 +168,9 @@ export interface Database {
           terms_accepted?: boolean;
           members?: RegistrationMember[];
           created_at?: string;
+          utr_number?: string | null;
+          payment_screenshot_path?: string | null;
+          payment_screenshot_url?: string | null;
         };
         Update: {
           team_name?: string;
@@ -167,6 +179,9 @@ export interface Database {
           payment_status?: "pending" | "recorded";
           terms_accepted?: boolean;
           members?: RegistrationMember[];
+          utr_number?: string | null;
+          payment_screenshot_path?: string | null;
+          payment_screenshot_url?: string | null;
         };
       };
       events: {
