@@ -62,12 +62,17 @@ export function useAdminUsers() {
   useEffect(() => {
     fetchUsers();
 
-    // Listen to changes on the profiles table
+    // Listen to changes on both split participant tables
     const channel = supabase
       .channel("admin-users-sync")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
+        { event: "*", schema: "public", table: "internal_participants" },
+        () => fetchUsers()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "external_participants" },
         () => fetchUsers()
       )
       .subscribe();

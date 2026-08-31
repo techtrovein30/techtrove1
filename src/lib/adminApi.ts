@@ -20,6 +20,7 @@ import {
   getRegistrationCountsByUser,
   getRegistrationById,
   findRegistrationTableById,
+  findParticipantTableById,
 } from "./db";
 import type { ParticipantRow, RegistrationRow } from "./db";
 
@@ -248,13 +249,16 @@ export async function adminUpdateUser(userId: string, patch: AdminUserPatch): Pr
   const row = await getParticipantById(userId);
   if (!row) throw new Error("User not found.");
 
+  const table = await findParticipantTableById(userId);
+  if (!table) throw new Error("User not found.");
+
   const update: { full_name?: string; college?: string; phone?: string } = {};
   if (patch.fullName !== undefined) update.full_name = patch.fullName.trim();
   if (patch.college !== undefined) update.college = patch.college.trim();
   if (patch.phone !== undefined) update.phone = patch.phone.trim();
 
   const { data, error } = await supabase
-    .from("profiles")
+    .from(table)
     .update(update)
     .eq("id", userId)
     .neq("role", "admin")
@@ -277,8 +281,11 @@ export async function adminDeleteUser(userId: string): Promise<void> {
   const row = await getParticipantById(userId);
   if (!row) throw new Error("User not found.");
 
+  const table = await findParticipantTableById(userId);
+  if (!table) throw new Error("User not found.");
+
   const { error } = await supabase
-    .from("profiles")
+    .from(table)
     .delete()
     .eq("id", userId)
     .neq("role", "admin");

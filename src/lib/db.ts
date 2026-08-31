@@ -36,31 +36,145 @@ export interface ParticipantRow {
 }
 
 /** Look a participant up by id. Returns null if absent. */
-export async function getParticipantById(id: string): Promise<ParticipantRow | null> {
-  const { data } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  return data ? (data as unknown as ParticipantRow) : null;
+export async function getParticipantById(
+  id: string,
+): Promise<ParticipantRow | null> {
+  const [internal, external] = await Promise.all([
+    supabase
+      .from("internal_participants")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle(),
+
+    supabase
+      .from("external_participants")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle(),
+  ]);
+
+  if (internal.error) {
+    console.error("getParticipantById internal error:", internal.error);
+    throw new Error(internal.error.message);
+  }
+
+  if (external.error) {
+    console.error("getParticipantById external error:", external.error);
+    throw new Error(external.error.message);
+  }
+
+  // A user should exist in exactly one participant table.
+  if (internal.data && external.data) {
+    console.error(
+      "Data integrity error: participant exists in both participant tables:",
+      id,
+    );
+    throw new Error("Participant exists in both participant tables.");
+  }
+
+  return (
+    (internal.data as unknown as ParticipantRow | null) ??
+    (external.data as unknown as ParticipantRow | null) ??
+    null
+  );
 }
 
 /** Look a participant up by email. Returns null if absent. */
-export async function getParticipantByEmail(email: string): Promise<ParticipantRow | null> {
+export async function getParticipantByEmail(
+  email: string,
+): Promise<ParticipantRow | null> {
   const normalized = email.trim().toLowerCase();
-  const { data } = await supabase
-    .from("profiles")
-    .select("*")
-    .ilike("email", normalized)
-    .maybeSingle();
-  return data ? (data as unknown as ParticipantRow) : null;
+
+  const [internal, external] = await Promise.all([
+    supabase
+      .from("internal_participants")
+      .select("*")
+      .ilike("email", normalized)
+      .maybeSingle(),
+
+    supabase
+      .from("external_participants")
+      .select("*")
+      .ilike("email", normalized)
+      .maybeSingle(),
+  ]);
+
+  if (internal.error) {
+    console.error("getParticipantByEmail internal error:", internal.error);
+    throw new Error(internal.error.message);
+  }
+
+  if (external.error) {
+    console.error("getParticipantByEmail external error:", external.error);
+    throw new Error(external.error.message);
+  }
+
+  // Email should belong to exactly one participant.
+  if (internal.data && external.data) {
+    console.error(
+      "Data integrity error: email exists in both participant tables:",
+      normalized,
+    );
+    throw new Error("Participant email exists in both participant tables.");
+  }
+
+  return (
+    (internal.data as unknown as ParticipantRow | null) ??
+    (external.data as unknown as ParticipantRow | null) ??
+    null
+  );
 }
 
 /** All participants (used by the admin panel). */
 export async function getAllParticipants(): Promise<ParticipantRow[]> {
-  const { data, error } = await supabase.from("profiles").select("*");
-  if (error) console.error("getAllParticipants error:", error);
-  return (data ?? []) as unknown as ParticipantRow[];
+  const [internal, external] = await Promise.all([
+    supabase
+      .from("internal_participants")
+      .select("*")
+      .order("created_at", { ascending: false }),
+
+    supabase
+      .from("external_participants")
+      .select("*")
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (internal.error) {
+    console.error("getAllParticipants internal error:", internal.error);
+    throw new Error(internal.error.message);
+  }
+
+  if (external.error) {
+    console.error("getAllParticipants external error:", external.error);
+    throw new Error(external.error.message);
+  }
+
+  return [
+    ...((internal.data ?? []) as unknown as ParticipantRow[]),
+    ...((external.data ?? []) as unknown as ParticipantRow[]),
+  ].sort((a, b) =>
+    a.created_at > b.created_at ? -1 : 1,
+  );
+}
+
+export const ALL_PARTICIPANT_TABLES = [
+  "internal_participants",
+  "external_participants",
+] as const;
+
+/** Find which split participant table holds a participant id. Returns null if absent. */
+export async function findParticipantTableById(
+  userId: string,
+): Promise<string | null> {
+  for (const table of ALL_PARTICIPANT_TABLES) {
+    const { data } = await supabase
+      .from(table)
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+    if (data) return table;
+  }
+  return null;
 }
 
 // ─── Registration rows ──────────────────────────────────────────────────────

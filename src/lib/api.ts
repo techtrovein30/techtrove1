@@ -3,8 +3,8 @@
  * ----------
  * User-facing data layer for TechTrove 3.0.
  *
- * All localStorage usage has been replaced with Supabase Auth (for
- * sign-up / sign-in / sign-out) and Supabase Postgres (for registrations).
+ * Participant authentication is handled only through Google OAuth (see
+ * AuthContext); this module manages registrations against Supabase Postgres.
  *
  * The exported `api` object and all TypeScript types keep the same
  * signatures as before so that no page component needs to change.
@@ -18,7 +18,7 @@ import {
   getRegistrationsByUser,
   getRegistrationByCode,
 } from "./db";
-import type { ParticipantRow, RegistrationRow } from "./db";
+import type { RegistrationRow } from "./db";
 
 // Type-only import to keep db.ts's type import from forming a runtime cycle
 export type { ParticipantRow } from "./db";
@@ -37,10 +37,6 @@ export interface User {
   college?: string;
   phone?: string;
   role?: "user" | "admin";
-}
-
-export interface Session {
-  userId: string;
 }
 
 export type MemberRole = "player" | "substitute";
@@ -75,23 +71,9 @@ export interface Registration {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function isSaveethaEmail(email: string): boolean {
-  return /^[^\s@]+@saveetha\.[a-z.]+$/i.test(email.trim());
-}
-
 function makeId(prefix: string): string {
   const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `${prefix}-${rand}`;
-}
-
-function deriveUsername(fullName: string): string {
-  const parts = fullName
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .map((p) => p.replace(/[^a-z0-9]/g, ""))
-    .filter(Boolean);
-  return parts.length > 0 ? parts.join(".") : "member";
 }
 
 /** Find the email for a username or reg-number across both participant tables. */
@@ -110,236 +92,9 @@ export async function resolveEmailByIdentifier(identifier: string): Promise<stri
   return null;
 }
 
-/** Map a Supabase profile row → our User shape */
-function profileToUser(profile: ParticipantRow): User {
-  return {
-    id: profile.id,
-    username: profile.username,
-    fullName: profile.full_name,
-    email: profile.email,
-    participantType: profile.participant_type,
-    regNumber: profile.reg_number ?? undefined,
-    college: profile.college ?? undefined,
-    phone: profile.phone ?? undefined,
-    role: profile.role ?? "user",
-  };
-}
-
 // ─── API ───────────────────────────────────────────────────────────────────
 
 export const api = {
-  // ── Sign up: internal students (Saveetha email required) ─────────────────
-  async signUpInternal(input: {
-    fullName: string;
-    regNumber: string;
-    email: string;
-    password: string;
-    phone: string;
-  }): Promise<User> {
-    const email = input.email.trim().toLowerCase();
-    if (!isSaveethaEmail(email)) {
-      throw new Error(
-        "Internal students must register with their Saveetha email (e.g. name@saveetha.com)."
-      );
-    }
-
-    const username = deriveUsername(input.fullName);
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password: input.password,
-      options: {
-        data: {
-          full_name: input.fullName.trim(),
-          username,
-          participant_type: "internal",
-          reg_number: input.regNumber.trim().toUpperCase(),
-          college: "SIMATS",
-          phone: input.phone.trim(),
-          role: "user",
-        },
-      },
-    });
-
-    if (error) {
-      // Map Supabase errors to user-friendly messages
-      if (error.message.includes("already registered")) {
-        throw new Error(
-          "An account with this email already exists. Try signing in."
-        );
-      }
-      throw new Error(error.message);
-    }
-
-    if (!data.user) throw new Error("Sign-up failed. Please try again.");
-
-    // Write the participant row into the internal table. The DB trigger also
-    // creates one; the role-gate trigger keeps role in sync with the allowlist.
-    const row: ParticipantRow = {
-      id: data.user.id,
-      username,
-      full_name: input.fullName.trim(),
-      email,
-      participant_type: "internal",
-      reg_number: input.regNumber.trim().toUpperCase(),
-      college: "SIMATS",
-      phone: input.phone.trim(),
-      role: "user",
-      created_at: new Date().toISOString(),
-    };
-
-    const { error: insertError } = await supabase
-      .from("internal_participants")
-      .upsert(row, { onConflict: "id" })
-      .select()
-      .single();
-
-    if (insertError) {
-      // Still succeed — the row may already exist via the auth trigger
-      const existing = await getParticipantById(data.user.id);
-      if (existing) return profileToUser(existing);
-    }
-
-    // Fetch the row created by the DB trigger / upsert above
-    const { data: dbRow, error: profileError } = await supabase
-      .from("internal_participants")
-      .select("*")
-      .eq("id", data.user.id)
-      .single();
-
-    if (profileError || !dbRow) {
-      // Trigger lags behind — build from metadata
-      return {
-        id: data.user.id,
-        username,
-        fullName: input.fullName.trim(),
-        email,
-        participantType: "internal",
-        regNumber: input.regNumber.trim().toUpperCase(),
-        college: "SIMATS",
-        phone: input.phone.trim(),
-        role: "user",
-      };
-    }
-
-    return profileToUser(dbRow as unknown as ParticipantRow);
-  },
-
-  // ── Sign up: external participants ────────────────────────────────────────
-  async signUpExternal(input: {
-    fullName: string;
-    email: string;
-    college: string;
-    phone: string;
-    password: string;
-  }): Promise<User> {
-    const email = input.email.trim().toLowerCase();
-    const username = deriveUsername(input.fullName);
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password: input.password,
-      options: {
-        data: {
-          full_name: input.fullName.trim(),
-          username,
-          participant_type: "external",
-          college: input.college.trim(),
-          phone: input.phone.trim(),
-          role: "user",
-        },
-      },
-    });
-
-    if (error) {
-      if (error.message.includes("already registered")) {
-        throw new Error(
-          "An account with this email already exists. Try signing in."
-        );
-      }
-      throw new Error(error.message);
-    }
-
-    if (!data.user) throw new Error("Sign-up failed. Please try again.");
-
-    const row: ParticipantRow = {
-      id: data.user.id,
-      username,
-      full_name: input.fullName.trim(),
-      email,
-      participant_type: "external",
-      reg_number: null,
-      college: input.college.trim(),
-      phone: input.phone.trim(),
-      role: "user",
-      created_at: new Date().toISOString(),
-    };
-
-    const { error: insertError } = await supabase
-      .from("external_participants")
-      .upsert(row, { onConflict: "id" })
-      .select()
-      .single();
-
-    if (insertError) {
-      const existing = await getParticipantById(data.user.id);
-      if (existing) return profileToUser(existing);
-    }
-
-    const { data: dbRow, error: profileError } = await supabase
-      .from("external_participants")
-      .select("*")
-      .eq("id", data.user.id)
-      .single();
-
-    if (profileError || !dbRow) {
-      return {
-        id: data.user.id,
-        username,
-        fullName: input.fullName.trim(),
-        email,
-        participantType: "external",
-        college: input.college.trim(),
-        phone: input.phone.trim(),
-        role: "user",
-      };
-    }
-
-    return profileToUser(dbRow as unknown as ParticipantRow);
-  },
-
-  // ── Sign in ───────────────────────────────────────────────────────────────
-  async signIn(identifier: string, password: string): Promise<User> {
-    // Supabase Auth requires email. If they passed a username/reg-number,
-    // we look up the email first (searched across both participant tables).
-    let email = identifier.trim().toLowerCase();
-    const looksLikeEmail = email.includes("@");
-
-    if (!looksLikeEmail) {
-      const resolved = await resolveEmailByIdentifier(email);
-      if (!resolved) {
-        throw new Error("Invalid credentials. Check your details and try again.");
-      }
-      email = resolved;
-    }
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error || !data.user) {
-      throw new Error("Invalid credentials. Check your details and try again.");
-    }
-
-    const profile = await getParticipantById(data.user.id);
-    if (!profile) {
-      throw new Error("Account profile not found. Please contact support.");
-    }
-
-    return profileToUser(profile);
-  },
-
   // ── Sign out ──────────────────────────────────────────────────────────────
   signOut(): void {
     // Fire-and-forget — AuthContext listens for the state change

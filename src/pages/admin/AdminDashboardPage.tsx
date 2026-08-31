@@ -40,7 +40,8 @@ export function AdminDashboardPage() {
     // Listen to changes on participant and registration tables
     const channel = supabase
       .channel("admin-dashboard-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, fetchStats)
+      .on("postgres_changes", { event: "*", schema: "public", table: "internal_participants" }, fetchStats)
+      .on("postgres_changes", { event: "*", schema: "public", table: "external_participants" }, fetchStats)
       .on("postgres_changes", { event: "*", schema: "public", table: "registrations_internal" }, fetchStats)
       .on("postgres_changes", { event: "*", schema: "public", table: "registrations_external" }, fetchStats)
       .subscribe();

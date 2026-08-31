@@ -155,6 +155,15 @@ drop trigger if exists trg_enforce_admin_allowlist_role on public.profiles;
 -- ── 5) Auth sign-up trigger → correct participant table ───────────────────
 -- Removes the old profile-creation trigger(s) and creates one that routes
 -- new accounts to internal/external based on raw_user_meta_data.
+--
+-- IMPORTANT (Phase 2 — Google-only participant auth):
+--   Google OAuth does not know internal/external before completeGoogleProfile().
+--   Therefore this trigger must NOT auto-create a participant row when
+--   participant_type is unavailable — otherwise a Google user would get an
+--   incomplete (defaulted to internal) row that completeGoogleProfile() could
+--   not correct. Participant rows are created by the app's Google profile
+--   completion flow into the correct split table. So when participant_type is
+--   missing/invalid, this function safely does nothing participant-related.
 drop trigger if exists handle_new_user on auth.users;
 drop trigger if exists on_auth_user_created on auth.users;
 drop trigger if exists on_new_user_created on auth.users;
@@ -166,48 +175,82 @@ security definer
 set search_path = public
 as $$
 declare
-  ptype text := coalesce(new.raw_user_meta_data->>'participant_type', new.raw_user_meta_data->>'type', 'internal');
+  ptype text := nullif(new.raw_user_meta_data->>'participant_type', '');
 begin
-  if ptype = 'external' then
-    insert into public.external_participants
-      (id, username, full_name, email, participant_type, reg_number, college, phone, role)
-    values (
-      new.id,
-      coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
-      coalesce(new.raw_user_meta_data->>'full_name', ''),
-      new.email,
-      'external',
-      nullif(new.raw_user_meta_data->>'reg_number', ''),
-      coalesce(new.raw_user_meta_data->>'college', ''),
-      coalesce(new.raw_user_meta_data->>'phone', ''),
-      coalesce(new.raw_user_meta_data->>'role', 'user')
-    )
-    on conflict (id) do nothing;
-  else
-    insert into public.internal_participants
-      (id, username, full_name, email, participant_type, reg_number, college, phone, role)
-    values (
-      new.id,
-      coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
-      coalesce(new.raw_user_meta_data->>'full_name', ''),
-      new.email,
-      'internal',
-      nullif(new.raw_user_meta_data->>'reg_number', ''),
-      coalesce(new.raw_user_meta_data->>'college', 'SIMATS'),
-      coalesce(new.raw_user_meta_data->>'phone', ''),
-      coalesce(new.raw_user_meta_data->>'role', 'user')
-    )
-    on conflict (id) do nothing;
+  -- Only auto-provision a participant row when an explicit, valid
+  -- participant_type was provided. Under the Google-only flow this is not the
+  -- case (completion happens in the app), so we do nothing and never create an
+  -- incomplete row in either split participant table.
+  if ptype in ('internal', 'external') then
+    if ptype = 'external' then
+      insert into public.external_participants
+        (id, username, full_name, email, participant_type, reg_number, college, phone, role)
+      values (
+        new.id,
+        coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+        coalesce(new.raw_user_meta_data->>'full_name', ''),
+        new.email,
+        'external',
+        nullif(new.raw_user_meta_data->>'reg_number', ''),
+        coalesce(new.raw_user_meta_data->>'college', ''),
+        coalesce(new.raw_user_meta_data->>'phone', ''),
+        coalesce(new.raw_user_meta_data->>'role', 'user')
+      )
+      on conflict (id) do nothing;
+    else
+      insert into public.internal_participants
+        (id, username, full_name, email, participant_type, reg_number, college, phone, role)
+      values (
+        new.id,
+        coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+        coalesce(new.raw_user_meta_data->>'full_name', ''),
+        new.email,
+        'internal',
+        nullif(new.raw_user_meta_data->>'reg_number', ''),
+        coalesce(new.raw_user_meta_data->>'college', 'SIMATS'),
+        coalesce(new.raw_user_meta_data->>'phone', ''),
+        coalesce(new.raw_user_meta_data->>'role', 'user')
+      )
+      on conflict (id) do nothing;
+    end if;
   end if;
   return new;
 end;
 $$;
 
-create trigger on_new_user_created
+drop trigger if exists on_auth_user_created on auth.users;
+
+create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- ── 6) Admin Google OAuth entry point (for the /wch1925 Google button) ───
+-- ── 6) Admin authorization ─────────────────────────────────────────────────
+-- Admin status is derived from admin_allowlist (by auth JWT email), never from
+-- the `profiles` table and never from a `role` column. The split participant
+-- `role` columns below are only a convenience cache for the app; the source of
+-- truth is admin_allowlist.
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.admin_allowlist
+    where lower(email) = lower(auth.jwt()->>'email')
+  );
+$$;
+
+grant execute on function public.is_admin() to authenticated;
+grant execute on function public.is_admin() to anon;
+
+-- Admin Google OAuth entry point (for the /wch1925 Google button).
+-- Returns true iff the caller is on the allowlist. When allowed it also
+-- ensures a participant row exists in the correct split table (so the app has
+-- a User object) with role = 'admin' as a cache. When not allowed it demotes
+-- any cached role to 'user'. No profiles references.
 create or replace function public.ensure_admin_access()
 returns boolean
 language plpgsql
@@ -220,7 +263,6 @@ declare
   display_name text;
   uname        text;
   ptype        text := 'internal';
-  allowed      boolean;
   found        boolean := false;
 begin
   if caller_id is null then
@@ -232,11 +274,7 @@ begin
     return false;
   end if;
 
-  allowed := exists (
-    select 1 from public.admin_allowlist where email = lower(caller_email)
-  );
-
-  if not allowed then
+  if not public.is_admin() then
     update public.internal_participants set role = 'user' where id = caller_id;
     update public.external_participants set role = 'user' where id = caller_id;
     return false;

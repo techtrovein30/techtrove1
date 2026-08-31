@@ -3,11 +3,13 @@
  * ---------------
  * Provides authentication state and actions to the entire app.
  *
- * Updated to use Supabase Auth's onAuthStateChange so that session
- * state (including page-reload restoration) is handled automatically
- * by the Supabase client rather than manual localStorage reads.
+ * Uses Supabase Auth's onAuthStateChange so that session state (including
+ * page-reload restoration) is handled automatically by the Supabase client.
  *
- * Supports both email/password and Google OAuth sign-in.
+ * Participant authentication uses Google OAuth only. A participant who has
+ * not yet completed their profile is offered the Google profile completion
+ * flow, which creates them in exactly one split participant table based on
+ * their explicit internal/external selection.
  */
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
@@ -29,18 +31,6 @@ interface AuthContextValue {
   loading: boolean;
   /** Pending Google OAuth user that needs profile completion */
   googlePendingProfile: GooglePendingProfile | null;
-  signIn: (identifier: string, password: string) => Promise<User>;
-  signUp: (
-    participantType: ParticipantType,
-    input: {
-      fullName: string;
-      regNumber?: string;
-      email?: string;
-      college?: string;
-      phone?: string;
-      password: string;
-    },
-  ) => Promise<User>;
   signInWithGoogle: () => Promise<void>;
   /** Complete profile for a Google OAuth user who signed in for the first time */
   completeGoogleProfile: (input: {
@@ -138,31 +128,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       googlePendingProfile,
-      async signIn(identifier, password) {
-        const u = await api.signIn(identifier, password);
-        setUser(u);
-        return u;
-      },
-      async signUp(participantType, input) {
-        const u =
-          participantType === "internal"
-            ? await api.signUpInternal({
-                fullName: input.fullName,
-                regNumber: input.regNumber ?? "",
-                email: input.email ?? "",
-                password: input.password,
-                phone: input.phone ?? "",
-              })
-            : await api.signUpExternal({
-                fullName: input.fullName,
-                email: input.email ?? "",
-                college: input.college ?? "",
-                phone: input.phone ?? "",
-                password: input.password,
-              });
-        setUser(u);
-        return u;
-      },
       async signInWithGoogle() {
         const { error } = await supabase.auth.signInWithOAuth({
           provider: "google",
@@ -176,40 +141,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!googlePendingProfile) throw new Error("No pending Google profile to complete.");
 
         const { authUserId, email } = googlePendingProfile;
-        const fullName = input.fullName;
+        const participantType = input.participantType;
+        const fullName = input.fullName.trim();
         const username = fullName
-          .trim()
           .toLowerCase()
           .split(/\s+/)
           .map((p) => p.replace(/[^a-z0-9]/g, ""))
           .filter(Boolean)
-          .join(".");
+          .join(".") || "member";
 
-        const profileData = {
+        // A participant belongs to exactly ONE split participant table based
+        // on their explicit internal/external selection (never inferred from email).
+        const table =
+          participantType === "internal" ? "internal_participants" : "external_participants";
+
+        const row = {
           id: authUserId,
           username,
           full_name: fullName,
           email,
-          participant_type: input.participantType,
+          participant_type: participantType,
           reg_number: input.regNumber?.trim().toUpperCase() || null,
           college: input.college?.trim() || null,
           phone: input.phone?.trim() || null,
           role: "user" as const,
         };
 
-        const { error } = await supabase
-          .from("profiles")
-          .insert(profileData)
-          .select()
-          .single();
-        if (error) throw new Error(error.message);
+        const { error } = await supabase.from(table).upsert(row, { onConflict: "id" });
+        if (error) {
+          console.error("completeGoogleProfile upsert failed:", error);
+          throw new Error("Could not create your participant profile. Please try again.");
+        }
 
         const newUser: User = {
           id: authUserId,
           username,
           fullName,
           email,
-          participantType: input.participantType,
+          participantType,
           regNumber: input.regNumber?.trim().toUpperCase() || undefined,
           college: input.college?.trim() || undefined,
           phone: input.phone?.trim() || undefined,

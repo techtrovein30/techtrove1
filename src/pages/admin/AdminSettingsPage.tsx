@@ -242,7 +242,7 @@ export function AdminSettingsPage() {
           </p>
           <p>
             All data operations use Supabase Auth and Postgres. User
-            authentication, profiles, and registrations are persisted in the
+            authentication, participants, and registrations are persisted in the
             cloud database with Row Level Security policies.
           </p>
         </div>

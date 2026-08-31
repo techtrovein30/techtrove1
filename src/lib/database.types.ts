@@ -169,42 +169,6 @@ export interface Database {
           members?: RegistrationMember[];
         };
       };
-      profiles: {
-        Row: {
-          id: string;
-          username: string;
-          full_name: string;
-          email: string;
-          participant_type: "internal" | "external";
-          reg_number: string | null;
-          college: string | null;
-          phone: string | null;
-          role: "user" | "admin";
-          created_at: string;
-        };
-        Insert: {
-          id: string;
-          username: string;
-          full_name: string;
-          email: string;
-          participant_type: "internal" | "external";
-          reg_number?: string | null;
-          college?: string | null;
-          phone?: string | null;
-          role?: "user" | "admin";
-          created_at?: string;
-        };
-        Update: {
-          username?: string;
-          full_name?: string;
-          email?: string;
-          participant_type?: "internal" | "external";
-          reg_number?: string | null;
-          college?: string | null;
-          phone?: string | null;
-          role?: "user" | "admin";
-        };
-      };
       events: {
         Row: {
           id: string;
@@ -265,46 +229,14 @@ export interface Database {
           prizes?: string[] | null;
         };
       };
-      registrations: {
-        Row: {
-          id: string;
-          registration_code: string;
-          user_id: string;
-          event_id: string;
-          team_name: string;
-          captain_name: string;
-          fee: number;
-          payment_status: "pending" | "recorded";
-          terms_accepted: boolean;
-          members: RegistrationMember[];
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          registration_code: string;
-          user_id: string;
-          event_id: string;
-          team_name: string;
-          captain_name: string;
-          fee?: number;
-          payment_status?: "pending" | "recorded";
-          terms_accepted?: boolean;
-          members?: RegistrationMember[];
-          created_at?: string;
-        };
-        Update: {
-          team_name?: string;
-          captain_name?: string;
-          fee?: number;
-          payment_status?: "pending" | "recorded";
-          terms_accepted?: boolean;
-          members?: RegistrationMember[];
-        };
-      };
     };
     Views: Record<string, never>;
     Functions: {
       ensure_admin_access: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      is_admin: {
         Args: Record<string, never>;
         Returns: boolean;
       };
