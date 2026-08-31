@@ -99,6 +99,7 @@ export function RegisterSuccessPage() {
                   })(),
                 ],
                 ["Fee", formatFee(registration.fee)],
+                ...(registration.utrNumber ? [["UTR / Txn ID", registration.utrNumber]] : []),
               ].map(([term, value]) => (
                 <div key={term} className="flex flex-col gap-1 border-b border-edge py-3 last:border-b-0 sm:flex-row sm:justify-between sm:gap-8">
                   <dt className="shrink-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">{term}</dt>
@@ -116,7 +117,7 @@ export function RegisterSuccessPage() {
                         : "border-amber-500/50 bg-amber-500/10 text-amber-300")
                     }
                   >
-                    {registration.paymentStatus === "recorded" ? "Recorded (demo)" : "Pending"}
+                    {registration.paymentStatus === "recorded" ? "Paid" : "Pending"}
                   </span>
                 </dd>
               </div>

@@ -9,6 +9,10 @@ import {
   ChevronLeft,
   Download,
   ClipboardList,
+  Image as ImageIcon,
+  Copy,
+  Check,
+  Loader2,
 } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
@@ -19,6 +23,7 @@ import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
+import { ProofModal } from "../../components/admin/ProofModal";
 
 type StatusFilter = "all" | "pending" | "recorded";
 
@@ -38,17 +43,37 @@ function RegistrationDetail({
   const { events } = useAllEvents();
   const event = events.find((e) => e.id === registration.eventId);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showProofModal, setShowProofModal] = useState(false);
+  const [copiedUtr, setCopiedUtr] = useState(false);
+  const [busyPayment, setBusyPayment] = useState(false);
+
+  function copyUtr() {
+    if (!registration.utrNumber) return;
+    navigator.clipboard.writeText(registration.utrNumber).then(() => {
+      setCopiedUtr(true);
+      setTimeout(() => setCopiedUtr(false), 2000);
+    });
+  }
 
   async function togglePaymentStatus() {
+    const nextStatus =
+      registration.paymentStatus === "recorded" ? "pending" : "recorded";
+
+    // Optimistic UI update
+    onUpdated({ ...registration, paymentStatus: nextStatus });
+    setBusyPayment(true);
+
     try {
-      const nextStatus =
-        registration.paymentStatus === "recorded" ? "pending" : "recorded";
       const updated = await adminUpdateRegistration(registration.id, {
         paymentStatus: nextStatus,
       });
       onUpdated(updated);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Update failed.");
+      // Revert optimistic update
+      onUpdated(registration);
+      alert(err instanceof Error ? err.message : "Payment update failed.");
+    } finally {
+      setBusyPayment(false);
     }
   }
 
@@ -64,6 +89,7 @@ function RegistrationDetail({
 
   const players = registration.members.filter((m) => m.role === "player");
   const substitutes = registration.members.filter((m) => m.role === "substitute");
+  const screenshotPath = registration.paymentScreenshotPath ?? registration.paymentScreenshotUrl;
 
   return (
     <>
@@ -80,6 +106,17 @@ function RegistrationDetail({
           confirmLabel="Delete registration"
           onConfirm={handleDelete}
           onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+
+      {showProofModal && (
+        <ProofModal
+          isOpen={showProofModal}
+          onClose={() => setShowProofModal(false)}
+          path={screenshotPath}
+          title={`Payment Proof · ${registration.teamName}`}
+          subtitle={`Registration ${registration.registrationCode} · ${event?.name ?? registration.eventId}`}
+          utrNumber={registration.utrNumber}
         />
       )}
 
@@ -108,33 +145,70 @@ function RegistrationDetail({
 
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
             {/* Payment banner */}
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#1a1a1a] p-4">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-                  Payment Status
-                </p>
-                <p className="mt-1 text-sm font-semibold text-foreground capitalize">
-                  {registration.paymentStatus}
-                </p>
+            <div className="rounded-lg border border-white/[0.07] bg-[#1a1a1a] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+                    Payment Status
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-foreground capitalize">
+                    {registration.paymentStatus}
+                  </p>
+                </div>
+                <button
+                  onClick={togglePaymentStatus}
+                  disabled={busyPayment}
+                  className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
+                    registration.paymentStatus === "recorded"
+                      ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                      : "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                  }`}
+                >
+                  {busyPayment ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
+                    </>
+                  ) : registration.paymentStatus === "recorded" ? (
+                    <>
+                      <Clock className="h-3.5 w-3.5" /> Mark Pending
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
+                    </>
+                  )}
+                </button>
               </div>
-              <button
-                onClick={togglePaymentStatus}
-                className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors ${
-                  registration.paymentStatus === "recorded"
-                    ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                    : "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-                }`}
-              >
-                {registration.paymentStatus === "recorded" ? (
-                  <>
-                    <Clock className="h-3.5 w-3.5" /> Mark Pending
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
-                  </>
-                )}
-              </button>
+
+              {/* Payment Proof & UTR Actions */}
+              {(registration.utrNumber || screenshotPath) && (
+                <div className="border-t border-white/[0.06] pt-3 flex flex-wrap items-center justify-between gap-2">
+                  {registration.utrNumber ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase font-semibold tracking-wider text-muted">UTR:</span>
+                      <code className="font-mono text-xs font-bold text-primary-soft">{registration.utrNumber}</code>
+                      <button
+                        type="button"
+                        onClick={copyUtr}
+                        className="text-muted hover:text-foreground transition-colors p-1"
+                        title="Copy UTR"
+                      >
+                        {copiedUtr ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                  ) : <div />}
+
+                  {screenshotPath && (
+                    <button
+                      type="button"
+                      onClick={() => setShowProofModal(true)}
+                      className="inline-flex items-center gap-1.5 rounded bg-primary/20 border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary-soft hover:bg-primary/30 transition-colors"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" /> View Screenshot
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Overview */}
@@ -149,6 +223,9 @@ function RegistrationDetail({
                   { term: "Team Name", value: registration.teamName },
                   { term: "Captain Name", value: registration.captainName },
                   { term: "Fee Amount", value: formatFee(registration.fee) },
+                  ...(registration.utrNumber
+                    ? [{ term: "UTR / Transaction ID", value: registration.utrNumber }]
+                    : []),
                   {
                     term: "Created At",
                     value: new Date(registration.createdAt).toLocaleString(),

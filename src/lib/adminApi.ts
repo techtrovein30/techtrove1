@@ -24,6 +24,8 @@ import {
 } from "./db";
 import type { ParticipantRow, RegistrationRow } from "./db";
 
+import { getUploadSignedUrl } from "./storage";
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /** Map a participant row → the shared User shape */
@@ -42,6 +44,7 @@ function profileToUser(p: ParticipantRow): User {
 }
 
 function rowToRegistration(r: RegistrationRow): Registration {
+  const screenshotPath = r.payment_screenshot_path ?? r.payment_screenshot_url;
   return {
     id: r.id,
     registrationCode: r.registration_code,
@@ -54,6 +57,9 @@ function rowToRegistration(r: RegistrationRow): Registration {
     termsAccepted: r.terms_accepted,
     members: r.members as RegistrationMember[],
     createdAt: r.created_at,
+    utrNumber: r.utr_number,
+    paymentScreenshotPath: screenshotPath,
+    paymentScreenshotUrl: screenshotPath,
   };
 }
 
@@ -62,9 +68,24 @@ async function requireAdmin(): Promise<User> {
   const { data: { user: authUser } } = await supabase.auth.getUser();
   if (!authUser) throw new Error("Not authenticated.");
 
-  const profile = await getParticipantById(authUser.id);
+  let profile = await getParticipantById(authUser.id);
   if (!profile) throw new Error("Session expired.");
-  if (profile.role !== "admin") throw new Error("Insufficient permissions.");
+
+  if (profile.role !== "admin") {
+    // Attempt to self-heal via ensure_admin_access RPC if caller is in admin allowlist
+    try {
+      const { data: isAllowed } = await supabase.rpc("ensure_admin_access");
+      if (isAllowed) {
+        profile = await getParticipantById(authUser.id);
+      }
+    } catch {
+      // Ignore RPC error and evaluate profile role below
+    }
+  }
+
+  if (!profile || profile.role !== "admin") {
+    throw new Error("Insufficient permissions: account does not have admin role.");
+  }
 
   return profileToUser(profile);
 }
@@ -407,3 +428,11 @@ export async function getStorageUsageSummary(): Promise<{
     estimatedBytes: (users * 256) + (registrations * 512),
   };
 }
+
+export async function adminGetSignedUrl(
+  path: string | null | undefined,
+  expiresIn = 300
+): Promise<string | null> {
+  await requireAdmin();
+  return getUploadSignedUrl(path, expiresIn);
+}

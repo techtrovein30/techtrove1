@@ -104,6 +104,14 @@ function RegistrationCard({ registration }: { registration: Registration }) {
             {registration.fee > 0 ? `₹${registration.fee}` : "Free"}
           </p>
         </div>
+        {registration.utrNumber && (
+          <div className="sm:col-span-2">
+            <span className="eyebrow block text-muted">UTR / Transaction ID</span>
+            <code className="mt-1 block font-mono text-xs font-bold text-primary-soft">
+              {registration.utrNumber}
+            </code>
+          </div>
+        )}
       </div>
 
       {registration.members.length > 0 && (
@@ -188,13 +196,19 @@ export function ProfilePage() {
   }, [user, authLoading, navigate]);
 
   useEffect(() => {
-    if (user) {
+    if (!user) return;
+
+    function loadRegistrations() {
       api
         .listMyRegistrations()
         .then(setRegistrations)
         .catch(() => setRegistrations([]))
         .finally(() => setLoading(false));
     }
+
+    loadRegistrations();
+    window.addEventListener("focus", loadRegistrations);
+    return () => window.removeEventListener("focus", loadRegistrations);
   }, [user]);
 
   if (authLoading || !user) {
