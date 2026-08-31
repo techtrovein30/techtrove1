@@ -49,15 +49,6 @@ export interface RuleSection {
   items: string[];
 }
 
-export interface SponsorSlot {
-  name?: string;
-  logo?: string;
-}
-
-export interface SponsorTier {
-  tier: string;
-  slots: SponsorSlot[];
-}
 
 export const siteConfig = {
   name: "TechTrove 3.0",
@@ -215,9 +206,3 @@ export const ruleSections: RuleSection[] = [
   },
 ];
 
-export const sponsors: SponsorTier[] = [
-  { tier: "Title sponsor", slots: [{}] },
-  { tier: "Powered by", slots: [{}] },
-  { tier: "Associate", slots: [{}, {}] },
-  { tier: "Partner", slots: [{}, {}] },
-];

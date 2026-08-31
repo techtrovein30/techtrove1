@@ -100,7 +100,9 @@ export function EventDetailPage() {
                 <dt className="eyebrow flex items-center gap-2">
                   <Ticket className="h-3.5 w-3.5" aria-hidden /> Fee / person
                 </dt>
-                <dd className="display mt-3 text-3xl">{formatFee(event.registrationFee)}</dd>
+                <dd className="display mt-3 text-3xl">
+                  {user?.participantType === "internal" ? "Free" : formatFee(event.registrationFee)}
+                </dd>
               </div>
               <div className="bg-surface p-5">
                 <dt className="eyebrow flex items-center gap-2">
@@ -151,7 +153,9 @@ export function EventDetailPage() {
           <aside className="lg:sticky lg:top-24 lg:self-start">
             <div className="clip-angle diag-stripes border border-edge bg-surface p-6 sm:p-8">
               <p className="eyebrow">Registration</p>
-              <p className="display mt-3 text-4xl text-foreground">{formatFee(event.registrationFee)}</p>
+              <p className="display mt-3 text-4xl text-foreground">
+                {user?.participantType === "internal" ? "Free" : formatFee(event.registrationFee)}
+              </p>
               <p className="mt-1 text-xs text-muted">per person · charged for each player &amp; substitute · non-refundable</p>
 
               <dl className="mt-6 space-y-3 border-t border-edge pt-6 text-sm">

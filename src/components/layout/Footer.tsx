@@ -6,7 +6,7 @@ const exploreLinks = [
   { to: "/events", label: "Events" },
   { to: "/schedule", label: "Schedule" },
   { to: "/rules", label: "Rules" },
-  { to: "/sponsors", label: "Sponsors" },
+
 ];
 
 export function Footer() {

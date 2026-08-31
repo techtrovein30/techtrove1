@@ -143,12 +143,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { authUserId, email } = googlePendingProfile;
         const participantType = input.participantType;
         const fullName = input.fullName.trim();
-        const username = fullName
+        const usernameBase = fullName
           .toLowerCase()
           .split(/\s+/)
           .map((p) => p.replace(/[^a-z0-9]/g, ""))
           .filter(Boolean)
           .join(".") || "member";
+
+        // Check username uniqueness across both participant tables
+        let username = usernameBase;
+        let attempt = 1;
+        while (attempt < 50) {
+          const checks = await Promise.all([
+            supabase.from("internal_participants").select("id").eq("username", username).maybeSingle(),
+            supabase.from("external_participants").select("id").eq("username", username).maybeSingle(),
+          ]);
+          const taken = checks.some((r) => r.data !== null);
+          if (!taken) break;
+          attempt++;
+          username = `${usernameBase}${attempt}`;
+        }
 
         // A participant belongs to exactly ONE split participant table based
         // on their explicit internal/external selection (never inferred from email).

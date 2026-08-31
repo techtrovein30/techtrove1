@@ -52,7 +52,8 @@ function makeEmptyMembers(required: number, maxSubs: number): MemberDraft[] {
   return [...players, ...subs];
 }
 
-function computeTotalFee(event: TechEvent | undefined, members: MemberDraft[]): number {
+function computeTotalFee(event: TechEvent | undefined, members: MemberDraft[], teamType: ParticipantType): number {
+  if (teamType === "internal") return 0;
   const filled = members.filter((m) => m.name.trim()).length;
   return (event?.registrationFee ?? 0) * filled;
 }
@@ -722,7 +723,7 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
   const filledMembers = draft.members.filter((m) => m.name.trim());
   const filledPlayers = filledMembers.filter((m) => m.role === "player").length;
   const filledSubs = filledMembers.filter((m) => m.role === "substitute").length;
-  const totalFee = computeTotalFee(event, draft.members);
+  const totalFee = computeTotalFee(event, draft.members, teamType);
 
   return (
     <StepShell title="Review your entry" lead="Check everything carefully. Changes after payment cannot be made.">
@@ -743,7 +744,7 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
             {teamType === "internal" ? "SIMATS Students" : "External Participants"}
           </span>
         </ReviewRow>
-        <ReviewRow term="Fee per person">{formatPerPerson(event.registrationFee)}</ReviewRow>
+        <ReviewRow term="Fee per person">{teamType === "internal" ? "Free" : formatPerPerson(event.registrationFee)}</ReviewRow>
         <ReviewRow term="Team members">
           {filledPlayers} player{filledPlayers === 1 ? "" : "s"} · {filledSubs} substitute{filledSubs === 1 ? "" : "s"}
         </ReviewRow>
@@ -796,7 +797,7 @@ function PaymentStep({
   const [utrNumber, setUtrNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
-  const totalFee = computeTotalFee(event, draft.members);
+  const totalFee = computeTotalFee(event, draft.members, draft.members[0]?.participantType ?? "external");
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0];

@@ -58,7 +58,7 @@ function RegistrationCard({ registration }: { registration: Registration }) {
   }
 
   return (
-    <div className="glass-panel group relative overflow-hidden p-6 transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_30px_rgba(124,58,237,0.12)]">
+    <div className="glass-panel group relative overflow-hidden p-6 transition-all duration-300 hover:border-primary/40">
       <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/5 blur-2xl transition-all duration-500 group-hover:bg-primary/10" />
 
       <div className="relative flex flex-wrap items-start justify-between gap-4">
@@ -159,6 +159,22 @@ function RegistrationCard({ registration }: { registration: Registration }) {
   );
 }
 
+function DetailCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="glass-panel p-5">
+      <span className="eyebrow block text-muted">{label}</span>
+      <p
+        className={
+          "mt-2 text-sm font-semibold break-all " +
+          (accent ? "font-mono tracking-wider text-primary-soft" : "text-foreground")
+        }
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
 export function ProfilePage() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -189,18 +205,39 @@ export function ProfilePage() {
     );
   }
 
+  const detailCards = [
+    { label: "Email", value: user.email, accent: false },
+    ...(user.participantType === "internal" && user.regNumber
+      ? [{ label: "Registration Number", value: user.regNumber, accent: true }]
+      : []),
+    ...(user.participantType === "external" && user.college
+      ? [{ label: "College", value: user.college, accent: false }]
+      : []),
+    ...(user.phone
+      ? [{ label: "Phone", value: user.phone, accent: false }]
+      : []),
+    {
+      label: "Participant Type",
+      value: user.participantType === "internal" ? "SIMATS Student" : "External Participant",
+      accent: false,
+    },
+    {
+      label: "Total Registrations",
+      value: String(registrations.length),
+      accent: false,
+    },
+  ];
+
   return (
     <div className="reveal-up">
       {/* Hero header */}
       <section className="grain relative overflow-hidden border-b border-edge">
         <div className="absolute inset-0 bg-gradient-to-b from-primary-deep/20 via-background/60 to-background" />
-        <div className="absolute -right-40 top-0 h-80 w-80 rounded-full bg-primary/10 blur-[100px]" />
-        <div className="absolute -left-20 bottom-0 h-60 w-60 rounded-full bg-primary/5 blur-[80px]" />
 
         <div className="relative z-10 mx-auto max-w-7xl px-4 pt-32 pb-16 sm:px-6 md:pt-40 md:pb-20">
           <p className="eyebrow text-primary-soft">Your profile</p>
           <div className="mt-6 flex flex-col items-start gap-6 sm:flex-row sm:items-center">
-            <div className="glow-emblem flex h-24 w-24 shrink-0 items-center justify-center bg-gradient-to-br from-primary to-primary-deep text-4xl font-bold text-white shadow-[0_0_40px_rgba(124,58,237,0.4)]">
+            <div className="flex h-24 w-24 shrink-0 items-center justify-center bg-gradient-to-br from-primary to-primary-deep text-4xl font-bold text-white">
               {initialsOf(user.fullName)}
             </div>
             <div className="min-w-0">
@@ -208,7 +245,6 @@ export function ProfilePage() {
                 {user.fullName}
               </h1>
               <div className="mt-2 flex flex-wrap items-center gap-3">
-                <span className="text-sm text-muted">@{user.username}</span>
                 <span
                   className={
                     "border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] " +
@@ -231,40 +267,9 @@ export function ProfilePage() {
         <hr className="rule-line mt-4 w-32" />
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="glass-panel glowing-border p-5">
-            <span className="eyebrow block text-muted">Email</span>
-            <p className="mt-2 text-sm font-semibold text-foreground break-all">{user.email}</p>
-          </div>
-          {user.participantType === "internal" && user.regNumber && (
-            <div className="glass-panel glowing-border p-5">
-              <span className="eyebrow block text-muted">Registration Number</span>
-              <p className="mt-2 font-mono text-sm font-bold tracking-wider text-primary-soft">
-                {user.regNumber}
-              </p>
-            </div>
-          )}
-          {user.participantType === "external" && user.college && (
-            <div className="glass-panel glowing-border p-5">
-              <span className="eyebrow block text-muted">College</span>
-              <p className="mt-2 text-sm font-semibold text-foreground">{user.college}</p>
-            </div>
-          )}
-          {user.phone && (
-            <div className="glass-panel glowing-border p-5">
-              <span className="eyebrow block text-muted">Phone</span>
-              <p className="mt-2 text-sm font-semibold text-foreground">{user.phone}</p>
-            </div>
-          )}
-          <div className="glass-panel glowing-border p-5">
-            <span className="eyebrow block text-muted">Participant Type</span>
-            <p className="mt-2 text-sm font-semibold capitalize text-foreground">
-              {user.participantType}
-            </p>
-          </div>
-          <div className="glass-panel glowing-border p-5">
-            <span className="eyebrow block text-muted">Total Registrations</span>
-            <p className="display mt-2 text-3xl text-primary-soft">{registrations.length}</p>
-          </div>
+          {detailCards.map((card) => (
+            <DetailCard key={card.label} {...card} />
+          ))}
         </div>
       </section>
 
@@ -310,7 +315,7 @@ export function ProfilePage() {
               </p>
               <Link
                 to="/events"
-                className="clip-angle mt-8 inline-flex items-center gap-2 bg-primary px-7 py-3.5 text-xs font-semibold uppercase tracking-[0.18em] text-white shadow-[0_0_16px_rgba(124,58,237,0.35)] transition-all hover:bg-primary-soft hover:shadow-[0_0_28px_rgba(124,58,237,0.65)]"
+                className="clip-angle mt-8 inline-flex items-center gap-2 bg-primary px-7 py-3.5 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-all hover:bg-primary-soft"
               >
                 Explore events
                 <ArrowRight className="h-4 w-4" aria-hidden />
@@ -331,7 +336,7 @@ export function ProfilePage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Link
             to="/events"
-            className="glass-panel group flex items-center gap-5 p-6 transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_30px_rgba(124,58,237,0.1)]"
+            className="glass-panel group flex items-center gap-5 p-6 transition-all duration-300 hover:border-primary/40"
           >
             <div className="flex h-12 w-12 shrink-0 items-center justify-center bg-primary/10 text-primary-soft">
               <CalendarDays className="h-5 w-5" />
@@ -344,7 +349,7 @@ export function ProfilePage() {
           </Link>
           <Link
             to="/register"
-            className="glass-panel group flex items-center gap-5 p-6 transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_30px_rgba(124,58,237,0.1)]"
+            className="glass-panel group flex items-center gap-5 p-6 transition-all duration-300 hover:border-primary/40"
           >
             <div className="flex h-12 w-12 shrink-0 items-center justify-center bg-primary/10 text-primary-soft">
               <Users className="h-5 w-5" />
@@ -365,7 +370,7 @@ export function ProfilePage() {
             src="/images/techtrove-logo.webp"
             alt="TechTrove 3.0 logo"
             loading="lazy"
-            className="glow-emblem h-14 w-auto"
+            className="h-14 w-auto"
           />
           <p className="display mt-6 text-2xl text-foreground sm:text-3xl">
             {siteConfig.tagline}

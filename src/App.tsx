@@ -7,12 +7,12 @@ import { getDaysAsync } from "./lib/eventStore";
 
 // Public pages
 import { HomePage } from "./pages/HomePage";
-import { AboutPage } from "./pages/AboutPage";
+
 import { EventsPage } from "./pages/EventsPage";
 import { EventDetailPage } from "./pages/EventDetailPage";
 import { SchedulePage } from "./pages/SchedulePage";
 import { RulesPage } from "./pages/RulesPage";
-import { SponsorsPage } from "./pages/SponsorsPage";
+
 import { ContactPage } from "./pages/ContactPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
@@ -77,12 +77,12 @@ export default function App() {
           {/* ── Public website (with Navbar + Footer) ──────────────── */}
           <Route element={<PublicLayout />}>
             <Route path="/" element={<HomePage />} />
-            <Route path="/about" element={<AboutPage />} />
+
             <Route path="/events" element={<EventsPage />} />
             <Route path="/events/:eventId" element={<EventDetailPage />} />
             <Route path="/schedule" element={<SchedulePage />} />
             <Route path="/rules" element={<RulesPage />} />
-            <Route path="/sponsors" element={<SponsorsPage />} />
+
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />

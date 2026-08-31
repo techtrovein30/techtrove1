@@ -128,13 +128,7 @@ export function HomePage() {
             Built for students who compete hard and build harder, TechTrove 3.0 is where colleges meet,
             teams form and the SIMATS wolf finds its pack.
           </p>
-          <Link
-            to="/about"
-            className="group mt-8 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary-soft"
-          >
-            Read more about TechTrove 3.0
-            <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" aria-hidden />
-          </Link>
+
         </div>
       </section>
 

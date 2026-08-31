@@ -144,10 +144,14 @@ async function fetchAndCacheDays(): Promise<Day[]> {
     supabase.from("days").select("*")
   ]);
 
-  if (eventsResult.error || daysResult.error) {
-    // Supabase unreachable — return whatever is cached (could be stale)
-    console.warn("eventStore: Supabase fetch failed:", eventsResult.error?.message, daysResult.error?.message);
+  if (eventsResult.error) {
+    // Supabase unreachable or events table missing — return whatever is cached (could be stale)
+    console.warn("eventStore: Supabase fetch failed:", eventsResult.error?.message);
     return _cachedDays ?? staticDays.map((d) => ({ ...d, events: [] }));
+  }
+  
+  if (daysResult.error) {
+    console.warn("eventStore: Days table fetch failed (might not exist yet):", daysResult.error?.message);
   }
   
   const dayMeta: DayMeta = {};

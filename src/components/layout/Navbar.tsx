@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { LogOut, Menu, X } from "lucide-react";
+import { LogOut, Menu, X, User, ChevronRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { cn } from "../../lib/utils";
 import { Brand } from "../site/Brand";
@@ -10,8 +10,6 @@ const links = [
   { to: "/events", label: "Events" },
   { to: "/schedule", label: "Schedule" },
   { to: "/rules", label: "Rules" },
-  { to: "/sponsors", label: "Sponsors" },
-  { to: "/about", label: "About" },
   { to: "/contact", label: "Contact" },
 ];
 
@@ -71,16 +69,25 @@ export function Navbar() {
     <>
       <header
         className={cn(
-          "fixed inset-x-0 top-0 z-50 transition-all duration-300",
+          "fixed inset-x-0 top-0 z-50 transition-all duration-500",
           scrolled
-            ? "border-b border-edge bg-background/80 shadow-[0_10px_40px_-20px_rgba(124,58,237,0.45)] backdrop-blur-xl"
+            ? "border-b border-primary/10 bg-background/60 shadow-[0_8px_40px_-12px_rgba(124,58,237,0.3)] backdrop-blur-2xl"
             : "border-b border-transparent bg-transparent",
         )}
       >
+        {/* Top gradient accent line */}
+        <div
+          aria-hidden
+          className={cn(
+            "absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-primary to-transparent transition-opacity duration-500",
+            scrolled ? "opacity-60" : "opacity-0",
+          )}
+        />
+
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <Brand />
 
-          <nav aria-label="Main navigation" className="hidden items-center gap-7 lg:flex">
+          <nav aria-label="Main navigation" className="hidden items-center gap-1 lg:flex">
             {links.map((link) => (
               <NavLink
                 key={link.to}
@@ -88,19 +95,27 @@ export function Navbar() {
                 end={link.to === "/"}
                 className={({ isActive }) =>
                   cn(
-                    "group relative py-2 text-[11px] font-semibold uppercase tracking-[0.18em] transition-colors",
-                    isActive ? "text-primary-soft" : "text-muted hover:text-foreground",
+                    "group relative px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] transition-all duration-300",
+                    isActive
+                      ? "text-primary-soft"
+                      : "text-muted hover:text-foreground",
                   )
                 }
               >
                 {({ isActive }) => (
                   <>
-                    {link.label}
+                    <span className="relative z-10">{link.label}</span>
+                    {isActive && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-gradient-to-r from-primary via-primary-soft to-primary"
+                      />
+                    )}
                     <span
                       aria-hidden
                       className={cn(
-                        "absolute inset-x-0 -bottom-px h-px origin-left bg-gradient-to-r from-primary to-primary-soft transition-transform duration-300",
-                        isActive ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100",
+                        "absolute inset-0 -z-0 rounded-sm bg-primary/5 transition-opacity duration-300",
+                        isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                       )}
                     />
                   </>
@@ -114,22 +129,22 @@ export function Navbar() {
               <>
                 <Link
                   to="/profile"
-                  className="inline-flex items-center gap-2 border border-edge bg-surface/60 px-3 py-1.5 backdrop-blur-sm transition-colors hover:border-primary/40"
+                  className="group relative flex items-center gap-2.5 rounded-sm border border-edge/60 bg-surface/40 px-3.5 py-2 backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:shadow-[0_0_20px_rgba(124,58,237,0.12)]"
                 >
                   <span
                     aria-hidden
-                    className="flex h-5 w-5 items-center justify-center bg-primary/20 text-[9px] font-bold tracking-wide text-primary-soft"
+                    className="flex h-7 w-7 items-center justify-center bg-gradient-to-br from-primary/20 to-primary-soft/10 text-[10px] font-bold tracking-wide text-primary-soft ring-1 ring-primary/20 transition-all duration-300 group-hover:ring-primary/40"
                   >
                     {initialsOf(user.fullName)}
                   </span>
                   <span className="max-w-[9rem] truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground">
-                    {user.username}
+                    {user.fullName}
                   </span>
                 </Link>
                 <button
                   onClick={signOut}
                   aria-label={`Sign out ${user.fullName}`}
-                  className="flex h-9 w-9 items-center justify-center border border-edge text-muted transition-colors hover:border-primary hover:text-primary-soft"
+                  className="flex h-9 w-9 items-center justify-center rounded-sm border border-edge/60 bg-surface/40 text-muted backdrop-blur-sm transition-all duration-300 hover:border-red-500/40 hover:bg-red-500/5 hover:text-red-400"
                 >
                   <LogOut className="h-4 w-4" aria-hidden />
                 </button>
@@ -137,20 +152,18 @@ export function Navbar() {
             ) : (
               <Link
                 to="/login"
-                className="group relative px-1 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted transition-colors hover:text-foreground"
+                className="group relative flex items-center gap-2 rounded-sm border border-edge/60 bg-surface/40 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
               >
+                <User className="h-3.5 w-3.5" aria-hidden />
                 Login
-                <span
-                  aria-hidden
-                  className="absolute inset-x-0 -bottom-px h-px origin-left scale-x-0 bg-gradient-to-r from-primary to-primary-soft transition-transform duration-300 group-hover:scale-x-100"
-                />
               </Link>
             )}
             <Link
               to="/register"
-              className="clip-angle relative overflow-hidden bg-primary px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-[0_0_16px_rgba(124,58,237,0.35)] transition-all hover:bg-primary-soft hover:shadow-[0_0_28px_rgba(124,58,237,0.65)]"
+              className="clip-angle group relative overflow-hidden bg-gradient-to-r from-primary to-primary-soft px-6 py-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-[0_0_20px_rgba(124,58,237,0.3)] transition-all duration-300 hover:shadow-[0_0_30px_rgba(124,58,237,0.55)]"
             >
-              Register Now
+              <span className="relative z-10">Register Now</span>
+              <span className="absolute inset-0 bg-gradient-to-r from-primary-soft to-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
             </Link>
           </div>
 
@@ -159,7 +172,7 @@ export function Navbar() {
             onClick={() => setOpen(true)}
             aria-expanded={open}
             aria-label="Open menu"
-            className="flex h-10 w-10 items-center justify-center border border-edge bg-surface/60 text-foreground backdrop-blur-sm transition-colors hover:border-primary hover:text-primary-soft lg:hidden"
+            className="flex h-10 w-10 items-center justify-center rounded-sm border border-edge/60 bg-surface/40 text-foreground backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:text-primary-soft lg:hidden"
           >
             <Menu className="h-5 w-5" aria-hidden />
           </button>
@@ -176,46 +189,59 @@ export function Navbar() {
         />
       </header>
 
+      {/* Mobile overlay */}
       {open && (
         <div
-          className="nav-overlay diag-stripes fixed inset-0 z-[60] flex flex-col bg-background lg:hidden"
+          className="nav-overlay fixed inset-0 z-[60] flex flex-col bg-background/98 backdrop-blur-xl lg:hidden"
           role="dialog"
           aria-modal="true"
         >
-          <img
-            src="/images/techtrove-logo.webp"
-            alt=""
-            loading="lazy"
-            className="pointer-events-none absolute -right-12 top-24 h-80 w-auto opacity-[0.05]"
-          />
-          <div className="relative flex h-16 items-center justify-between border-b border-edge px-4 sm:px-6">
+          {/* Decorative background */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+
+            <img
+              src="/images/techtrove-logo.webp"
+              alt=""
+              loading="lazy"
+              className="absolute -right-12 top-28 h-80 w-auto opacity-[0.03]"
+            />
+          </div>
+
+          {/* Header */}
+          <div className="relative flex h-16 items-center justify-between border-b border-edge/50 px-4 sm:px-6">
             <Brand />
             <button
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Close menu"
-              className="flex h-10 w-10 items-center justify-center border border-edge bg-surface/60 text-foreground"
+              className="flex h-10 w-10 items-center justify-center rounded-sm border border-edge/60 bg-surface/40 text-foreground backdrop-blur-sm transition-all duration-300 hover:border-red-500/40 hover:text-red-400"
             >
               <X className="h-5 w-5" aria-hidden />
             </button>
           </div>
+
+          {/* Nav links */}
           <nav aria-label="Mobile navigation" className="stagger-nav relative flex-1 overflow-y-auto px-6 py-8">
-            <ul className="space-y-1.5">
-              {links.map((link) => (
-                <li key={link.to}>
+            <ul className="space-y-1">
+              {links.map((link, i) => (
+                <li
+                  key={link.to}
+                  style={{ animationDelay: `${i * 60}ms` }}
+                  className="stagger-nav-item"
+                >
                   <NavLink
                     to={link.to}
                     end={link.to === "/"}
                     className={({ isActive }) =>
                       cn(
-                        "display flex items-baseline gap-4 py-1.5 text-4xl transition-colors sm:text-5xl",
+                        "group flex items-center justify-between py-3 text-4xl transition-colors sm:text-5xl",
                         isActive ? "text-primary-soft" : "text-foreground hover:text-primary-soft",
                       )
                     }
                   >
                     {({ isActive }) => (
                       <>
-                        <span className="relative">
+                        <span className="relative font-display">
                           {link.label}
                           {isActive && (
                             <span
@@ -224,6 +250,10 @@ export function Navbar() {
                             />
                           )}
                         </span>
+                        <ChevronRight
+                          className="h-5 w-5 shrink-0 text-muted opacity-0 transition-all duration-300 group-hover:translate-x-1 group-hover:opacity-100 group-hover:text-primary-soft"
+                          aria-hidden
+                        />
                       </>
                     )}
                   </NavLink>
@@ -231,22 +261,30 @@ export function Navbar() {
               ))}
             </ul>
           </nav>
-          <div className="relative space-y-3 border-t border-edge p-6 pb-8">
+
+          {/* Bottom actions */}
+          <div className="relative space-y-3 border-t border-edge/50 p-6 pb-8">
             {user ? (
               <>
                 <Link
                   to="/profile"
                   onClick={() => setOpen(false)}
-                  className="inline-flex w-full items-center justify-center gap-2 border border-edge-strong py-3.5 text-xs font-semibold uppercase tracking-[0.18em] transition-colors hover:border-primary hover:text-primary-soft"
+                  className="group flex items-center gap-3 border border-edge/60 bg-surface/30 px-5 py-4 backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5"
                 >
-                  Profile ({user.fullName})
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center bg-gradient-to-br from-primary/20 to-primary-soft/10 text-sm font-bold text-primary-soft ring-1 ring-primary/20">
+                    {initialsOf(user.fullName)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-foreground">{user.fullName}</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted transition-transform duration-300 group-hover:translate-x-1 group-hover:text-primary-soft" />
                 </Link>
                 <button
                   onClick={() => {
                     signOut();
                     setOpen(false);
                   }}
-                  className="inline-flex w-full items-center justify-center gap-2 border border-edge-strong py-3.5 text-xs font-semibold uppercase tracking-[0.18em]"
+                  className="inline-flex w-full items-center justify-center gap-2 border border-edge/60 bg-surface/30 py-3.5 text-xs font-semibold uppercase tracking-[0.18em] text-muted backdrop-blur-sm transition-all duration-300 hover:border-red-500/40 hover:bg-red-500/5 hover:text-red-400"
                 >
                   <LogOut className="h-4 w-4" aria-hidden />
                   Sign out
@@ -256,7 +294,7 @@ export function Navbar() {
               <Link
                 to="/login"
                 onClick={() => setOpen(false)}
-                className="inline-flex w-full items-center justify-center border border-edge-strong py-3.5 text-xs font-semibold uppercase tracking-[0.18em] transition-colors hover:border-primary hover:text-primary-soft"
+                className="inline-flex w-full items-center justify-center border border-edge/60 bg-surface/30 py-3.5 text-xs font-semibold uppercase tracking-[0.18em] text-muted backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
               >
                 Login
               </Link>
@@ -264,9 +302,10 @@ export function Navbar() {
             <Link
               to="/register"
               onClick={() => setOpen(false)}
-              className="clip-angle inline-flex w-full items-center justify-center bg-primary py-3.5 text-xs font-semibold uppercase tracking-[0.18em] text-white shadow-[0_0_20px_rgba(124,58,237,0.4)]"
+              className="clip-angle group relative inline-flex w-full items-center justify-center overflow-hidden bg-gradient-to-r from-primary to-primary-soft py-3.5 text-xs font-semibold uppercase tracking-[0.18em] text-white shadow-[0_0_20px_rgba(124,58,237,0.3)]"
             >
-              Register Now
+              <span className="relative z-10">Register Now</span>
+              <span className="absolute inset-0 bg-gradient-to-r from-primary-soft to-primary opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
             </Link>
           </div>
         </div>
