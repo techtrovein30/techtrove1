@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import type { ParticipantType } from "../lib/mockApi";
+import type { ParticipantType } from "../lib/api";
 import { Field } from "../components/ui/Field";
 
 type Mode = "signin" | "signup";

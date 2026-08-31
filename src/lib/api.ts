@@ -1,5 +1,5 @@
 /**
- * mockApi.ts
+ * api.ts
  * ----------
  * User-facing data layer for TechTrove 3.0.
  *
@@ -69,6 +69,8 @@ export interface Registration {
   termsAccepted: boolean;
   members: RegistrationMember[];
   createdAt: string;
+  utrNumber?: string;
+  paymentScreenshotUrl?: string;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -351,6 +353,8 @@ export const api = {
     captainName: string;
     members: RegistrationMember[];
     termsAccepted: boolean;
+    utrNumber?: string;
+    paymentScreenshotUrl?: string;
   }): Promise<Registration> {
     if (!input.termsAccepted) throw new Error("Terms and conditions must be accepted.");
 
@@ -379,9 +383,8 @@ export const api = {
       throw new Error(`This event allows at most ${maxSubs} substitutes.`);
     }
 
-    // Fee is charged per person: per-person rate × everyone entered (players + substitutes).
-    const perPersonFee = event.registrationFee ?? 0;
-    const totalFee = perPersonFee * input.members.length;
+    // Fee is now securely calculated by the database trigger before insert.
+    // The client no longer submits the fee to prevent tampering.
 
     // Validate each member has required fields
     for (const m of input.members) {
@@ -427,20 +430,28 @@ export const api = {
       throw new Error(`Events table unavailable: ${seedError.message}`);
     }
 
+    const regPayload: any = {
+      id: regId,
+      registration_code: regCode,
+      user_id: authUser.id,
+      event_id: event.id,
+      team_name: input.teamName.trim(),
+      captain_name: input.captainName.trim(),
+      payment_status: "pending",
+      terms_accepted: true,
+      members,
+    };
+
+    if (participantType === "external") {
+      if (!input.utrNumber?.trim()) throw new Error("UTR number is required for external participants.");
+      if (!input.paymentScreenshotUrl?.trim()) throw new Error("Payment screenshot is required for external participants.");
+      regPayload.utr_number = input.utrNumber.trim();
+      regPayload.payment_screenshot_url = input.paymentScreenshotUrl.trim();
+    }
+
     const { data: reg, error } = await supabase
       .from(regTable)
-      .insert({
-        id: regId,
-        registration_code: regCode,
-        user_id: authUser.id,
-        event_id: event.id,
-        team_name: input.teamName.trim(),
-        captain_name: input.captainName.trim(),
-        fee: totalFee,
-        payment_status: "pending",
-        terms_accepted: true,
-        members,
-      })
+      .insert(regPayload)
       .select()
       .single();
 
@@ -460,6 +471,8 @@ export const api = {
       termsAccepted: reg.terms_accepted,
       members: reg.members as RegistrationMember[],
       createdAt: reg.created_at,
+      utrNumber: reg.utr_number,
+      paymentScreenshotUrl: reg.payment_screenshot_url,
     };
   },
 
@@ -493,5 +506,7 @@ function mapRegistrationRow(r: RegistrationRow): Registration {
     termsAccepted: r.terms_accepted,
     members: r.members as RegistrationMember[],
     createdAt: r.created_at,
+    utrNumber: r.utr_number,
+    paymentScreenshotUrl: r.payment_screenshot_url,
   };
 }

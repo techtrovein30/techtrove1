@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Info, Lock } from "lucide-react";
+import { ArrowLeft, ArrowRight, Lock } from "lucide-react";
 import { useAllEvents, useEvent } from "../lib/useEvents";
 import type { TechEvent, Day } from "../lib/eventStore";
 import { days as staticDays } from "../data/techtrove";
 import { formatFee, formatPerPerson } from "../lib/utils";
 import { cn } from "../lib/utils";
-import { api } from "../lib/mockApi";
-import type { ParticipantType, RegistrationMember } from "../lib/mockApi";
+import { api } from "../lib/api";
+import { supabase } from "../lib/supabase";
+import type { ParticipantType, RegistrationMember } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { Field } from "../components/ui/Field";
 import { RegistrationStepper, StepShell } from "../components/registration/RegistrationStepper";
@@ -131,6 +132,8 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   // Resolve preselected event from DB data
   const preselectedEvent = preselectedId ? allEvents.find((e) => e.id === preselectedId) : undefined;
 
+  const stepIds: StepId[] = teamType === "internal" ? ["sport", "terms", "team", "members", "review"] : ["sport", "terms", "team", "members", "review", "payment"];
+
   const [step, setStep] = useState<StepId>(preselectedId ? "terms" : "sport");
   const [draft, setDraft] = useState<Draft>(() => {
     if (!preselectedId) return initialDraft;
@@ -142,7 +145,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
 
   // Once events load, populate members + selected day for pre-selected event if not already done
-  useMemo(() => {
+  useEffect(() => {
     if (preselectedEvent && draft.eventId === preselectedEvent.id && draft.members.length === 0) {
       setDraft((d) => ({
         ...d,
@@ -150,7 +153,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       }));
       setSelectedDayId(preselectedEvent.dayId);
     }
-  }, [preselectedEvent]);
+  }, [preselectedEvent, draft.eventId, draft.members.length]);
 
   const event = draft.eventId ? allEvents.find((e) => e.id === draft.eventId) : undefined;
 
@@ -180,18 +183,18 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   }
 
   function goNext() {
-    const i = STEP_IDS.indexOf(step);
-    setStep(STEP_IDS[Math.min(i + 1, STEP_IDS.length - 1)]);
+    const i = stepIds.indexOf(step);
+    setStep(stepIds[Math.min(i + 1, stepIds.length - 1)]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function goBack() {
-    const i = STEP_IDS.indexOf(step);
-    setStep(STEP_IDS[Math.max(i - 1, 0)]);
+    const i = stepIds.indexOf(step);
+    setStep(stepIds[Math.max(i - 1, 0)]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function handlePayment(): Promise<void> {
+  async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotUrl: string }): Promise<void> {
     if (!event) throw new Error("Select an event first.");
     const registration = await api.createRegistration({
       eventId: event.id,
@@ -199,6 +202,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       captainName: draft.captainName,
       members: buildMembersFromDraft(draft.members, teamType),
       termsAccepted: draft.termsAccepted,
+      ...paymentDetails,
     });
     navigate(`/register/success?code=${encodeURIComponent(registration.registrationCode)}`);
   }
@@ -252,61 +256,66 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       stepBody = event && <ReviewStep event={event} draft={draft} teamType={teamType} />;
       break;
     case "payment":
-      stepBody = event && <PaymentStep event={event} draft={draft} onPay={handlePayment} />;
+      stepBody = event && <PaymentStep event={event} draft={draft} onPay={handleRegistration} />;
       break;
   }
 
-  // Step-level validation before advancing.
+  const isFirst = step === "sport";
+  const isLast = step === stepIds[stepIds.length - 1];
+  
+  // When internal, the last step is "review", where the button should say "Confirm Registration"
+  const nextLabel =
+    isLast && step === "review"
+      ? "Confirm Registration"
+      : step === "review"
+      ? "Proceed to payment"
+      : "Continue";
+
+  function handleNextClick() {
+    if (isLast && step === "review") {
+      // Validate everything then register directly
+      validateAndNext();
+    } else {
+      validateAndNext();
+    }
+  }
+
+  // Override validateAndNext to submit when it's the final internal step
   function validateAndNext(): void {
     const nextErrors: Record<string, string> = {};
 
-    if (step === "sport") {
-      if (!draft.eventId) nextErrors.step = "Select an event to continue.";
-    }
-
-    if (step === "terms") {
-      if (!draft.termsAccepted) nextErrors.step = "You must accept the Terms and Conditions.";
-    }
-
+    if (step === "sport" && !draft.eventId) nextErrors.step = "Select an event to continue.";
+    if (step === "terms" && !draft.termsAccepted) nextErrors.step = "You must accept the Terms and Conditions.";
     if (step === "team") {
       if (!draft.teamName.trim()) nextErrors.teamName = "Team name is required.";
       if (!draft.captainName.trim()) nextErrors.captainName = "Captain name is required.";
     }
-
     if (step === "members" && event) {
       const required = event.requiredPlayers ?? 0;
       draft.members.forEach((m, i) => {
-        if (m.role === "player" && !m.name.trim()) {
-          nextErrors[`member-${i}-name`] = `Player ${String(m.position).padStart(2, "0")} name is required.`;
-        }
-        if (m.name.trim() && !m.email.trim()) {
-          nextErrors[`member-${i}-email`] = `Email is required for ${m.name || `member ${m.position}`}.`;
-        }
-        if (m.name.trim() && teamType === "internal" && !m.regNumber.trim()) {
-          nextErrors[`member-${i}-reg`] = `Registration number is required for SIMATS students.`;
-        }
-        if (m.name.trim() && teamType === "external" && !m.phone.trim()) {
-          nextErrors[`member-${i}-phone`] = `Phone number is required for external participants.`;
-        }
+        if (m.role === "player" && !m.name.trim()) nextErrors[`member-${i}-name`] = `Player ${String(m.position).padStart(2, "0")} name is required.`;
+        if (m.name.trim() && !m.email.trim()) nextErrors[`member-${i}-email`] = `Email is required.`;
+        if (m.name.trim() && teamType === "internal" && !m.regNumber.trim()) nextErrors[`member-${i}-reg`] = `Registration number is required.`;
+        if (m.name.trim() && teamType === "external" && !m.phone.trim()) nextErrors[`member-${i}-phone`] = `Phone number is required.`;
       });
       const filledPlayers = draft.members.filter((m) => m.role === "player" && m.name.trim()).length;
-      if (filledPlayers < required) {
-        nextErrors.step = `Fill in all ${required} required player slots.`;
-      }
+      if (filledPlayers < required) nextErrors.step = `Fill in all ${required} required player slots.`;
     }
 
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length === 0) goNext();
+    if (Object.keys(nextErrors).length === 0) {
+      if (isLast && step === "review") {
+        // Internal user completing registration directly
+        handleRegistration().catch((e) => setErrors({ step: e.message }));
+      } else {
+        goNext();
+      }
+    }
   }
-
-  const isFirst = step === "sport";
-  const isLast = step === "payment";
-  const nextLabel =
-    step === "terms" ? "Proceed" : step === "review" ? "Proceed to payment" : step === "sport" ? "Continue" : "Continue";
 
   return (
     <>
-      <RegistrationStepper current={step} />
+      <RegistrationStepper current={step} steps={stepIds} />
 
       <div key={step} className="reveal-up mt-8 space-y-6">
         {stepBody}
@@ -329,8 +338,9 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
             </button>
             <button
               type="button"
-              onClick={validateAndNext}
-              className="clip-angle inline-flex items-center justify-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft"
+              onClick={handleNextClick}
+              disabled={isLast && step === "review" && Object.keys(errors).length > 0 && "step" in errors}
+              className="clip-angle inline-flex items-center justify-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
             >
               {nextLabel} <ArrowRight className="h-4 w-4" aria-hidden />
             </button>
@@ -341,7 +351,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   );
 }
 
-const STEP_IDS: StepId[] = ["sport", "terms", "team", "members", "review", "payment"];
+
 
 /* ------------------------------ Steps ------------------------------ */
 
@@ -778,19 +788,66 @@ function PaymentStep({
 }: {
   event: TechEvent;
   draft: Draft;
-  onPay: () => Promise<void>;
+  onPay: (details: { utrNumber: string; paymentScreenshotUrl: string }) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  const [utrNumber, setUtrNumber] = useState("");
+  const [file, setFile] = useState<File | null>(null);
 
-  const filledMembers = draft.members.filter((m) => m.name.trim());
   const totalFee = computeTotalFee(event, draft.members);
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = e.target.files?.[0];
+    if (!selected) {
+      setFile(null);
+      return;
+    }
+    if (selected.size > 1048576) {
+      setError("File size must be less than 1MB.");
+      setFile(null);
+      return;
+    }
+    setError(null);
+    setFile(selected);
+  }
+
   async function pay() {
+    if (!utrNumber.trim()) {
+      setError("Please enter the UTR / Transaction number.");
+      return;
+    }
+    if (!file) {
+      setError("Please upload a payment screenshot.");
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
-      await onPay();
+      // 1. Upload file
+      const ext = file.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${ext}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('payment_screenshots')
+        .upload(fileName, file);
+
+      if (uploadError) {
+        throw new Error("Failed to upload screenshot: " + uploadError.message);
+      }
+
+      // 2. Get Public URL
+      const { data: urlData } = supabase.storage
+        .from('payment_screenshots')
+        .getPublicUrl(uploadData.path);
+
+      // 3. Complete Registration
+      await onPay({
+        utrNumber: utrNumber.trim(),
+        paymentScreenshotUrl: urlData.publicUrl,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payment could not be recorded. Try again.");
     } finally {
@@ -799,7 +856,7 @@ function PaymentStep({
   }
 
   return (
-    <StepShell title="Payment" lead="Complete the registration fee to confirm your slot.">
+    <StepShell title="Payment Proof" lead="Complete the registration fee to confirm your slot. Upload your payment screenshot.">
       <div className="border border-edge-strong bg-background p-6">
         <dl className="space-y-3 text-sm">
           <div className="flex justify-between gap-4">
@@ -810,10 +867,6 @@ function PaymentStep({
             <dt className="text-muted">Team</dt>
             <dd>{draft.teamName}</dd>
           </div>
-          <div className="flex justify-between gap-4">
-            <dt className="text-muted">Members</dt>
-            <dd>{filledMembers.length} entered ({filledMembers.filter((m) => m.role === "player").length} player · {filledMembers.filter((m) => m.role === "substitute").length} substitute)</dd>
-          </div>
           <div className="flex justify-between gap-4 border-t border-edge pt-3">
             <dt className="text-xs font-semibold uppercase tracking-[0.16em]">Amount payable</dt>
             <dd className="display text-2xl text-primary-soft">{formatFee(totalFee)}</dd>
@@ -821,11 +874,29 @@ function PaymentStep({
         </dl>
       </div>
 
-      <p className="mt-5 flex items-start gap-2 border border-edge bg-elevated px-4 py-3 text-xs leading-relaxed text-muted">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary-soft" aria-hidden />
-        Demo checkout: no real money moves and no card details are collected. A real payment
-        gateway will be connected later; your registration is confirmed instantly in this demo.
-      </p>
+      <div className="mt-8 space-y-5">
+        <Field
+          label="UTR / Transaction Number"
+          required
+          value={utrNumber}
+          onChange={(e) => setUtrNumber(e.target.value)}
+          placeholder="e.g. 123456789012"
+          hint="Enter the 12-digit UPI transaction ID."
+        />
+
+        <div>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Payment Screenshot <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="file"
+            accept="image/jpeg, image/png, image/webp"
+            onChange={handleFileChange}
+            className="block w-full text-sm text-muted file:mr-4 file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-wider file:text-primary-soft hover:file:bg-primary/30"
+          />
+          <p className="mt-1 text-[10px] text-muted">Max file size: 1MB. Allowed: JPG, PNG, WEBP.</p>
+        </div>
+      </div>
 
       {error && (
         <p role="alert" className="mt-5 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
@@ -836,10 +907,10 @@ function PaymentStep({
       <button
         type="button"
         onClick={pay}
-        disabled={busy}
+        disabled={busy || !utrNumber.trim() || !file}
         className="clip-angle mt-7 flex w-full items-center justify-center gap-2 bg-primary px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
       >
-        {busy ? "Processing" : `Pay ${formatFee(totalFee)} (demo)`}
+        {busy ? "Processing" : `Submit Payment Proof`}
       </button>
     </StepShell>
   );

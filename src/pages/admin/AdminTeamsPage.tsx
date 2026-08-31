@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Search, Users, X } from "lucide-react";
-import type { Registration } from "../../lib/mockApi";
+import type { Registration } from "../../lib/api";
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";

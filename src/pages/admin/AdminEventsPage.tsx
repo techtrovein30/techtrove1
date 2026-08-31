@@ -15,7 +15,7 @@ import {
   adminUpdateDay,
 } from "../../lib/eventStore";
 import type { TechEvent, Day } from "../../lib/eventStore";
-import type { Registration } from "../../lib/mockApi";
+import type { Registration } from "../../lib/api";
 import { adminListRegistrations } from "../../lib/adminApi";
 import { formatPerPerson } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";

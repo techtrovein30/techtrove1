@@ -23,28 +23,10 @@ import type { Day, TechEvent } from "../data/techtrove";
 // Re-export types so consumers can import from one place
 export type { Day, TechEvent };
 
-// ─── Day metadata overlay (localStorage) ────────────────────────────────────
-// Day labels/names/descriptions/statuses are editable by the admin.
-// We store overrides in localStorage so they survive page reloads.
-// Without overrides, static data from techtrove.ts is used.
-
-const DAY_META_KEY = "techtrove_day_meta";
+// Day labels/names/descriptions/statuses are stored in the Supabase `days` table.
+// This replaces the old localStorage implementation.
 
 type DayMeta = Record<string, { label?: string; name?: string; description?: string; status?: Day["status"] }>;
-
-function readDayMeta(): DayMeta {
-  try {
-    return JSON.parse(localStorage.getItem(DAY_META_KEY) ?? "{}") as DayMeta;
-  } catch {
-    return {};
-  }
-}
-
-function writeDayMeta(meta: DayMeta): void {
-  try {
-    localStorage.setItem(DAY_META_KEY, JSON.stringify(meta));
-  } catch { /* private mode */ }
-}
 
 // ─── Type mapping helpers ──────────────────────────────────────────────────
 
@@ -113,10 +95,9 @@ export function eventToRow(event: TechEvent): EventRow {
 }
 
 /** Group flat event rows back into the Day[] structure, merging admin overrides */
-function groupIntoDays(rows: EventRow[]): Day[] {
+function groupIntoDays(rows: EventRow[], dayMeta: DayMeta): Day[] {
   const staticDayMap = new Map(staticDays.map((d) => [d.id, d]));
   const dayEventMap = new Map<string, TechEvent[]>();
-  const dayMeta = readDayMeta();
 
   for (const row of rows) {
     const arr = dayEventMap.get(row.day_id) ?? [];
@@ -158,15 +139,30 @@ function groupIntoDays(rows: EventRow[]): Day[] {
 let _cachedDays: Day[] | null = null;
 
 async function fetchAndCacheDays(): Promise<Day[]> {
-  const { data, error } = await supabase.from("events").select("*");
-  if (error) {
+  const [eventsResult, daysResult] = await Promise.all([
+    supabase.from("events").select("*"),
+    supabase.from("days").select("*")
+  ]);
+
+  if (eventsResult.error || daysResult.error) {
     // Supabase unreachable — return whatever is cached (could be stale)
-    console.warn("eventStore: Supabase fetch failed:", error.message);
+    console.warn("eventStore: Supabase fetch failed:", eventsResult.error?.message, daysResult.error?.message);
     return _cachedDays ?? staticDays.map((d) => ({ ...d, events: [] }));
   }
+  
+  const dayMeta: DayMeta = {};
+  for (const day of daysResult.data || []) {
+    dayMeta[day.id] = {
+      label: day.label,
+      name: day.name,
+      description: day.description,
+      status: day.status as Day["status"]
+    };
+  }
+
   // data may be an empty array if the DB table is empty — that is fine;
   // we do NOT fall back to the hardcoded static events.
-  _cachedDays = groupIntoDays((data ?? []) as EventRow[]);
+  _cachedDays = groupIntoDays((eventsResult.data ?? []) as EventRow[], dayMeta);
   return _cachedDays;
 }
 
@@ -325,13 +321,17 @@ export async function adminUpdateDay(
   dayId: string,
   patch: Partial<Omit<Day, "id" | "events">>
 ): Promise<Day> {
-  const meta = readDayMeta();
-  if (!meta[dayId]) meta[dayId] = {};
-  if (patch.label !== undefined) meta[dayId].label = patch.label;
-  if (patch.name !== undefined) meta[dayId].name = patch.name;
-  if (patch.description !== undefined) meta[dayId].description = patch.description;
-  if (patch.status !== undefined) meta[dayId].status = patch.status;
-  writeDayMeta(meta);
+  const { data: current } = await supabase.from("days").select("*").eq("id", dayId).single();
+  const updateData = {
+    id: dayId,
+    label: patch.label ?? current?.label ?? dayId,
+    name: patch.name ?? current?.name ?? dayId,
+    description: patch.description ?? current?.description ?? "",
+    status: patch.status ?? current?.status ?? "active"
+  };
+
+  const { error } = await supabase.from("days").upsert(updateData);
+  if (error) throw new Error("Failed to update day: " + error.message);
 
   // Refresh and return the day
   const days = await fetchAndCacheDays();

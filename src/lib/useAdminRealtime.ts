@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 import { adminListRegistrations, adminListUsers } from "./adminApi";
-import type { Registration, User } from "./mockApi";
+import type { Registration, User } from "./api";
 
 /**
  * Hook to fetch all registrations and keep them in sync with the database via Realtime.

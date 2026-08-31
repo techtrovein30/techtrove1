@@ -10,7 +10,7 @@ import {
   Download,
   ClipboardList,
 } from "lucide-react";
-import type { Registration } from "../../lib/mockApi";
+import type { Registration } from "../../lib/api";
 import {
   adminUpdateRegistration,
   adminDeleteRegistration,

@@ -8,7 +8,7 @@ import {
   Check,
   ChevronLeft,
 } from "lucide-react";
-import type { User, Registration } from "../../lib/mockApi";
+import type { User, Registration } from "../../lib/api";
 import {
   adminGetUserRegistrations,
   adminUpdateUser,
@@ -312,11 +312,11 @@ export function AdminStudentsPage() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<User | null>(null);
 
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
+
   useEffect(() => {
     adminGetAllRegistrationCounts().then(setRegistrationCounts).catch(() => {});
   }, []);
-
-  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();

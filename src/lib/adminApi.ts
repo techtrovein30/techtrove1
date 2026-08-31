@@ -9,8 +9,8 @@
  */
 
 import { supabase } from "./supabase";
-import type { User, Registration, RegistrationMember, PaymentStatus } from "./mockApi";
-import { resolveEmailByIdentifier } from "./mockApi";
+import type { User, Registration, RegistrationMember, PaymentStatus } from "./api";
+import { resolveEmailByIdentifier } from "./api";
 import {
   ALL_REGISTRATION_TABLES,
   getParticipantById,

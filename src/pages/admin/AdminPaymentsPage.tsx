@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt } from "lucide-react";
-import type { Registration } from "../../lib/mockApi";
+import type { Registration } from "../../lib/api";
 import {
   adminUpdateRegistration,
 } from "../../lib/adminApi";

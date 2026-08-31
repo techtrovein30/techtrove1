@@ -363,3 +363,169 @@ union all
 select 'registrations_external', count(*) from public.registrations_external;
 
 select email from public.admin_allowlist;
+-- =============================================================================
+-- TechTrove 3.0 — Row Level Security (RLS) Policies
+-- =============================================================================
+-- Run this script in your Supabase SQL Editor to solve the RLS violation errors.
+-- It enables RLS on all tables and creates policies so users can manage their 
+-- own data while admins can manage everything.
+
+-- 1. Enable RLS on all public tables
+alter table public.internal_participants enable row level security;
+alter table public.external_participants enable row level security;
+alter table public.registrations_internal enable row level security;
+alter table public.registrations_external enable row level security;
+alter table public.events enable row level security;
+
+-- 2. Internal Participants Policies
+drop policy if exists "Users can view their own internal profile" on public.internal_participants;
+create policy "Users can view their own internal profile"
+  on public.internal_participants for select
+  using (auth.uid() = id);
+
+drop policy if exists "Users can insert their own internal profile" on public.internal_participants;
+create policy "Users can insert their own internal profile"
+  on public.internal_participants for insert
+  with check (auth.uid() = id);
+
+drop policy if exists "Users can update their own internal profile" on public.internal_participants;
+create policy "Users can update their own internal profile"
+  on public.internal_participants for update
+  using (auth.uid() = id);
+
+drop policy if exists "Admins can manage all internal participants" on public.internal_participants;
+create policy "Admins can manage all internal participants"
+  on public.internal_participants for all
+  using (exists (
+    select 1 from public.admin_allowlist 
+    where email = lower(auth.jwt()->>'email')
+  ));
+
+-- 3. External Participants Policies
+drop policy if exists "Users can view their own external profile" on public.external_participants;
+create policy "Users can view their own external profile"
+  on public.external_participants for select
+  using (auth.uid() = id);
+
+drop policy if exists "Users can insert their own external profile" on public.external_participants;
+create policy "Users can insert their own external profile"
+  on public.external_participants for insert
+  with check (auth.uid() = id);
+
+drop policy if exists "Users can update their own external profile" on public.external_participants;
+create policy "Users can update their own external profile"
+  on public.external_participants for update
+  using (auth.uid() = id);
+
+drop policy if exists "Admins can manage all external participants" on public.external_participants;
+create policy "Admins can manage all external participants"
+  on public.external_participants for all
+  using (exists (
+    select 1 from public.admin_allowlist 
+    where email = lower(auth.jwt()->>'email')
+  ));
+
+-- 4. Registrations Internal Policies
+drop policy if exists "Users can view their own internal registrations" on public.registrations_internal;
+create policy "Users can view their own internal registrations"
+  on public.registrations_internal for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own internal registrations" on public.registrations_internal;
+create policy "Users can insert their own internal registrations"
+  on public.registrations_internal for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can manage all internal registrations" on public.registrations_internal;
+create policy "Admins can manage all internal registrations"
+  on public.registrations_internal for all
+  using (exists (
+    select 1 from public.admin_allowlist 
+    where email = lower(auth.jwt()->>'email')
+  ));
+
+-- 5. Registrations External Policies
+drop policy if exists "Users can view their own external registrations" on public.registrations_external;
+create policy "Users can view their own external registrations"
+  on public.registrations_external for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own external registrations" on public.registrations_external;
+create policy "Users can insert their own external registrations"
+  on public.registrations_external for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Admins can manage all external registrations" on public.registrations_external;
+create policy "Admins can manage all external registrations"
+  on public.registrations_external for all
+  using (exists (
+    select 1 from public.admin_allowlist 
+    where email = lower(auth.jwt()->>'email')
+  ));
+
+-- 6. Events Policies
+drop policy if exists "Anyone can view events" on public.events;
+create policy "Anyone can view events"
+  on public.events for select
+  using (true);
+
+drop policy if exists "Admins can manage events" on public.events;
+create policy "Admins can manage events"
+  on public.events for all
+  using (exists (
+    select 1 from public.admin_allowlist 
+    where email = lower(auth.jwt()->>'email')
+  ));
+-- =============================================================================
+-- TechTrove 3.0 — Sync Missing Users
+-- =============================================================================
+-- Run this script in your Supabase SQL Editor if some users exist in 
+-- authentication but are not showing up in the Admin Users page.
+-- This script will insert any missing accounts into the correct participant tables.
+
+-- 1. Sync missing external participants
+insert into public.external_participants
+  (id, username, full_name, email, participant_type, reg_number, college, phone, role)
+select 
+  u.id,
+  coalesce(u.raw_user_meta_data->>'username', split_part(u.email, '@', 1)),
+  coalesce(u.raw_user_meta_data->>'full_name', ''),
+  u.email,
+  'external',
+  nullif(u.raw_user_meta_data->>'reg_number', ''),
+  coalesce(u.raw_user_meta_data->>'college', ''),
+  coalesce(u.raw_user_meta_data->>'phone', ''),
+  coalesce(u.raw_user_meta_data->>'role', 'user')
+from auth.users u
+where coalesce(u.raw_user_meta_data->>'participant_type', u.raw_user_meta_data->>'type', 'internal') = 'external'
+  and not exists (select 1 from public.external_participants ep where ep.id = u.id)
+  and not exists (select 1 from public.internal_participants ip where ip.id = u.id);
+
+-- 2. Sync missing internal participants
+insert into public.internal_participants
+  (id, username, full_name, email, participant_type, reg_number, college, phone, role)
+select 
+  u.id,
+  coalesce(u.raw_user_meta_data->>'username', split_part(u.email, '@', 1)),
+  coalesce(u.raw_user_meta_data->>'full_name', ''),
+  u.email,
+  'internal',
+  nullif(u.raw_user_meta_data->>'reg_number', ''),
+  coalesce(u.raw_user_meta_data->>'college', 'SIMATS'),
+  coalesce(u.raw_user_meta_data->>'phone', ''),
+  coalesce(u.raw_user_meta_data->>'role', 'user')
+from auth.users u
+where coalesce(u.raw_user_meta_data->>'participant_type', u.raw_user_meta_data->>'type', 'internal') = 'internal'
+  and not exists (select 1 from public.external_participants ep where ep.id = u.id)
+  and not exists (select 1 from public.internal_participants ip where ip.id = u.id);
+
+-- 3. Just to be safe, make sure admin roles are synced properly using the allowlist
+update public.internal_participants p
+set role = 'admin'
+from public.admin_allowlist a
+where lower(p.email) = lower(a.email) and p.role != 'admin';
+
+update public.external_participants p
+set role = 'admin'
+from public.admin_allowlist a
+where lower(p.email) = lower(a.email) and p.role != 'admin';

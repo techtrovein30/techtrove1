@@ -3,8 +3,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, BadgeCheck } from "lucide-react";
 import { useEvent } from "../lib/useEvents";
 import { formatFee } from "../lib/utils";
-import { api } from "../lib/mockApi";
-import type { Registration } from "../lib/mockApi";
+import { api } from "../lib/api";
+import type { Registration } from "../lib/api";
 
 export function RegisterSuccessPage() {
   const [searchParams] = useSearchParams();

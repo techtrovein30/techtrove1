@@ -13,8 +13,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { supabase } from "../lib/supabase";
-import { api } from "../lib/mockApi";
-import type { User, ParticipantType } from "../lib/mockApi";
+import { api } from "../lib/api";
+import type { User, ParticipantType } from "../lib/api";
 import { getParticipantById } from "../lib/db";
 import type { ParticipantRow } from "../lib/db";
 

@@ -6,7 +6,7 @@
  */
 
 import { supabase } from "./supabase";
-import type { ParticipantType } from "./mockApi";
+import type { ParticipantType } from "./api";
 
 // ─── Table names ────────────────────────────────────────────────────────────
 
@@ -77,6 +77,8 @@ export interface RegistrationRow {
   terms_accepted: boolean;
   members: unknown;
   created_at: string;
+  utr_number?: string;
+  payment_screenshot_url?: string;
 }
 
 /** Find which table holds a registration id. Returns null if absent. */
