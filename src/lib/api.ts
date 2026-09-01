@@ -19,6 +19,7 @@ import {
   getRegistrationByCode,
 } from "./db";
 import type { RegistrationRow } from "./db";
+import { isSportEvent, isIndividualEvent, validateRegisterNumber, validateEmail, validatePhoneNumber } from "./validation";
 
 // Type-only import to keep db.ts's type import from forming a runtime cycle
 export type { ParticipantRow } from "./db";
@@ -125,17 +126,32 @@ export const api = {
     const participantType: ParticipantType = profile?.participant_type ?? "internal";
     const regTable = REGISTRATION_TABLE_FOR[participantType];
 
+    const isSport = isSportEvent(event);
+    const isIndividual = isIndividualEvent(event);
     const required = event.requiredPlayers ?? 1;
-    const maxSubs = event.maxSubstitutes ?? 0;
+    const maxSubs = isSport ? (event.maxSubstitutes ?? 0) : 0;
 
     const players = input.members.filter((m) => m.role === "player");
     const substitutes = input.members.filter((m) => m.role === "substitute");
 
+    if (!isSport && substitutes.length > 0) {
+      throw new Error("Substitute players are not allowed for non-sport events.");
+    }
     if (players.length !== required) {
       throw new Error(`This event requires exactly ${required} players.`);
     }
     if (substitutes.length > maxSubs) {
       throw new Error(`This event allows at most ${maxSubs} substitutes.`);
+    }
+
+    const captainName = input.captainName.trim() || input.members[0]?.name.trim() || "";
+    if (!captainName) throw new Error("Captain name is required.");
+
+    let teamName = input.teamName.trim();
+    if (isIndividual) {
+      teamName = teamName || captainName;
+    } else if (!teamName) {
+      throw new Error("Team name is required.");
     }
 
     // Fee is now securely calculated by the database trigger before insert.
@@ -144,12 +160,21 @@ export const api = {
     // Validate each member has required fields
     for (const m of input.members) {
       if (!m.name.trim()) throw new Error("All team members must have a name.");
-      if (!m.email.trim()) throw new Error(`Email is required for ${m.name}.`);
-      if (m.participantType === "internal" && !m.regNumber?.trim()) {
-        throw new Error(`Registration number is required for SIMATS student ${m.name}.`);
-      }
-      if (m.participantType === "external" && !m.phone?.trim()) {
-        throw new Error(`Phone number is required for external participant ${m.name}.`);
+      
+      const emailErr = validateEmail(m.email, m.participantType);
+      if (emailErr) throw new Error(`${m.name}: ${emailErr}`);
+
+      if (m.participantType === "internal") {
+        const regErr = validateRegisterNumber(m.regNumber, "internal");
+        if (regErr) throw new Error(`${m.name}: ${regErr}`);
+
+        if (m.phone && m.phone.trim()) {
+          const phoneErr = validatePhoneNumber(m.phone, false);
+          if (phoneErr) throw new Error(`${m.name}: ${phoneErr}`);
+        }
+      } else {
+        const phoneErr = validatePhoneNumber(m.phone, true);
+        if (phoneErr) throw new Error(`${m.name}: ${phoneErr}`);
       }
     }
 

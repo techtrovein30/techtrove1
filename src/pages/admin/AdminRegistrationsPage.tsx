@@ -19,6 +19,7 @@ import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
+import { isSportEvent } from "../../lib/validation";
 
 type StatusFilter = "all" | "pending" | "recorded";
 
@@ -64,6 +65,7 @@ function RegistrationDetail({
 
   const players = registration.members.filter((m) => m.role === "player");
   const substitutes = registration.members.filter((m) => m.role === "substitute");
+  const showSubstitutes = isSportEvent(event) && substitutes.length > 0;
 
   return (
     <>
@@ -183,7 +185,7 @@ function RegistrationDetail({
                 ))}
               </div>
 
-              {substitutes.length > 0 && (
+              {showSubstitutes && (
                 <>
                   <h3 className="mb-3 mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
                     Substitutes ({substitutes.length})

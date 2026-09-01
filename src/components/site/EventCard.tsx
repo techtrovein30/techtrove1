@@ -3,7 +3,12 @@ import { ArrowRight } from "lucide-react";
 import type { TechEvent } from "../../data/techtrove";
 import { formatPerPerson, pad } from "../../lib/utils";
 
+import { isSportEvent, isIndividualEvent } from "../../lib/validation";
+
 export function EventCard({ event, index }: { event: TechEvent; index: number }) {
+  const isSport = isSportEvent(event);
+  const isIndividual = isIndividualEvent(event);
+
   return (
     <Link
       to={`/events/${event.id}`}
@@ -36,7 +41,9 @@ export function EventCard({ event, index }: { event: TechEvent; index: number })
           {event.name}
         </h3>
         <p className="mt-1.5 text-xs uppercase tracking-[0.14em] text-muted">
-          {event.requiredPlayers} players · {event.maxSubstitutes} substitutes
+          {isIndividual
+            ? "Individual Event"
+            : `${event.requiredPlayers} player${event.requiredPlayers === 1 ? "" : "s"}${isSport && event.maxSubstitutes ? ` · ${event.maxSubstitutes} substitutes` : ""}`}
         </p>
 
         <div className="mt-auto flex items-end justify-between border-t border-edge pt-4">

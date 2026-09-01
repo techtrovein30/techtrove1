@@ -15,6 +15,14 @@ import { Field } from "../components/ui/Field";
 import { RegistrationStepper, StepShell } from "../components/registration/RegistrationStepper";
 import type { StepId } from "../components/registration/RegistrationStepper";
 
+import {
+  isSportEvent,
+  isIndividualEvent,
+  validateRegisterNumber,
+  validateEmail,
+  validatePhoneNumber,
+} from "../lib/validation";
+
 interface MemberDraft {
   name: string;
   role: "player" | "substitute";
@@ -32,7 +40,12 @@ interface Draft {
   members: MemberDraft[];
 }
 
-function makeEmptyMembers(required: number, maxSubs: number): MemberDraft[] {
+function makeEmptyMembers(event: TechEvent | undefined): MemberDraft[] {
+  if (!event) return [];
+  const isSport = isSportEvent(event);
+  const required = event.requiredPlayers ?? 1;
+  const maxSubs = isSport ? (event.maxSubstitutes ?? 0) : 0;
+
   const players: MemberDraft[] = Array.from({ length: required }, (_, i) => ({
     name: "",
     role: "player",
@@ -132,16 +145,19 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
   // Resolve preselected event from DB data
   const preselectedEvent = preselectedId ? allEvents.find((e) => e.id === preselectedId) : undefined;
-
-  const stepIds: StepId[] = teamType === "internal" ? ["sport", "terms", "team", "members", "review"] : ["sport", "terms", "team", "members", "review", "payment"];
-
-  const [step, setStep] = useState<StepId>(preselectedId ? "terms" : "sport");
   const [draft, setDraft] = useState<Draft>(() => {
     if (!preselectedId) return initialDraft;
-    // We can't use preselectedEvent here synchronously on first render — start with eventId set,
-    // members will be fixed once the event loads (see the effect below).
     return { ...initialDraft, eventId: preselectedId, members: [] };
   });
+  const event = draft.eventId ? allEvents.find((e) => e.id === draft.eventId) : undefined;
+  const activeEvent = event ?? preselectedEvent;
+  const isIndividual = isIndividualEvent(activeEvent);
+
+  const stepIds: StepId[] = isIndividual
+    ? (teamType === "internal" ? ["sport", "terms", "members", "review"] : ["sport", "terms", "members", "review", "payment"])
+    : (teamType === "internal" ? ["sport", "terms", "team", "members", "review"] : ["sport", "terms", "team", "members", "review", "payment"]);
+
+  const [step, setStep] = useState<StepId>(preselectedId ? "terms" : "sport");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
 
@@ -150,19 +166,21 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     if (preselectedEvent && draft.eventId === preselectedEvent.id && draft.members.length === 0) {
       setDraft((d) => ({
         ...d,
-        members: makeEmptyMembers(preselectedEvent.requiredPlayers ?? 1, preselectedEvent.maxSubstitutes ?? 0),
+        members: makeEmptyMembers(preselectedEvent),
+        captainName: d.captainName || (user?.fullName ?? ""),
       }));
       setSelectedDayId(preselectedEvent.dayId);
     }
-  }, [preselectedEvent, draft.eventId, draft.members.length]);
-
-  const event = draft.eventId ? allEvents.find((e) => e.id === draft.eventId) : undefined;
+  }, [preselectedEvent, draft.eventId, draft.members.length, user]);
 
   function selectEvent(ev: TechEvent) {
+    const indiv = isIndividualEvent(ev);
     setDraft((d) => ({
       ...d,
       eventId: ev.id,
-      members: makeEmptyMembers(ev.requiredPlayers ?? 1, ev.maxSubstitutes ?? 0),
+      members: makeEmptyMembers(ev),
+      captainName: d.captainName || (user?.fullName ?? ""),
+      teamName: indiv ? (user?.fullName ?? ev.name) : d.teamName,
     }));
     setSelectedDayId(ev.dayId);
     setErrors({});
@@ -170,8 +188,6 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
   function selectDay(dayId: string) {
     setSelectedDayId(dayId);
-    // Switching days clears any previously chosen event so selection always
-    // belongs to the currently viewed day.
     setDraft((d) => (d.eventId ? { ...d, eventId: null, members: [] } : d));
     setErrors({});
   }
@@ -197,10 +213,17 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
   async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotUrl: string }): Promise<void> {
     if (!event) throw new Error("Select an event first.");
+    const indiv = isIndividualEvent(event);
+    const firstMember = draft.members[0];
+    const captainName = draft.captainName.trim() || firstMember?.name.trim() || user?.fullName || "";
+    const teamName = indiv
+      ? (draft.teamName.trim() || captainName || event.name)
+      : draft.teamName.trim();
+
     const registration = await api.createRegistration({
       eventId: event.id,
-      teamName: draft.teamName,
-      captainName: draft.captainName,
+      teamName,
+      captainName,
       members: buildMembersFromDraft(draft.members, teamType),
       termsAccepted: draft.termsAccepted,
       ...paymentDetails,
@@ -257,14 +280,13 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       stepBody = event && <ReviewStep event={event} draft={draft} teamType={teamType} />;
       break;
     case "payment":
-      stepBody = event && <PaymentStep event={event} draft={draft} onPay={handleRegistration} />;
+      stepBody = event && <PaymentStep event={event} draft={draft} teamType={teamType} onPay={handleRegistration} />;
       break;
   }
 
   const isFirst = step === "sport";
   const isLast = step === stepIds[stepIds.length - 1];
   
-  // When internal, the last step is "review", where the button should say "Confirm Registration"
   const nextLabel =
     isLast && step === "review"
       ? "Confirm Registration"
@@ -273,40 +295,58 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       : "Continue";
 
   function handleNextClick() {
-    if (isLast && step === "review") {
-      // Validate everything then register directly
-      validateAndNext();
-    } else {
-      validateAndNext();
-    }
+    validateAndNext();
   }
 
-  // Override validateAndNext to submit when it's the final internal step
   function validateAndNext(): void {
     const nextErrors: Record<string, string> = {};
 
     if (step === "sport" && !draft.eventId) nextErrors.step = "Select an event to continue.";
     if (step === "terms" && !draft.termsAccepted) nextErrors.step = "You must accept the Terms and Conditions.";
-    if (step === "team") {
+    if (step === "team" && !isIndividual) {
       if (!draft.teamName.trim()) nextErrors.teamName = "Team name is required.";
       if (!draft.captainName.trim()) nextErrors.captainName = "Captain name is required.";
     }
     if (step === "members" && event) {
-      const required = event.requiredPlayers ?? 0;
+      const required = event.requiredPlayers ?? 1;
+      const isSport = isSportEvent(event);
+
       draft.members.forEach((m, i) => {
-        if (m.role === "player" && !m.name.trim()) nextErrors[`member-${i}-name`] = `Player ${String(m.position).padStart(2, "0")} name is required.`;
-        if (m.name.trim() && !m.email.trim()) nextErrors[`member-${i}-email`] = `Email is required.`;
-        if (m.name.trim() && teamType === "internal" && !m.regNumber.trim()) nextErrors[`member-${i}-reg`] = `Registration number is required.`;
-        if (m.name.trim() && teamType === "external" && !m.phone.trim()) nextErrors[`member-${i}-phone`] = `Phone number is required.`;
+        if (!isSport && m.role === "substitute") return;
+
+        if (m.role === "player" && !m.name.trim()) {
+          const slotLabel = isIndividual ? "Participant" : `Player ${String(m.position).padStart(2, "0")}`;
+          nextErrors[`member-${i}-name`] = `${slotLabel} name is required.`;
+        }
+
+        if (m.name.trim()) {
+          const emailErr = validateEmail(m.email, teamType);
+          if (emailErr) nextErrors[`member-${i}-email`] = emailErr;
+
+          if (teamType === "internal") {
+            const regErr = validateRegisterNumber(m.regNumber, "internal");
+            if (regErr) nextErrors[`member-${i}-reg`] = regErr;
+
+            if (m.phone && m.phone.trim()) {
+              const phoneErr = validatePhoneNumber(m.phone, false);
+              if (phoneErr) nextErrors[`member-${i}-phone`] = phoneErr;
+            }
+          } else {
+            const phoneErr = validatePhoneNumber(m.phone, true);
+            if (phoneErr) nextErrors[`member-${i}-phone`] = phoneErr;
+          }
+        }
       });
+
       const filledPlayers = draft.members.filter((m) => m.role === "player" && m.name.trim()).length;
-      if (filledPlayers < required) nextErrors.step = `Fill in all ${required} required player slots.`;
+      if (filledPlayers < required) {
+        nextErrors.step = isIndividual ? "Please enter your participant details." : `Fill in all ${required} required player slots.`;
+      }
     }
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length === 0) {
       if (isLast && step === "review") {
-        // Internal user completing registration directly
         handleRegistration().catch((e) => setErrors({ step: e.message }));
       } else {
         goNext();
@@ -446,6 +486,8 @@ function SportStep({
         <div role="radiogroup" aria-label={`Available events on ${activeDay!.name}`} className="mt-6 grid gap-3 sm:grid-cols-2">
           {openDayEvents.map((ev) => {
             const active = ev.id === selectedId;
+            const isIndiv = isIndividualEvent(ev);
+            const isSport = isSportEvent(ev);
             return (
               <button
                 key={ev.id}
@@ -463,7 +505,9 @@ function SportStep({
                 <span className="min-w-0 flex-1">
                   <span className="display block text-lg text-foreground">{ev.name}</span>
                   <span className="mt-0.5 block text-xs text-muted">
-                    {ev.requiredPlayers} player{ev.requiredPlayers === 1 ? "" : "s"} · {ev.maxSubstitutes} substitute{ev.maxSubstitutes === 1 ? "" : "s"} · {formatPerPerson(ev.registrationFee)}
+                    {isIndiv
+                      ? `Individual Event · ${formatPerPerson(ev.registrationFee)}`
+                      : `${ev.requiredPlayers} player${ev.requiredPlayers === 1 ? "" : "s"}${isSport && ev.maxSubstitutes ? ` · ${ev.maxSubstitutes} substitute${ev.maxSubstitutes === 1 ? "" : "s"}` : ""} · ${formatPerPerson(ev.registrationFee)}`}
                   </span>
                 </span>
                 {active && <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary-soft">Selected</span>}
@@ -575,19 +619,25 @@ function MembersStep({
   teamType: ParticipantType;
   onUpdateMember: (index: number, patch: Partial<MemberDraft>) => void;
 }) {
-  const required = event?.requiredPlayers ?? 0;
-  const maxSubs = event?.maxSubstitutes ?? 0;
+  const required = event?.requiredPlayers ?? 1;
+  const isSport = isSportEvent(event);
+  const isIndividual = isIndividualEvent(event);
+  const maxSubs = isSport ? (event?.maxSubstitutes ?? 0) : 0;
 
   const players = draft.members.filter((m) => m.role === "player");
   const subs = draft.members.filter((m) => m.role === "substitute");
 
   return (
     <StepShell
-      title="Team members"
-      lead={`${required} players are mandatory${maxSubs > 0 ? `, plus up to ${maxSubs} optional substitutes` : ""} for ${event?.name ?? "this event"}. All members are ${teamType === "internal" ? "SIMATS students" : "external participants"} since you are registering as ${teamType === "internal" ? "a SIMATS student" : "an external participant"}.`}
+      title={isIndividual ? "Participant details" : "Team members"}
+      lead={
+        isIndividual
+          ? `Enter your details to register for ${event?.name ?? "this event"}.`
+          : `${required} players are mandatory${maxSubs > 0 ? `, plus up to ${maxSubs} optional substitutes` : ""} for ${event?.name ?? "this event"}. All members are ${teamType === "internal" ? "SIMATS students" : "external participants"}.`
+      }
     >
       <fieldset>
-        <legend className="eyebrow mb-4">Players · required</legend>
+        {!isIndividual && <legend className="eyebrow mb-4">Players · required</legend>}
         <div className="space-y-6">
           {players.map((m) => {
             const globalIdx = draft.members.indexOf(m);
@@ -596,7 +646,7 @@ function MembersStep({
                 key={globalIdx}
                 member={m}
                 index={globalIdx}
-                label={`Player ${String(m.position).padStart(2, "0")}`}
+                label={isIndividual ? "Participant Details" : `Player ${String(m.position).padStart(2, "0")}`}
                 teamType={teamType}
                 errors={errors}
                 onUpdate={(patch) => onUpdateMember(globalIdx, patch)}
@@ -606,7 +656,7 @@ function MembersStep({
         </div>
       </fieldset>
 
-      {maxSubs > 0 && subs.length > 0 && (
+      {isSport && maxSubs > 0 && subs.length > 0 && (
         <fieldset className="mt-9">
           <legend className="eyebrow mb-4">Substitutes · optional</legend>
           <div className="space-y-6">
@@ -681,18 +731,30 @@ function MemberCard({
           value={member.email}
           onChange={(e) => onUpdate({ email: e.target.value })}
           error={errors[`member-${index}-email`]}
+          placeholder={isInternal ? "e.g. student@saveetha.com" : "e.g. alex@example.com"}
           autoComplete="off"
         />
         {isInternal ? (
-          <Field
-            label="Registration number"
-            required
-            value={member.regNumber}
-            onChange={(e) => onUpdate({ regNumber: e.target.value })}
-            error={errors[`member-${index}-reg`]}
-            placeholder="e.g. 230701XXX"
-            autoComplete="off"
-          />
+          <>
+            <Field
+              label="Registration number"
+              required
+              value={member.regNumber}
+              onChange={(e) => onUpdate({ regNumber: e.target.value })}
+              error={errors[`member-${index}-reg`]}
+              placeholder="e.g. 19xxxxxxxx"
+              autoComplete="off"
+            />
+            <Field
+              label="Phone number"
+              type="tel"
+              value={member.phone}
+              onChange={(e) => onUpdate({ phone: e.target.value })}
+              error={errors[`member-${index}-phone`]}
+              placeholder="e.g. 9876543210"
+              autoComplete="off"
+            />
+          </>
         ) : (
           <Field
             label="Phone number"
@@ -720,6 +782,8 @@ function ReviewRow({ term, children }: { term: string; children: ReactNode }) {
 }
 
 function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft; teamType: ParticipantType }) {
+  const isIndividual = isIndividualEvent(event);
+  const isSport = isSportEvent(event);
   const filledMembers = draft.members.filter((m) => m.name.trim());
   const filledPlayers = filledMembers.filter((m) => m.role === "player").length;
   const filledSubs = filledMembers.filter((m) => m.role === "substitute").length;
@@ -728,11 +792,11 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
   return (
     <StepShell title="Review your entry" lead="Check everything carefully. Changes after payment cannot be made.">
       <dl>
-        <ReviewRow term="Sport">{event.name}</ReviewRow>
+        <ReviewRow term="Event">{event.name}</ReviewRow>
         <ReviewRow term="Category">{event.category}</ReviewRow>
-        <ReviewRow term="Team name">{draft.teamName}</ReviewRow>
-        <ReviewRow term="Captain">{draft.captainName}</ReviewRow>
-        <ReviewRow term="Team type">
+        {!isIndividual && <ReviewRow term="Team name">{draft.teamName}</ReviewRow>}
+        <ReviewRow term={isIndividual ? "Participant" : "Captain"}>{draft.captainName || filledMembers[0]?.name || "-"}</ReviewRow>
+        <ReviewRow term="Participant type">
           <span
             className={
               "inline-flex border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] " +
@@ -741,26 +805,29 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
                 : "border-edge-strong bg-surface text-muted")
             }
           >
-            {teamType === "internal" ? "SIMATS Students" : "External Participants"}
+            {teamType === "internal" ? "SIMATS Student" : "External Participant"}
           </span>
         </ReviewRow>
         <ReviewRow term="Fee per person">{teamType === "internal" ? "Free" : formatPerPerson(event.registrationFee)}</ReviewRow>
-        <ReviewRow term="Team members">
-          {filledPlayers} player{filledPlayers === 1 ? "" : "s"} · {filledSubs} substitute{filledSubs === 1 ? "" : "s"}
-        </ReviewRow>
+        {!isIndividual && (
+          <ReviewRow term="Team members">
+            {filledPlayers} player{filledPlayers === 1 ? "" : "s"}
+            {isSport && filledSubs > 0 ? ` · ${filledSubs} substitute${filledSubs === 1 ? "" : "s"}` : ""}
+          </ReviewRow>
+        )}
         <ReviewRow term="Total registration fee">{formatFee(totalFee)}</ReviewRow>
         <ReviewRow term="Terms accepted">{draft.termsAccepted ? "Yes" : "No"}</ReviewRow>
       </dl>
 
       <div className="mt-6 border-t border-edge pt-6">
-        <span className="eyebrow block text-muted mb-4">Team members ({filledMembers.length})</span>
+        <span className="eyebrow block text-muted mb-4">{isIndividual ? "Participant details" : `Team members (${filledMembers.length})`}</span>
         <div className="space-y-3">
           {filledMembers.map((m, i) => (
             <div key={i} className="border border-edge bg-surface/40 p-4">
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <span className="text-sm font-semibold text-foreground">{m.name}</span>
                 <span className="text-[10px] uppercase tracking-wider text-muted">
-                  {m.role} · #{m.position}
+                  {isIndividual ? "Participant" : `${m.role} · #${m.position}`}
                 </span>
               </div>
               <div className="grid gap-1 text-xs text-muted sm:grid-cols-3">
@@ -768,7 +835,7 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
                 {teamType === "internal" && m.regNumber && (
                   <span className="font-mono text-primary-soft">{m.regNumber}</span>
                 )}
-                {teamType === "external" && m.phone && <span>{m.phone}</span>}
+                {m.phone && <span>{m.phone}</span>}
               </div>
             </div>
           ))}
@@ -785,10 +852,12 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
 function PaymentStep({
   event,
   draft,
+  teamType,
   onPay,
 }: {
   event: TechEvent;
   draft: Draft;
+  teamType: ParticipantType;
   onPay: (details: { utrNumber: string; paymentScreenshotUrl: string }) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -797,7 +866,7 @@ function PaymentStep({
   const [utrNumber, setUtrNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
-  const totalFee = computeTotalFee(event, draft.members, draft.members[0]?.participantType ?? "external");
+  const totalFee = computeTotalFee(event, draft.members, teamType);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0];
