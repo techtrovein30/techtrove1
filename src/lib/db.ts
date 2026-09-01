@@ -90,13 +90,13 @@ export async function getParticipantByEmail(
     supabase
       .from("internal_participants")
       .select("*")
-      .ilike("email", normalized)
+      .eq("email", normalized)
       .maybeSingle(),
 
     supabase
       .from("external_participants")
       .select("*")
-      .ilike("email", normalized)
+      .eq("email", normalized)
       .maybeSingle(),
   ]);
 
@@ -273,7 +273,7 @@ export async function getRegistrationByCode(code: string): Promise<RegistrationR
     const { data } = await supabase
       .from(table)
       .select("*")
-      .ilike("registration_code", code)
+      .eq("registration_code", code)
       .maybeSingle();
     if (data) return data as unknown as RegistrationRow;
   }

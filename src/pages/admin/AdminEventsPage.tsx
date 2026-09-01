@@ -45,15 +45,32 @@ function EventModal({
       return;
     }
 
+    // M16: reject NaN / out-of-range numerics before persisting.
+    const feeNum = Number(fee);
+    const playersNum = Number(players);
+    const subsNum = Number(subs);
+    if (!Number.isFinite(feeNum) || feeNum < 0) {
+      setError("Enter a valid fee.");
+      return;
+    }
+    if (!Number.isFinite(playersNum) || playersNum < 1) {
+      setError("Required players must be at least 1.");
+      return;
+    }
+    if (!Number.isFinite(subsNum) || subsNum < 0) {
+      setError("Max substitutes must be 0 or more.");
+      return;
+    }
+
     try {
       if (event) {
         await adminUpdateEvent(event.id, {
           name: name.trim(),
           category: category.trim(),
           description: description.trim(),
-          registrationFee: Number(fee),
-          requiredPlayers: Number(players),
-          maxSubstitutes: Number(subs),
+          registrationFee: feeNum,
+          requiredPlayers: playersNum,
+          maxSubstitutes: subsNum,
         });
       } else {
         await adminAddEvent(dayId, {
@@ -62,9 +79,9 @@ function EventModal({
           description: description.trim(),
           registrationOpen: true,
           registrationType: "team",
-          registrationFee: Number(fee),
-          requiredPlayers: Number(players),
-          maxSubstitutes: Number(subs),
+          registrationFee: feeNum,
+          requiredPlayers: playersNum,
+          maxSubstitutes: subsNum,
           rules: [
             "Team size must match the published player limits.",
             "All players must carry valid college ID cards.",
@@ -100,6 +117,7 @@ function EventModal({
             <input
               type="text"
               value={name}
+              maxLength={100}
               onChange={(e) => setName(e.target.value)}
               className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
             />
@@ -113,6 +131,7 @@ function EventModal({
               <input
                 type="text"
                 value={category}
+                maxLength={50}
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
               />
@@ -123,6 +142,7 @@ function EventModal({
               </label>
               <input
                 type="number"
+                min={0}
                 value={fee}
                 onChange={(e) => setFee(Number(e.target.value))}
                 className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
@@ -137,6 +157,7 @@ function EventModal({
               </label>
               <input
                 type="number"
+                min={1}
                 value={players}
                 onChange={(e) => setPlayers(Number(e.target.value))}
                 className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
@@ -148,6 +169,7 @@ function EventModal({
               </label>
               <input
                 type="number"
+                min={0}
                 value={subs}
                 onChange={(e) => setSubs(Number(e.target.value))}
                 className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
@@ -162,6 +184,7 @@ function EventModal({
             <textarea
               rows={3}
               value={description}
+              maxLength={500}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
             />
@@ -235,6 +258,7 @@ function DayModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Tech Events"
+              maxLength={80}
               className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
             />
           </div>
@@ -247,6 +271,7 @@ function DayModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Short description shown on the public site."
+              maxLength={500}
               className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
             />
           </div>
@@ -278,6 +303,7 @@ export function AdminEventsPage() {
   const [deletingEvent, setDeletingEvent] = useState<TechEvent | null>(null);
   const [editingDay, setEditingDay] = useState<Day | null>(null);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   useEffect(() => {
     getDaysAsync().then(setDays).catch(() => {});
@@ -298,7 +324,7 @@ export function AdminEventsPage() {
       await adminToggleRegistration(eventId);
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Toggle failed.");
+      setRowError(err instanceof Error ? err.message : "Toggle failed.");
     }
   }
 
@@ -309,7 +335,7 @@ export function AdminEventsPage() {
       });
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Update failed.");
+      setRowError(err instanceof Error ? err.message : "Update failed.");
     }
   }
 
@@ -319,7 +345,7 @@ export function AdminEventsPage() {
       await adminDeleteEvent(deletingEvent.id);
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      setRowError(err instanceof Error ? err.message : "Delete failed.");
     }
   }
 
@@ -328,6 +354,20 @@ export function AdminEventsPage() {
   return (
     <div className="space-y-6">
       {/* Modal dialogs */}
+      {rowError && (
+        <div role="alert" className="flex items-start justify-between gap-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <span>{rowError}</span>
+          <button
+            type="button"
+            onClick={() => setRowError(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {(editingEvent || addingDayId) && (
         <EventModal
           dayId={addingDayId ?? editingEvent?.dayId ?? "day-1"}

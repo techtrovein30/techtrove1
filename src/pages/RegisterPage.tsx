@@ -21,6 +21,7 @@ import {
   validateRegisterNumber,
   validateEmail,
   validatePhoneNumber,
+  validateUtrNumber,
 } from "../lib/validation";
 
 interface MemberDraft {
@@ -994,7 +995,7 @@ function PaymentStep({
 }: {
   event: TechEvent;
   draft: Draft;
-  teamType?: ParticipantType;
+  teamType: ParticipantType;
   onPay: (details: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }) => Promise<void>;
 }) {
   const { user } = useAuth();
@@ -1025,8 +1026,9 @@ function PaymentStep({
   }
 
   async function pay() {
-    if (!utrNumber.trim()) {
-      setError("Please enter the UTR / Transaction number.");
+    const utrError = validateUtrNumber(utrNumber);
+    if (utrError) {
+      setError(utrError);
       return;
     }
     if (!file) {
@@ -1041,8 +1043,11 @@ function PaymentStep({
     setBusy(true);
     setError(null);
     try {
-      // Generate a unique registration id segment for the upload path
-      const regFileId = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      // Generate a unique registration id segment for the upload path (crypto,
+      // not Math.random — C03).
+      const rand = new Uint32Array(4);
+      crypto.getRandomValues(rand);
+      const regFileId = `reg_${Date.now()}_${Array.from(rand, (n) => n.toString(36)).join("")}`;
       
       // Upload directly to private 'uploads/payment-proofs/{user_id}/{regFileId}.{ext}'
       const storagePath = await uploadPaymentProof(user.id, regFileId, file);

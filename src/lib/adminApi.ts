@@ -11,6 +11,7 @@
 import { supabase } from "./supabase";
 import type { User, Registration, RegistrationMember, PaymentStatus } from "./api";
 import { resolveEmailByIdentifier } from "./api";
+import { requireAdmin as guard } from "./adminGuard";
 import {
   ALL_REGISTRATION_TABLES,
   getParticipantById,
@@ -27,6 +28,13 @@ import type { ParticipantRow, RegistrationRow } from "./db";
 import { getUploadSignedUrl } from "./storage";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
+
+/** Wrap DB/server errors into generic user-facing messages (H05). */
+function friendlyError(err: unknown, fallback: string): Error {
+  const detail = err instanceof Error ? err.message : String(err);
+  console.error(`[admin] ${fallback}:`, detail);
+  return new Error(fallback);
+}
 
 /** Map a participant row → the shared User shape */
 function profileToUser(p: ParticipantRow): User {
@@ -65,29 +73,15 @@ function rowToRegistration(r: RegistrationRow): Registration {
 
 /** Throws if the currently signed-in user is not an admin. */
 async function requireAdmin(): Promise<User> {
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser) throw new Error("Not authenticated.");
-
-  let profile = await getParticipantById(authUser.id);
-  if (!profile) throw new Error("Session expired.");
-
-  if (profile.role !== "admin") {
-    // Attempt to self-heal via ensure_admin_access RPC if caller is in admin allowlist
-    try {
-      const { data: isAllowed } = await supabase.rpc("ensure_admin_access");
-      if (isAllowed) {
-        profile = await getParticipantById(authUser.id);
-      }
-    } catch {
-      // Ignore RPC error and evaluate profile role below
-    }
-  }
-
-  if (!profile || profile.role !== "admin") {
-    throw new Error("Insufficient permissions: account does not have admin role.");
-  }
-
-  return profileToUser(profile);
+  const admin = await guard();
+  return {
+    id: admin.id,
+    username: admin.username,
+    fullName: admin.fullName,
+    email: admin.email,
+    participantType: "internal",
+    role: admin.role,
+  };
 }
 
 // ─── Seeding (no-op — Supabase handles persistence) ───────────────────────
@@ -98,19 +92,6 @@ async function requireAdmin(): Promise<User> {
  */
 export function seedAdminIfNeeded(): void {
   // Admin accounts are created directly in Supabase Auth + participant tables.
-}
-
-// ─── Role check (sync best-effort) ────────────────────────────────────────
-
-/**
- * Synchronous check based on the cached session.
- * For a fully authoritative check, use requireAdmin() (async).
- */
-export function isCurrentUserAdmin(): boolean {
-  // AdminRoute passes user.role from AuthContext — that is the actual guard.
-  // This function is kept for backward compatibility but callers should
-  // prefer checking user.role directly.
-  return false; // Forces callers to use the async requireAdmin() path
 }
 
 // ─── Admin sign-in ─────────────────────────────────────────────────────────
@@ -125,6 +106,13 @@ export async function adminSignIn(
   if (!looksLikeEmail) {
     const resolved = await resolveEmailByIdentifier(email);
     if (!resolved) {
+      // M05: equalize the "user not found" path with the "wrong password"
+      // path by performing a dummy auth attempt so timing does not leak
+      // whether the username exists.
+      await supabase.auth.signInWithPassword({
+        email: `${email}@local.invalid`,
+        password,
+      });
       throw new Error("Invalid credentials.");
     }
     email = resolved;
@@ -286,7 +274,7 @@ export async function adminUpdateUser(userId: string, patch: AdminUserPatch): Pr
     .select()
     .single();
 
-  if (error || !data) throw new Error(error?.message ?? "User not found.");
+  if (error || !data) throw friendlyError(error, "Could not update the user.");
   return profileToUser(data as unknown as ParticipantRow);
 }
 
@@ -311,7 +299,7 @@ export async function adminDeleteUser(userId: string): Promise<void> {
     .eq("id", userId)
     .neq("role", "admin");
 
-  if (error) throw new Error(error.message);
+  if (error) throw friendlyError(error, "Could not delete the user.");
 }
 
 // ─── Registration management ───────────────────────────────────────────────
@@ -356,7 +344,7 @@ export async function adminUpdateRegistration(
     .select()
     .single();
 
-  if (error || !data) throw new Error(error?.message ?? "Registration not found.");
+  if (error || !data) throw friendlyError(error, "Could not update the registration.");
   return rowToRegistration(data as unknown as RegistrationRow);
 }
 
@@ -365,7 +353,7 @@ export async function adminDeleteRegistration(regId: string): Promise<void> {
   const table = await findRegistrationTableById(regId);
   if (!table) throw new Error("Registration not found.");
   const { error } = await supabase.from(table).delete().eq("id", regId);
-  if (error) throw new Error(error.message);
+  if (error) throw friendlyError(error, "Could not delete the registration.");
 }
 
 // ─── Admin account settings ────────────────────────────────────────────────
@@ -391,6 +379,9 @@ export async function adminChangePassword(
   currentPassword: string,
   newPassword: string
 ): Promise<void> {
+  // Only an authenticated admin may change the admin password (H07).
+  await requireAdmin();
+
   // Re-authenticate with current password before allowing the change
   const { data: { user: authUser } } = await supabase.auth.getUser();
   if (!authUser?.email) throw new Error("Not authenticated.");
@@ -403,6 +394,11 @@ export async function adminChangePassword(
 
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) throw new Error(error.message);
+
+  // Invalidate any other active sessions for this account so a stolen
+  // token can't persist after the password change (M06). The current
+  // browser session is kept so the admin stays signed in.
+  await supabase.auth.signOut({ scope: "others" });
 }
 
 export async function getStorageUsageSummary(): Promise<{

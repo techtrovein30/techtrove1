@@ -8,9 +8,7 @@ import {
   adminSignOut,
   adminSignInWithGoogle,
   adminResolveOAuthAccess,
-  seedAdminIfNeeded,
 } from "../../lib/adminApi";
-import { seedEventsIfNeeded } from "../../lib/eventStore";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -48,12 +46,6 @@ export function AdminLoginPage() {
 
   // Guard against StrictMode double-invoking the OAuth resolution effect
   const oauthAttempted = useRef(false);
-
-  // Seed event store on first admin visit
-  useEffect(() => {
-    seedAdminIfNeeded();
-    seedEventsIfNeeded(); // Now returns a Promise — call fire-and-forget
-  }, []);
 
   // If already authenticated as admin, redirect immediately.
   // Skipped during the post-Google round-trip — the OAuth resolution below

@@ -43,7 +43,9 @@ export function LoginPage() {
   const { user, loading, signInWithGoogle, googlePendingProfile, completeGoogleProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const next = searchParams.get("next") ?? "/register";
+  // L17: only accept same-origin relative `next` targets.
+  const rawNext = searchParams.get("next") ?? "/register";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/register";
 
   useEffect(() => {
     if (googlePendingProfile && !form.fullName) {
@@ -167,12 +169,28 @@ export function LoginPage() {
               Fill in a few more details to finish setting up your account.
             </p>
 
-            <div role="tablist" aria-label="Participant type" className="mt-8 grid grid-cols-2 gap-px border border-edge bg-edge">
+            <div
+              role="tablist"
+              aria-label="Participant type"
+              className="mt-8 grid grid-cols-2 gap-px border border-edge bg-edge"
+              onKeyDown={(e) => {
+                const order = ["internal", "external"] as ParticipantType[];
+                const idx = order.indexOf(participantType);
+                if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  const dir = e.key === "ArrowRight" ? 1 : -1;
+                  setParticipantType(order[(idx + dir + order.length) % order.length]);
+                }
+              }}
+            >
               {(["internal", "external"] as ParticipantType[]).map((type) => (
                 <button
                   key={type}
                   role="tab"
+                  id={`tab-${type}`}
                   aria-selected={participantType === type}
+                  aria-controls="participant-type-panel"
+                  tabIndex={participantType === type ? 0 : -1}
                   onClick={() => setParticipantType(type)}
                   className={
                     "clip-angle px-4 py-3.5 text-xs font-semibold uppercase tracking-[0.18em] transition-colors " +
@@ -185,11 +203,17 @@ export function LoginPage() {
                 </button>
               ))}
             </div>
-            <p className="mt-3 text-xs text-muted">
-              {participantType === "internal"
-                ? "For SIMATS students. You need your Saveetha registration number."
-                : "For participants from other colleges."}
-            </p>
+            <div
+              id="participant-type-panel"
+              role="tabpanel"
+              aria-labelledby={`tab-${participantType}`}
+            >
+              <p className="mt-3 text-xs text-muted">
+                {participantType === "internal"
+                  ? "For SIMATS students. You need your Saveetha registration number."
+                  : "For participants from other colleges."}
+              </p>
+            </div>
 
             <form onSubmit={handleProfileComplete} noValidate className="mt-6 space-y-5">
               <Field

@@ -17,11 +17,19 @@
  */
 
 import { supabase } from "./supabase";
+import { requireAdmin } from "./adminGuard";
 import { days as staticDays } from "../data/techtrove";
 import type { Day, TechEvent } from "../data/techtrove";
 
 // Re-export types so consumers can import from one place
 export type { Day, TechEvent };
+
+/** Wrap DB/server errors into generic user-facing messages (H05). */
+function friendlyError(err: unknown, fallback: string): Error {
+  const detail = err instanceof Error ? err.message : String(err);
+  console.error(`[eventStore] ${fallback}:`, detail);
+  return new Error(fallback);
+}
 
 // Day labels/names/descriptions/statuses are stored in the Supabase `days` table.
 // This replaces the old localStorage implementation.
@@ -177,6 +185,8 @@ async function fetchAndCacheDays(): Promise<Day[]> {
  * Called once on admin panel startup. Safe to call multiple times.
  */
 export async function seedEventsIfNeeded(): Promise<void> {
+  // Only authenticated admins may seed/write the events table (H04).
+  await requireAdmin();
   const { count } = await supabase
     .from("events")
     .select("*", { count: "exact", head: true });
@@ -238,6 +248,7 @@ export async function adminUpdateEvent(
   eventId: string,
   patch: Partial<TechEvent>
 ): Promise<TechEvent> {
+  await requireAdmin();
   const updateRow: Partial<EventRow> = {};
   if (patch.name !== undefined) updateRow.name = patch.name;
   if (patch.category !== undefined) updateRow.category = patch.category ?? null;
@@ -262,12 +273,13 @@ export async function adminUpdateEvent(
     .select()
     .single();
 
-  if (error || !data) throw new Error(error?.message ?? "Event not found.");
+  if (error || !data) throw friendlyError(error, "Could not update the event.");
   await fetchAndCacheDays();
   return rowToEvent(data as EventRow);
 }
 
 export async function adminToggleRegistration(eventId: string): Promise<TechEvent> {
+  await requireAdmin();
   // Fetch current state first
   const { data: current, error: fetchError } = await supabase
     .from("events")
@@ -275,7 +287,7 @@ export async function adminToggleRegistration(eventId: string): Promise<TechEven
     .eq("id", eventId)
     .single();
 
-  if (fetchError || !current) throw new Error("Event not found.");
+  if (fetchError || !current) throw friendlyError(fetchError, "Event not found.");
 
   const { data, error } = await supabase
     .from("events")
@@ -284,20 +296,23 @@ export async function adminToggleRegistration(eventId: string): Promise<TechEven
     .select()
     .single();
 
-  if (error || !data) throw new Error(error?.message ?? "Event not found.");
+  if (error || !data) throw friendlyError(error, "Could not update the event.");
   await fetchAndCacheDays();
   return rowToEvent(data as EventRow);
 }
 
 function makeEventId(): string {
-  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `evt-${rand}`;
+  // Cryptographically random event id (C03) — not Math.random().
+  const rand = new Uint32Array(3);
+  crypto.getRandomValues(rand);
+  return `evt-${Array.from(rand, (n) => n.toString(36).toUpperCase()).join("").slice(0, 6)}`;
 }
 
 export async function adminAddEvent(
   dayId: string,
   event: Omit<TechEvent, "id" | "dayId">
 ): Promise<TechEvent> {
+  await requireAdmin();
   const newEvent: TechEvent = {
     ...event,
     id: makeEventId(),
@@ -310,14 +325,15 @@ export async function adminAddEvent(
     .select()
     .single();
 
-  if (error || !data) throw new Error(error?.message ?? "Failed to add event.");
+  if (error || !data) throw friendlyError(error, "Failed to add the event.");
   await fetchAndCacheDays();
   return rowToEvent(data as EventRow);
 }
 
 export async function adminDeleteEvent(eventId: string): Promise<void> {
+  await requireAdmin();
   const { error } = await supabase.from("events").delete().eq("id", eventId);
-  if (error) throw new Error(error.message);
+  if (error) throw friendlyError(error, "Could not delete the event.");
   await fetchAndCacheDays();
 }
 
@@ -325,6 +341,7 @@ export async function adminUpdateDay(
   dayId: string,
   patch: Partial<Omit<Day, "id" | "events">>
 ): Promise<Day> {
+  await requireAdmin();
   const { data: current } = await supabase.from("days").select("*").eq("id", dayId).single();
   const updateData = {
     id: dayId,
@@ -335,7 +352,7 @@ export async function adminUpdateDay(
   };
 
   const { error } = await supabase.from("days").upsert(updateData);
-  if (error) throw new Error("Failed to update day: " + error.message);
+  if (error) throw friendlyError(error, "Could not update the day.");
 
   // Refresh and return the day
   const days = await fetchAndCacheDays();

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -18,16 +18,34 @@ export function ConfirmDialog({
   const [phrase, setPhrase] = useState("");
   const required = "DELETE";
 
+  // A03: Escape-to-cancel for the alert dialog.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+
+  const titleId = "confirm-dialog-title";
+  const descId = "confirm-dialog-desc";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={descId}
+    >
       <div className="w-full max-w-md rounded-xl border border-red-500/30 bg-[#1a1010] p-6">
         <div className="flex items-start gap-3">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
           <div>
-            <h2 className="text-base font-semibold text-foreground">
+            <h2 id={titleId} className="text-base font-semibold text-foreground">
               {title}
             </h2>
-            <div className="mt-2 text-sm text-muted">{description}</div>
+            <div id={descId} className="mt-2 text-sm text-muted">{description}</div>
             <p className="mt-4 text-xs text-muted">
               Type{" "}
               <code className="rounded bg-red-500/20 px-1.5 py-0.5 text-red-300 font-mono">

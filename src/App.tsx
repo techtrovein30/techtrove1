@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PublicLayout } from "./components/layout/PublicLayout";
 import { AdminRoute } from "./components/admin/AdminRoute";
 import { getDaysAsync } from "./lib/eventStore";
@@ -20,16 +21,34 @@ import { RegisterSuccessPage } from "./pages/RegisterSuccessPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
-// Admin pages
-import { AdminLoginPage } from "./pages/admin/AdminLoginPage";
-import { AdminLayout } from "./pages/admin/AdminLayout";
-import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
-import { AdminStudentsPage } from "./pages/admin/AdminStudentsPage";
-import { AdminRegistrationsPage } from "./pages/admin/AdminRegistrationsPage";
-import { AdminTeamsPage } from "./pages/admin/AdminTeamsPage";
-import { AdminPaymentsPage } from "./pages/admin/AdminPaymentsPage";
-import { AdminEventsPage } from "./pages/admin/AdminEventsPage";
-import { AdminSettingsPage } from "./pages/admin/AdminSettingsPage";
+// Admin pages (P03: split off the admin bundle)
+const AdminLoginPage = lazy(() =>
+  import("./pages/admin/AdminLoginPage").then((m) => ({ default: m.AdminLoginPage }))
+);
+const AdminLayout = lazy(() =>
+  import("./pages/admin/AdminLayout").then((m) => ({ default: m.AdminLayout }))
+);
+const AdminDashboardPage = lazy(() =>
+  import("./pages/admin/AdminDashboardPage").then((m) => ({ default: m.AdminDashboardPage }))
+);
+const AdminStudentsPage = lazy(() =>
+  import("./pages/admin/AdminStudentsPage").then((m) => ({ default: m.AdminStudentsPage }))
+);
+const AdminRegistrationsPage = lazy(() =>
+  import("./pages/admin/AdminRegistrationsPage").then((m) => ({ default: m.AdminRegistrationsPage }))
+);
+const AdminTeamsPage = lazy(() =>
+  import("./pages/admin/AdminTeamsPage").then((m) => ({ default: m.AdminTeamsPage }))
+);
+const AdminPaymentsPage = lazy(() =>
+  import("./pages/admin/AdminPaymentsPage").then((m) => ({ default: m.AdminPaymentsPage }))
+);
+const AdminEventsPage = lazy(() =>
+  import("./pages/admin/AdminEventsPage").then((m) => ({ default: m.AdminEventsPage }))
+);
+const AdminSettingsPage = lazy(() =>
+  import("./pages/admin/AdminSettingsPage").then((m) => ({ default: m.AdminSettingsPage }))
+);
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -47,13 +66,24 @@ function useWarmEventCache() {
   }, []);
 }
 
+function PageLoader() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/30 border-t-primary" aria-hidden />
+      <span className="sr-only">Loading…</span>
+    </div>
+  );
+}
+
 export default function App() {
   useWarmEventCache();
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <ScrollToTop />
-        <Routes>
+      <ErrorBoundary>
+        <AuthProvider>
+          <ScrollToTop />
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
           {/* ── Admin Area ─────────────────────── */}
           <Route path="/wch1925">
             <Route index element={<AdminLoginPage />} />
@@ -91,7 +121,9 @@ export default function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
-      </AuthProvider>
+          </Suspense>
+        </AuthProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

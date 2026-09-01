@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import type { Registration } from "../lib/api";
 import { useEvent } from "../lib/useEvents";
 import type { TechEvent } from "../lib/eventStore";
+import { formatFee } from "../lib/utils";
 import { siteConfig } from "../data/techtrove";
 
 function initialsOf(name: string): string {
@@ -101,7 +102,7 @@ function RegistrationCard({ registration }: { registration: Registration }) {
         <div>
           <span className="eyebrow block text-muted">Fee</span>
           <p className="mt-1 text-sm font-semibold text-foreground">
-            {registration.fee > 0 ? `₹${registration.fee}` : "Free"}
+            {formatFee(registration.fee)}
           </p>
         </div>
         {registration.utrNumber && (

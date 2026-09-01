@@ -20,6 +20,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
+/** The Supabase project origin (trailing slashes stripped), used as a trust
+ *  boundary for validating stored/legacy storage URLs. */
+export const SUPABASE_URL = (supabaseUrl ?? "").replace(/\/+$/, "");
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,

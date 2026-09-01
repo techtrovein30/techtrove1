@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Search,
   X,
@@ -22,6 +22,7 @@ import {
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
+import { toCsv, downloadCsv } from "../../lib/csv";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 import { ProofModal } from "../../components/admin/ProofModal";
 
@@ -46,6 +47,7 @@ function RegistrationDetail({
   const [showProofModal, setShowProofModal] = useState(false);
   const [copiedUtr, setCopiedUtr] = useState(false);
   const [busyPayment, setBusyPayment] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   function copyUtr() {
     if (!registration.utrNumber) return;
@@ -71,7 +73,7 @@ function RegistrationDetail({
     } catch (err) {
       // Revert optimistic update
       onUpdated(registration);
-      alert(err instanceof Error ? err.message : "Payment update failed.");
+      setDetailError(err instanceof Error ? err.message : "Payment update failed.");
     } finally {
       setBusyPayment(false);
     }
@@ -82,7 +84,7 @@ function RegistrationDetail({
       await adminDeleteRegistration(registration.id);
       onDeleted(registration.id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      setDetailError(err instanceof Error ? err.message : "Delete failed.");
     }
     setConfirmDelete(false);
   }
@@ -93,6 +95,19 @@ function RegistrationDetail({
 
   return (
     <>
+      {detailError && (
+        <div role="alert" className="flex items-start justify-between gap-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <span>{detailError}</span>
+          <button
+            type="button"
+            onClick={() => setDetailError(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {confirmDelete && (
         <ConfirmDialog
           title="Delete registration"
@@ -260,7 +275,7 @@ function RegistrationDetail({
                 ))}
               </div>
 
-              {showSubstitutes && (
+              {substitutes.length > 0 && (
                 <>
                   <h3 className="mb-3 mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
                     Substitutes ({substitutes.length})
@@ -297,6 +312,11 @@ export function AdminRegistrationsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Registration | null>(null);
+
+  // L13: reset to page 1 whenever a filter or the query changes.
+  useEffect(() => {
+    setPage(1);
+  }, [query, eventFilter, statusFilter]);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -339,22 +359,16 @@ export function AdminRegistrationsPage() {
         ev?.name ?? r.eventId,
         r.teamName,
         r.captainName,
-        r.fee.toString(),
+        r.fee,
         r.paymentStatus,
         new Date(r.createdAt).toISOString()
-      ].map(field => `"${field}"`).join(",");
+      ];
     });
-    
-    const csvContent = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `techtrove_registrations_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    downloadCsv(
+      `techtrove_registrations_${new Date().toISOString().split('T')[0]}.csv`,
+      toCsv(headers, rows)
+    );
   }
 
   return (

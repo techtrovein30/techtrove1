@@ -1,6 +1,27 @@
 import type { ParticipantType } from "./api";
 import type { TechEvent } from "./eventStore";
 
+/** Reject event image URLs that could be a data:/javascript:/external vector (M18). */
+export function isSafeEventImage(url: string | undefined | null): url is string {
+  if (!url) return true;
+  // Relative, same-origin image paths (static assets bundled with the app).
+  if (url.startsWith("/")) {
+    return url.startsWith("/images/") || url.startsWith("/assets/");
+  }
+  // Absolute URLs must be https and not data:/javascript:.
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve the image to render for an event, or undefined if not allowed. */
+export function safeEventImage(url: string | undefined | null): string | undefined {
+  return isSafeEventImage(url) ? url : undefined;
+}
+
 /** Checks if an event is a sports event (Day 1 / Sports category) */
 export function isSportEvent(event?: TechEvent | null): boolean {
   if (!event) return false;
@@ -71,5 +92,19 @@ export function validatePhoneNumber(
     return "Please enter a valid 10-digit mobile number.";
   }
 
+  return null;
+}
+
+/** Validates a UPI / bank UTR / transaction reference (12-16 alphanumeric). */
+export function validateUtrNumber(
+  utr: string | undefined | null
+): string | null {
+  const trimmed = utr?.trim() ?? "";
+  if (!trimmed) {
+    return "UTR / Transaction ID is required.";
+  }
+  if (!/^[A-Za-z0-9]{12,16}$/.test(trimmed)) {
+    return "Enter a valid UTR / Transaction ID (12–16 alphanumeric characters).";
+  }
   return null;
 }

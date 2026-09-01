@@ -12,7 +12,7 @@
  * Authorized access uses short-lived temporary signed URLs.
  */
 
-import { supabase } from "./supabase";
+import { supabase, SUPABASE_URL } from "./supabase";
 
 export const STORAGE_BUCKET = "uploads";
 export const MAX_FILE_SIZE_BYTES = 2097152; // 2 MB
@@ -21,6 +21,38 @@ export const ALLOWED_IMAGE_TYPES = [
   "image/png",
   "image/webp",
 ];
+
+const ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+
+// Only ordinary URL-safe path segments are allowed in storage paths. Rejecting
+// separators and ".." prevents path traversal via user-controlled segments.
+const SAFE_PATH_SEGMENT = /^[A-Za-z0-9._-]+$/;
+
+/** Throws if `segment` contains characters that could escape its folder. */
+function assertSafePathSegment(segment: string, label: string): void {
+  if (
+    !segment ||
+    segment.length === 0 ||
+    segment.includes("/") ||
+    segment.includes("\\") ||
+    segment.includes("..") ||
+    !SAFE_PATH_SEGMENT.test(segment)
+  ) {
+    throw new Error(`Invalid ${label}.`);
+  }
+}
+
+/** True when every '/' separated segment is a safe, non-empty path segment. */
+function isSafeRelativeStoragePath(path: string): boolean {
+  return path.split("/").every((seg) => seg.length > 0 && SAFE_PATH_SEGMENT.test(seg));
+}
+
+/** True when an absolute URL belongs to this project's Supabase storage origin. */
+function isTrustedStorageUrl(url: string): boolean {
+  const normalized = url.toLowerCase();
+  const projectUrl = (SUPABASE_URL ?? "").toLowerCase();
+  return projectUrl !== "" && normalized.startsWith(`${projectUrl}/storage/`);
+}
 
 export interface ValidationResult {
   valid: boolean;
@@ -55,13 +87,15 @@ export function validateUploadFile(file: File): ValidationResult {
 }
 
 /**
- * Sanitizes and extracts the file extension.
+ * Sanitizes and extracts the file extension, restricted to an allowlist of
+ * known image extensions so it can never inject path separators.
  */
 function getFileExtension(filename: string, fallback = "jpg"): string {
   const parts = filename.split(".");
   if (parts.length < 2) return fallback;
-  const ext = parts.pop()?.toLowerCase() ?? fallback;
-  return ext === "jpeg" ? "jpg" : ext;
+  const raw = parts.pop()?.toLowerCase() ?? "";
+  const ext = raw === "jpeg" ? "jpg" : raw;
+  return ALLOWED_EXTENSIONS.has(ext) ? ext : fallback;
 }
 
 /**
@@ -80,6 +114,8 @@ export async function uploadPaymentProof(
 
   if (!userId) throw new Error("User session required for upload.");
   if (!registrationId) throw new Error("Registration ID required for upload.");
+  assertSafePathSegment(userId, "user id");
+  assertSafePathSegment(registrationId, "registration id");
 
   const ext = getFileExtension(file.name);
   const path = `payment-proofs/${userId}/${registrationId}.${ext}`;
@@ -115,6 +151,8 @@ export async function uploadIdCard(
 
   if (!userId) throw new Error("User session required for upload.");
   if (!studentId) throw new Error("Student ID required for upload.");
+  assertSafePathSegment(userId, "user id");
+  assertSafePathSegment(studentId, "student id");
 
   const ext = getFileExtension(file.name);
   const path = `id-cards/${userId}/${studentId}.${ext}`;
@@ -144,8 +182,13 @@ export async function getUploadSignedUrl(
 ): Promise<string | null> {
   if (!path) return null;
 
-  // Handle case where an old absolute URL might still be present in legacy data
+  // Legacy absolute URLs are only trusted when they belong to this project's
+  // Supabase storage origin. Anything else (arbitrary http/https) is rejected.
   if (path.startsWith("http://") || path.startsWith("https://")) {
+    if (!isTrustedStorageUrl(path)) {
+      console.error("Refusing to use untrusted storage URL:", path);
+      return null;
+    }
     return path;
   }
 
@@ -153,6 +196,11 @@ export async function getUploadSignedUrl(
   const cleanPath = path.startsWith("uploads/")
     ? path.slice("uploads/".length)
     : path;
+
+  if (!isSafeRelativeStoragePath(cleanPath)) {
+    console.error("Refusing to create signed URL for unsafe path:", cleanPath);
+    return null;
+  }
 
   try {
     const { data, error } = await supabase.storage

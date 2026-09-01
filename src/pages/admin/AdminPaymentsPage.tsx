@@ -7,6 +7,7 @@ import {
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
+import { toCsv, downloadCsv } from "../../lib/csv";
 import { ProofModal } from "../../components/admin/ProofModal";
 
 type StatusFilter = "all" | "pending" | "recorded";
@@ -21,6 +22,7 @@ export function AdminPaymentsPage() {
   const [selectedProof, setSelectedProof] = useState<Registration | null>(null);
   const [copiedUtr, setCopiedUtr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   function copyUtr(utr: string) {
     navigator.clipboard.writeText(utr).then(() => {
@@ -86,7 +88,7 @@ export function AdminPaymentsPage() {
       setRegistrations((prev) =>
         prev.map((r) => (r.id === reg.id ? { ...r, paymentStatus: reg.paymentStatus } : r))
       );
-      alert(err instanceof Error ? err.message : "Payment update failed.");
+      setRowError(err instanceof Error ? err.message : "Payment update failed.");
     } finally {
       setBusyId(null);
     }
@@ -102,27 +104,34 @@ export function AdminPaymentsPage() {
         r.teamName,
         ev?.name ?? r.eventId,
         r.captainName,
-        r.fee.toString(),
+        r.fee,
         r.paymentStatus,
         r.utrNumber ?? "",
         r.paymentScreenshotPath ?? r.paymentScreenshotUrl ?? ""
-      ].map(field => `"${field}"`).join(",");
+      ];
     });
-    
-    const csvContent = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `techtrove_payments_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    downloadCsv(
+      `techtrove_payments_${new Date().toISOString().split('T')[0]}.csv`,
+      toCsv(headers, rows)
+    );
   }
 
   return (
     <div className="space-y-6">
+      {rowError && (
+        <div role="alert" className="flex items-start justify-between gap-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <span>{rowError}</span>
+          <button
+            type="button"
+            onClick={() => setRowError(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {selectedProof && (
         <ProofModal
           isOpen={!!selectedProof}
