@@ -11,7 +11,7 @@
  */
 
 import { supabase } from "./supabase";
-import { getEvent, eventToRow } from "./eventStore";
+import { getEvent } from "./eventStore";
 import {
   REGISTRATION_TABLE_FOR,
   getParticipantById,
@@ -67,6 +67,7 @@ export interface Registration {
   members: RegistrationMember[];
   createdAt: string;
   utrNumber?: string;
+  paymentScreenshotPath?: string;
   paymentScreenshotUrl?: string;
 }
 
@@ -110,6 +111,7 @@ export const api = {
     members: RegistrationMember[];
     termsAccepted: boolean;
     utrNumber?: string;
+    paymentScreenshotPath?: string;
     paymentScreenshotUrl?: string;
   }): Promise<Registration> {
     if (!input.termsAccepted) throw new Error("Terms and conditions must be accepted.");
@@ -201,14 +203,7 @@ export const api = {
     const regId = makeId("R");
     const regCode = makeId("TT");
 
-    // Self-heal: make sure the event row exists in the events table so the
-    // registrations_event_id_fkey foreign key can never fail.
-    const { error: seedError } = await supabase
-      .from("events")
-      .upsert(eventToRow(event), { onConflict: "id" });
-    if (seedError) {
-      throw new Error(`Events table unavailable: ${seedError.message}`);
-    }
+    const screenshotPath = (input.paymentScreenshotPath ?? input.paymentScreenshotUrl)?.trim();
 
     const regPayload: any = {
       id: regId,
@@ -224,9 +219,10 @@ export const api = {
 
     if (participantType === "external") {
       if (!input.utrNumber?.trim()) throw new Error("UTR number is required for external participants.");
-      if (!input.paymentScreenshotUrl?.trim()) throw new Error("Payment screenshot is required for external participants.");
+      if (!screenshotPath) throw new Error("Payment screenshot is required for external participants.");
       regPayload.utr_number = input.utrNumber.trim();
-      regPayload.payment_screenshot_url = input.paymentScreenshotUrl.trim();
+      regPayload.payment_screenshot_path = screenshotPath;
+      regPayload.payment_screenshot_url = screenshotPath;
     }
 
     const { data: reg, error } = await supabase
@@ -239,21 +235,7 @@ export const api = {
       throw new Error(error?.message ?? "Failed to create registration.");
     }
 
-    return {
-      id: reg.id,
-      registrationCode: reg.registration_code,
-      userId: reg.user_id,
-      eventId: reg.event_id,
-      teamName: reg.team_name,
-      captainName: reg.captain_name,
-      fee: reg.fee,
-      paymentStatus: reg.payment_status as PaymentStatus,
-      termsAccepted: reg.terms_accepted,
-      members: reg.members as RegistrationMember[],
-      createdAt: reg.created_at,
-      utrNumber: reg.utr_number,
-      paymentScreenshotUrl: reg.payment_screenshot_url,
-    };
+    return mapRegistrationRow(reg);
   },
 
   // ── List registrations for the signed-in user ─────────────────────────────
@@ -274,6 +256,7 @@ export const api = {
 };
 
 function mapRegistrationRow(r: RegistrationRow): Registration {
+  const screenshotPath = r.payment_screenshot_path ?? r.payment_screenshot_url;
   return {
     id: r.id,
     registrationCode: r.registration_code,
@@ -287,6 +270,7 @@ function mapRegistrationRow(r: RegistrationRow): Registration {
     members: r.members as RegistrationMember[],
     createdAt: r.created_at,
     utrNumber: r.utr_number,
-    paymentScreenshotUrl: r.payment_screenshot_url,
+    paymentScreenshotPath: screenshotPath,
+    paymentScreenshotUrl: screenshotPath,
   };
 }

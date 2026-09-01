@@ -8,7 +8,7 @@ import { days as staticDays } from "../data/techtrove";
 import { formatFee, formatPerPerson } from "../lib/utils";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
-import { supabase } from "../lib/supabase";
+import { validateUploadFile, uploadPaymentProof } from "../lib/storage";
 import type { ParticipantType, RegistrationMember } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { Field } from "../components/ui/Field";
@@ -211,7 +211,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotUrl: string }): Promise<void> {
+  async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }): Promise<void> {
     if (!event) throw new Error("Select an event first.");
     const indiv = isIndividualEvent(event);
     const firstMember = draft.members[0];
@@ -857,9 +857,10 @@ function PaymentStep({
 }: {
   event: TechEvent;
   draft: Draft;
-  teamType: ParticipantType;
-  onPay: (details: { utrNumber: string; paymentScreenshotUrl: string }) => Promise<void>;
+  teamType?: ParticipantType;
+  onPay: (details: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }) => Promise<void>;
 }) {
+  const { user } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -874,11 +875,14 @@ function PaymentStep({
       setFile(null);
       return;
     }
-    if (selected.size > 1048576) {
-      setError("File size must be less than 1MB.");
+    
+    const validation = validateUploadFile(selected);
+    if (!validation.valid) {
+      setError(validation.error ?? "Invalid file.");
       setFile(null);
       return;
     }
+
     setError(null);
     setFile(selected);
   }
@@ -892,31 +896,25 @@ function PaymentStep({
       setError("Please upload a payment screenshot.");
       return;
     }
+    if (!user?.id) {
+      setError("You must be signed in to submit payment proof.");
+      return;
+    }
 
     setBusy(true);
     setError(null);
     try {
-      // 1. Upload file
-      const ext = file.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${ext}`;
+      // Generate a unique registration id segment for the upload path
+      const regFileId = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('payment_screenshots')
-        .upload(fileName, file);
+      // Upload directly to private 'uploads/payment-proofs/{user_id}/{regFileId}.{ext}'
+      const storagePath = await uploadPaymentProof(user.id, regFileId, file);
 
-      if (uploadError) {
-        throw new Error("Failed to upload screenshot: " + uploadError.message);
-      }
-
-      // 2. Get Public URL
-      const { data: urlData } = supabase.storage
-        .from('payment_screenshots')
-        .getPublicUrl(uploadData.path);
-
-      // 3. Complete Registration
+      // Complete Registration with the relative storage path
       await onPay({
         utrNumber: utrNumber.trim(),
-        paymentScreenshotUrl: urlData.publicUrl,
+        paymentScreenshotPath: storagePath,
+        paymentScreenshotUrl: storagePath,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payment could not be recorded. Try again.");
@@ -964,7 +962,7 @@ function PaymentStep({
             onChange={handleFileChange}
             className="block w-full text-sm text-muted file:mr-4 file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-wider file:text-primary-soft hover:file:bg-primary/30"
           />
-          <p className="mt-1 text-[10px] text-muted">Max file size: 1MB. Allowed: JPG, PNG, WEBP.</p>
+          <p className="mt-1 text-[10px] text-muted">Max file size: 2MB. Allowed formats: JPG, PNG, WEBP.</p>
         </div>
       </div>
 

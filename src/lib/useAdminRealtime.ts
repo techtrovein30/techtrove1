@@ -10,11 +10,17 @@ export function useAdminRegistrations() {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
 
-  function fetchRegistrations() {
-    adminListRegistrations()
-      .then(setRegistrations)
-      .finally(() => setLoading(false))
-      .catch(() => {});
+  async function fetchRegistrations() {
+    try {
+      const data = await adminListRegistrations();
+      setRegistrations(data);
+      return data;
+    } catch (err) {
+      console.error("fetchRegistrations error:", err);
+      return [];
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -40,7 +46,7 @@ export function useAdminRegistrations() {
     };
   }, []);
 
-  return { registrations, loading, refresh: fetchRegistrations };
+  return { registrations, setRegistrations, loading, refresh: fetchRegistrations };
 }
 
 /**
