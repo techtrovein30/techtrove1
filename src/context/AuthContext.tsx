@@ -19,6 +19,7 @@ import { api } from "../lib/api";
 import type { User, ParticipantType } from "../lib/api";
 import { getParticipantById } from "../lib/db";
 import type { ParticipantRow } from "../lib/db";
+import { validateRegisterNumber, validateEmail, validatePhoneNumber } from "../lib/validation";
 
 interface GooglePendingProfile {
   authUserId: string;
@@ -143,6 +144,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { authUserId, email } = googlePendingProfile;
         const participantType = input.participantType;
         const fullName = input.fullName.trim();
+        if (!fullName) throw new Error("Full name is required.");
+
+        if (participantType === "internal") {
+          const regErr = validateRegisterNumber(input.regNumber, "internal");
+          if (regErr) throw new Error(regErr);
+
+          const emailErr = validateEmail(email, "internal");
+          if (emailErr) throw new Error(emailErr);
+
+          const phoneErr = validatePhoneNumber(input.phone, false);
+          if (phoneErr) throw new Error(phoneErr);
+        } else {
+          const emailErr = validateEmail(email, "external");
+          if (emailErr) throw new Error(emailErr);
+
+          const phoneErr = validatePhoneNumber(input.phone, true);
+          if (phoneErr) throw new Error(phoneErr);
+        }
+
         const usernameBase = fullName
           .toLowerCase()
           .split(/\s+/)

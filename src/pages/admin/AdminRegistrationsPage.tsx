@@ -260,7 +260,7 @@ function RegistrationDetail({
                 ))}
               </div>
 
-              {substitutes.length > 0 && (
+              {showSubstitutes && (
                 <>
                   <h3 className="mb-3 mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
                     Substitutes ({substitutes.length})

@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import type { ParticipantType } from "../lib/api";
 import { Field } from "../components/ui/Field";
+import { validateRegisterNumber, validateEmail, validatePhoneNumber } from "../lib/validation";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -82,17 +83,23 @@ export function LoginPage() {
       if (!form.fullName.trim()) {
         throw new Error("Full name is required.");
       }
+      if (googlePendingProfile?.email) {
+        const emailErr = validateEmail(googlePendingProfile.email, participantType);
+        if (emailErr) throw new Error(emailErr);
+      }
       if (participantType === "internal") {
-        if (!form.regNumber.trim() || !form.phone.trim()) {
-          throw new Error("Registration number and phone number are required for SIMATS students.");
+        const regErr = validateRegisterNumber(form.regNumber, "internal");
+        if (regErr) throw new Error(regErr);
+        if (form.phone && form.phone.trim()) {
+          const phoneErr = validatePhoneNumber(form.phone, false);
+          if (phoneErr) throw new Error(phoneErr);
         }
       } else {
-        if (!form.college.trim() || !form.phone.trim()) {
-          throw new Error("College and phone number are required for external participants.");
+        if (!form.college.trim()) {
+          throw new Error("College name is required for external participants.");
         }
-      }
-      if (form.phone && !/^\d{10}$/.test(form.phone.trim())) {
-        throw new Error("Phone number must be exactly 10 digits.");
+        const phoneErr = validatePhoneNumber(form.phone, true);
+        if (phoneErr) throw new Error(phoneErr);
       }
       await completeGoogleProfile({
         participantType,
@@ -209,7 +216,7 @@ export function LoginPage() {
                     value={form.regNumber}
                     onChange={set("regNumber")}
                     autoComplete="off"
-                    placeholder="e.g. 230701XXX"
+                    placeholder="e.g. 19xxxxxxxx"
                   />
                   <Field
                     label="Phone number"
