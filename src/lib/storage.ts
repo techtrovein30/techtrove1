@@ -43,7 +43,7 @@ function assertSafePathSegment(segment: string, label: string): void {
 }
 
 /** True when every '/' separated segment is a safe, non-empty path segment. */
-function isSafeRelativeStoragePath(path: string): boolean {
+export function isSafeRelativeStoragePath(path: string): boolean {
   return path.split("/").every((seg) => seg.length > 0 && SAFE_PATH_SEGMENT.test(seg));
 }
 
@@ -133,6 +133,56 @@ export async function uploadPaymentProof(
   }
 
   return path;
+}
+
+/**
+ * Replaces an existing payment proof screenshot for a registration WITHOUT
+ * changing the stored path, so the registration row never needs an update.
+ *
+ * The existing path is re-validated to stay inside the caller's own
+ * `payment-proofs/{userId}/` folder before it is overwritten (upsert). This is
+ * what makes participant-side re-upload work without any database change.
+ */
+export async function reuploadPaymentProof(
+  userId: string,
+  existingPath: string | null | undefined,
+  file: File
+): Promise<string> {
+  const validation = validateUploadFile(file);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+
+  if (!userId) throw new Error("User session required for upload.");
+
+  // Strip bucket prefix if accidentally included.
+  const cleanPath = existingPath?.startsWith("uploads/")
+    ? existingPath.slice("uploads/".length)
+    : (existingPath ?? "");
+
+  const expectedPrefix = `payment-proofs/${userId}/`;
+  if (
+    !cleanPath ||
+    cleanPath.length === 0 ||
+    !cleanPath.startsWith(expectedPrefix) ||
+    !isSafeRelativeStoragePath(cleanPath)
+  ) {
+    throw new Error(
+      "No previous payment screenshot was found for this registration. Please contact support.",
+    );
+  }
+
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(cleanPath, file, {
+    upsert: true,
+    contentType: file.type,
+  });
+
+  if (error) {
+    console.error("Payment proof re-upload failed:", error);
+    throw new Error("Failed to re-upload the payment screenshot. Please try again.");
+  }
+
+  return cleanPath;
 }
 
 /**

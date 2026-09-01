@@ -1,14 +1,16 @@
 import { useState, useMemo } from "react";
-import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2 } from "lucide-react";
+import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2, RefreshCcw } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
   adminUpdateRegistration,
+  adminRequestPaymentReupload,
 } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
 import { toCsv, downloadCsv } from "../../lib/csv";
 import { ProofModal } from "../../components/admin/ProofModal";
+import { ReuploadRequestDialog } from "../../components/admin/ReuploadRequestDialog";
 
 type StatusFilter = "all" | "pending" | "recorded";
 
@@ -23,6 +25,9 @@ export function AdminPaymentsPage() {
   const [copiedUtr, setCopiedUtr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
+  const [reuploadTarget, setReuploadTarget] = useState<Registration | null>(null);
+  const [reuploadBusy, setReuploadBusy] = useState(false);
+  const [reuploadBanner, setReuploadBanner] = useState<string | null>(null);
 
   function copyUtr(utr: string) {
     navigator.clipboard.writeText(utr).then(() => {
@@ -94,6 +99,31 @@ export function AdminPaymentsPage() {
     }
   }
 
+  async function handleRequestReupload(reason: string, note: string) {
+    const reg = reuploadTarget;
+    if (!reg) return;
+    setReuploadBusy(true);
+    setRowError(null);
+    try {
+      const updated = await adminRequestPaymentReupload(reg.id, { reason, note });
+      if (updated.paymentReviewNote) {
+        setRegistrations((prev) =>
+          prev.map((r) => (r.id === reg.id ? updated : r))
+        );
+      }
+      setReuploadBanner(
+        "Screenshot re-upload requested. The participant has been notified to upload a new screenshot.",
+      );
+      setReuploadTarget(null);
+    } catch (err) {
+      setRowError(
+        err instanceof Error ? err.message : "Re-upload request could not be saved.",
+      );
+    } finally {
+      setReuploadBusy(false);
+    }
+  }
+
   function exportCSV() {
     if (filtered.length === 0) return;
     const headers = ["Registration Code", "Team Name", "Event", "Captain", "Fee Amount", "Status", "UTR Number", "Proof Path"];
@@ -131,6 +161,28 @@ export function AdminPaymentsPage() {
             ✕
           </button>
         </div>
+      )}
+      {reuploadBanner && (
+        <div role="status" className="flex items-start justify-between gap-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+          <span>{reuploadBanner}</span>
+          <button
+            type="button"
+            onClick={() => setReuploadBanner(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss banner"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {reuploadTarget && (
+        <ReuploadRequestDialog
+          teamName={reuploadTarget.teamName}
+          registrationCode={reuploadTarget.registrationCode}
+          busy={reuploadBusy}
+          onConfirm={handleRequestReupload}
+          onCancel={() => setReuploadTarget(null)}
+        />
       )}
       {selectedProof && (
         <ProofModal
@@ -358,25 +410,37 @@ export function AdminPaymentsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => togglePaymentStatus(r)}
-                          disabled={busyId === r.id}
-                          className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
-                            r.paymentStatus === "recorded"
-                              ? "border border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
-                              : "border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
-                          }`}
-                        >
-                          {busyId === r.id ? (
-                            <>
-                              <Loader2 className="h-3 w-3 animate-spin" /> Updating…
-                            </>
-                          ) : r.paymentStatus === "recorded" ? (
-                            "Mark Pending"
-                          ) : (
-                            "Mark Paid"
+                        <div className="flex flex-col gap-1.5 items-start">
+                          <button
+                            onClick={() => togglePaymentStatus(r)}
+                            disabled={busyId === r.id}
+                            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
+                              r.paymentStatus === "recorded"
+                                ? "border border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                                : "border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+                            }`}
+                          >
+                            {busyId === r.id ? (
+                              <>
+                                <Loader2 className="h-3 w-3 animate-spin" /> Updating…
+                              </>
+                            ) : r.paymentStatus === "recorded" ? (
+                              "Mark Pending"
+                            ) : (
+                              "Mark Paid"
+                            )}
+                          </button>
+                          {r.paymentStatus === "pending" && proofPath && (
+                            <button
+                              type="button"
+                              onClick={() => setReuploadTarget(r)}
+                              disabled={busyId === r.id}
+                              className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                            >
+                              <RefreshCcw className="h-3 w-3" /> Request Re-upload
+                            </button>
                           )}
-                        </button>
+                        </div>
                       </td>
                     </tr>
                   );

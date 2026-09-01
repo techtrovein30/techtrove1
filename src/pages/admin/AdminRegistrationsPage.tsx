@@ -13,11 +13,13 @@ import {
   Copy,
   Check,
   Loader2,
+  RefreshCcw,
 } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
   adminUpdateRegistration,
   adminDeleteRegistration,
+  adminRequestPaymentReupload,
 } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
@@ -25,6 +27,7 @@ import { formatFee } from "../../lib/utils";
 import { toCsv, downloadCsv } from "../../lib/csv";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 import { ProofModal } from "../../components/admin/ProofModal";
+import { ReuploadRequestDialog } from "../../components/admin/ReuploadRequestDialog";
 
 type StatusFilter = "all" | "pending" | "recorded";
 
@@ -45,6 +48,9 @@ function RegistrationDetail({
   const event = events.find((e) => e.id === registration.eventId);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showProofModal, setShowProofModal] = useState(false);
+  const [showReuploadDialog, setShowReuploadDialog] = useState(false);
+  const [reuploadBusy, setReuploadBusy] = useState(false);
+  const [reuploadBanner, setReuploadBanner] = useState<string | null>(null);
   const [copiedUtr, setCopiedUtr] = useState(false);
   const [busyPayment, setBusyPayment] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -68,14 +74,42 @@ function RegistrationDetail({
     try {
       const updated = await adminUpdateRegistration(registration.id, {
         paymentStatus: nextStatus,
+        // Once a payment is approved, clear any outstanding re-upload request.
+        // Only write the note column when one exists so the update keeps
+        // working before the deferred SQL adds the column.
+        paymentReviewNote:
+          nextStatus === "recorded" && registration.paymentReviewNote ? null : undefined,
       });
       onUpdated(updated);
+      if (nextStatus === "recorded") setReuploadBanner(null);
     } catch (err) {
       // Revert optimistic update
       onUpdated(registration);
       setDetailError(err instanceof Error ? err.message : "Payment update failed.");
     } finally {
       setBusyPayment(false);
+    }
+  }
+
+  async function handleRequestReupload(reason: string, note: string) {
+    setReuploadBusy(true);
+    setDetailError(null);
+    try {
+      const updated = await adminRequestPaymentReupload(registration.id, {
+        reason,
+        note,
+      });
+      onUpdated(updated);
+      setReuploadBanner(
+        "Screenshot re-upload requested. The participant has been notified to upload a new screenshot.",
+      );
+      setShowReuploadDialog(false);
+    } catch (err) {
+      setDetailError(
+        err instanceof Error ? err.message : "Re-upload request could not be saved.",
+      );
+    } finally {
+      setReuploadBusy(false);
     }
   }
 
@@ -92,6 +126,10 @@ function RegistrationDetail({
   const players = registration.members.filter((m) => m.role === "player");
   const substitutes = registration.members.filter((m) => m.role === "substitute");
   const screenshotPath = registration.paymentScreenshotPath ?? registration.paymentScreenshotUrl;
+  const hasReuploadRequest = !!registration.paymentReviewNote;
+  const reviewNoteLabel = hasReuploadRequest
+    ? registration.paymentReviewNote!.replace(/^RE_UPLOAD_REQUESTED\s*—\s*/, "")
+    : "";
 
   return (
     <>
@@ -103,6 +141,19 @@ function RegistrationDetail({
             onClick={() => setDetailError(null)}
             className="text-muted transition-colors hover:text-foreground"
             aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {reuploadBanner && (
+        <div role="status" className="flex items-start justify-between gap-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+          <span>{reuploadBanner}</span>
+          <button
+            type="button"
+            onClick={() => setReuploadBanner(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss banner"
           >
             ✕
           </button>
@@ -121,6 +172,16 @@ function RegistrationDetail({
           confirmLabel="Delete registration"
           onConfirm={handleDelete}
           onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+
+      {showReuploadDialog && (
+        <ReuploadRequestDialog
+          teamName={registration.teamName}
+          registrationCode={registration.registrationCode}
+          busy={reuploadBusy}
+          onConfirm={handleRequestReupload}
+          onCancel={() => setShowReuploadDialog(false)}
         />
       )}
 
@@ -195,6 +256,17 @@ function RegistrationDetail({
                 </button>
               </div>
 
+              {/* Re-upload requested marker */}
+              {hasReuploadRequest && (
+                <div className="border-t border-amber-500/30 pt-3">
+                  <span className="inline-flex items-center gap-1.5 border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-300">
+                    <RefreshCcw className="h-3 w-3" aria-hidden />
+                    Re-upload requested
+                  </span>
+                  <p className="mt-1.5 text-xs text-muted">{reviewNoteLabel}</p>
+                </div>
+              )}
+
               {/* Payment Proof & UTR Actions */}
               {(registration.utrNumber || screenshotPath) && (
                 <div className="border-t border-white/[0.06] pt-3 flex flex-wrap items-center justify-between gap-2">
@@ -213,15 +285,26 @@ function RegistrationDetail({
                     </div>
                   ) : <div />}
 
-                  {screenshotPath && (
-                    <button
-                      type="button"
-                      onClick={() => setShowProofModal(true)}
-                      className="inline-flex items-center gap-1.5 rounded bg-primary/20 border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary-soft hover:bg-primary/30 transition-colors"
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" /> View Screenshot
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {screenshotPath && (
+                      <button
+                        type="button"
+                        onClick={() => setShowProofModal(true)}
+                        className="inline-flex items-center gap-1.5 rounded bg-primary/20 border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary-soft hover:bg-primary/30 transition-colors"
+                      >
+                        <ImageIcon className="h-3.5 w-3.5" /> View Screenshot
+                      </button>
+                    )}
+                    {screenshotPath && registration.paymentStatus === "pending" && (
+                      <button
+                        type="button"
+                        onClick={() => setShowReuploadDialog(true)}
+                        className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors"
+                      >
+                        <RefreshCcw className="h-3.5 w-3.5" /> Request Re-upload
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

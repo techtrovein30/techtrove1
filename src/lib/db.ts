@@ -195,6 +195,7 @@ export interface RegistrationRow {
   utr_number?: string;
   payment_screenshot_path?: string;
   payment_screenshot_url?: string;
+  payment_review_note?: string;
 }
 
 /** Find which table holds a registration id. Returns null if absent. */

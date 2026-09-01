@@ -68,6 +68,7 @@ function rowToRegistration(r: RegistrationRow): Registration {
     utrNumber: r.utr_number,
     paymentScreenshotPath: screenshotPath,
     paymentScreenshotUrl: screenshotPath,
+    paymentReviewNote: r.payment_review_note ?? undefined,
   };
 }
 
@@ -321,6 +322,8 @@ export interface AdminRegistrationPatch {
   teamName?: string;
   captainName?: string;
   paymentStatus?: "pending" | "recorded";
+  /** Sets the payment review note; pass null to clear it. */
+  paymentReviewNote?: string | null;
 }
 
 export async function adminUpdateRegistration(
@@ -332,10 +335,16 @@ export async function adminUpdateRegistration(
   const table = await findRegistrationTableById(regId);
   if (!table) throw new Error("Registration not found.");
 
-  const update: { team_name?: string; captain_name?: string; payment_status?: string } = {};
+  const update: {
+    team_name?: string;
+    captain_name?: string;
+    payment_status?: string;
+    payment_review_note?: string | null;
+  } = {};
   if (patch.teamName !== undefined) update.team_name = patch.teamName.trim();
   if (patch.captainName !== undefined) update.captain_name = patch.captainName.trim();
   if (patch.paymentStatus !== undefined) update.payment_status = patch.paymentStatus;
+  if (patch.paymentReviewNote !== undefined) update.payment_review_note = patch.paymentReviewNote;
 
   const { data, error } = await supabase
     .from(table)
@@ -345,6 +354,52 @@ export async function adminUpdateRegistration(
     .single();
 
   if (error || !data) throw friendlyError(error, "Could not update the registration.");
+  return rowToRegistration(data as unknown as RegistrationRow);
+}
+
+export interface AdminReuploadRequest {
+  reason: string;
+  note?: string;
+}
+
+/**
+ * Requests a fresh payment screenshot from the participant. The chosen reason
+ * (and optional note) is stored in payment_review_note so the participant's
+ * profile can surface the "re-upload requested" state.
+ *
+ * Requires the deferred SQL in query_change_for_rejection.txt: until the
+ * column is created, this fails loudly instead of faking success.
+ */
+export async function adminRequestPaymentReupload(
+  regId: string,
+  req: AdminReuploadRequest
+): Promise<Registration> {
+  await requireAdmin();
+
+  const table = await findRegistrationTableById(regId);
+  if (!table) throw new Error("Registration not found.");
+
+  const reason = req.reason.trim();
+  const note = req.note?.trim();
+  if (!reason) throw new Error("A reason is required to request re-upload.");
+
+  const reviewNote = note
+    ? `RE_UPLOAD_REQUESTED — ${reason} · ${note}`
+    : `RE_UPLOAD_REQUESTED — ${reason}`;
+
+  const { data, error } = await supabase
+    .from(table)
+    .update({ payment_review_note: reviewNote })
+    .eq("id", regId)
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw friendlyError(
+      error ?? new Error("No registration row was updated."),
+      "Re-upload request could not be saved. The payment review note field is not enabled yet — run query_change_for_rejection.txt in Supabase.",
+    );
+  }
   return rowToRegistration(data as unknown as RegistrationRow);
 }
 

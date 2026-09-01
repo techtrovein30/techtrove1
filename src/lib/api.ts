@@ -15,10 +15,12 @@ import { getEvent } from "./eventStore";
 import {
   REGISTRATION_TABLE_FOR,
   getParticipantById,
+  getRegistrationById,
   getRegistrationsByUser,
   getRegistrationByCode,
 } from "./db";
 import type { RegistrationRow } from "./db";
+import { reuploadPaymentProof } from "./storage";
 import { isSportEvent, isIndividualEvent, validateRegisterNumber, validateEmail, validatePhoneNumber } from "./validation";
 
 // Type-only import to keep db.ts's type import from forming a runtime cycle
@@ -87,6 +89,7 @@ export interface Registration {
   utrNumber?: string;
   paymentScreenshotPath?: string;
   paymentScreenshotUrl?: string;
+  paymentReviewNote?: string;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -285,6 +288,33 @@ export const api = {
 
     return mapRegistrationRow(row);
   },
+
+  // ── Re-upload a payment screenshot (participant side) ────────────────────
+  /**
+   * Overwrites the payment screenshot already attached to one of the signed-in
+   * user's registrations. The re-upload uses the exact stored path (upsert),
+   * so the registration row needs no update — admins see the new file through
+   * the existing screenshot path. Only the registration owner may do this.
+   */
+  async reuploadPaymentScreenshot(
+    registrationId: string,
+    file: File
+  ): Promise<{ screenshotPath: string }> {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) throw new Error("You need to sign in first.");
+
+    const row = await getRegistrationById(registrationId);
+    if (!row || row.user_id !== authUser.id) {
+      throw new Error("Registration not found.");
+    }
+
+    const screenshotPath = await reuploadPaymentProof(
+      authUser.id,
+      row.payment_screenshot_path ?? row.payment_screenshot_url,
+      file
+    );
+    return { screenshotPath };
+  },
 };
 
 function mapRegistrationRow(r: RegistrationRow): Registration {
@@ -304,5 +334,6 @@ function mapRegistrationRow(r: RegistrationRow): Registration {
     utrNumber: r.utr_number,
     paymentScreenshotPath: screenshotPath,
     paymentScreenshotUrl: screenshotPath,
+    paymentReviewNote: r.payment_review_note ?? undefined,
   };
 }
