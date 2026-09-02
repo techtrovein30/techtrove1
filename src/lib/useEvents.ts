@@ -42,13 +42,12 @@ export function useEvents(): UseEventsResult {
   // ── initial fetch + re-fetch on manual reload ─────────────────────────
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
     getDaysAsync()
       .then((d) => {
         if (!cancelled) {
           setDays(d);
+          setError(null);
           setLoading(false);
         }
       })
@@ -92,7 +91,7 @@ export function useEvents(): UseEventsResult {
     };
   }, []); // only once per mount
 
-  return { days, loading, error, reload: () => setTick((t) => t + 1) };
+  return { days, loading, error, reload: () => { setLoading(true); setError(null); setTick((t) => t + 1); } };
 }
 
 // ─── useAllEvents ────────────────────────────────────────────────────────────

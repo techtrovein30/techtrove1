@@ -42,9 +42,20 @@ function assertSafePathSegment(segment: string, label: string): void {
   }
 }
 
-/** True when every '/' separated segment is a safe, non-empty path segment. */
+/**
+ * True when every '/' separated segment is a safe, non-empty path segment.
+ * Rejects "." and ".." segments (path traversal) as well as separators and
+ * characters outside the URL-safe allowlist.
+ */
 export function isSafeRelativeStoragePath(path: string): boolean {
-  return path.split("/").every((seg) => seg.length > 0 && SAFE_PATH_SEGMENT.test(seg));
+  return path.split("/").every(
+    (seg) =>
+      seg.length > 0 &&
+      seg !== "." &&
+      seg !== ".." &&
+      !seg.includes("..") &&
+      SAFE_PATH_SEGMENT.test(seg)
+  );
 }
 
 /** True when an absolute URL belongs to this project's Supabase storage origin. */

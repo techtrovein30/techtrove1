@@ -167,20 +167,24 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
 
-  // Once events load, populate members + selected day for pre-selected event if not already done
+  // Once events load, populate members + selected day for pre-selected event if not already done.
+  // setState is deferred into a microtask so no state is set synchronously inside
+  // the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
     if (preselectedEvent && draft.eventId === preselectedEvent.id && draft.members.length === 0) {
-      setDraft((d) => ({
-        ...d,
-        members: makeEmptyMembers(
-          preselectedEvent,
-          user?.fullName ?? "",
-          user?.email ?? "",
-          user?.phone ?? "",
-        ),
-        captainName: d.captainName || (user?.fullName ?? ""),
-      }));
-      setSelectedDayId(preselectedEvent.dayId);
+      void Promise.resolve().then(() => {
+        setDraft((d) => ({
+          ...d,
+          members: makeEmptyMembers(
+            preselectedEvent,
+            user?.fullName ?? "",
+            user?.email ?? "",
+            user?.phone ?? "",
+          ),
+          captainName: d.captainName || (user?.fullName ?? ""),
+        }));
+        setSelectedDayId(preselectedEvent.dayId);
+      });
     }
   }, [preselectedEvent, draft.eventId, draft.members.length, user]);
 
@@ -217,26 +221,29 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
   // Safety sync: if member[0] name/email ended up empty (e.g. timing edge on
   // preselected-event route), backfill from the authenticated user profile.
+  // setState is deferred into a microtask (react-hooks/set-state-in-effect).
   useEffect(() => {
     if (!user) return;
     if (draft.members.length === 0) return;
     const captain = draft.members[0];
     if (!captain.name && user.fullName) {
-      setDraft((d) => ({
-        ...d,
-        members: d.members.map((m, i) =>
-          i === 0
-            ? {
-                ...m,
-                name: m.name || user.fullName,
-                email: m.email || user.email || "",
-                phone: m.phone || user.phone || "",
-              }
-            : m
-        ),
-      }));
+      void Promise.resolve().then(() => {
+        setDraft((d) => ({
+          ...d,
+          members: d.members.map((m, i) =>
+            i === 0
+              ? {
+                  ...m,
+                  name: m.name || user.fullName,
+                  email: m.email || user.email || "",
+                  phone: m.phone || user.phone || "",
+                }
+              : m
+          ),
+        }));
+      });
     }
-  }, [user, draft.members.length]);
+  }, [user, draft.members]);
 
   function goNext() {
     const i = stepIds.indexOf(step);

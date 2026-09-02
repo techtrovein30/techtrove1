@@ -47,11 +47,14 @@ export function LoginPage() {
   const rawNext = searchParams.get("next") ?? "/register";
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/register";
 
-  useEffect(() => {
-    if (googlePendingProfile && !form.fullName) {
-      setForm((f) => ({ ...f, fullName: googlePendingProfile.fullName }));
-    }
-  }, [googlePendingProfile]);
+  // Backfill the full name from the Google profile once it arrives. This
+  // adjusts state during render (React's recommended pattern) rather than
+  // calling setState synchronously inside an effect.
+  const [autoFilledEmail, setAutoFilledEmail] = useState<string | null>(null);
+  if (googlePendingProfile && !form.fullName && autoFilledEmail !== googlePendingProfile.email) {
+    setAutoFilledEmail(googlePendingProfile.email);
+    setForm((f) => ({ ...f, fullName: googlePendingProfile.fullName }));
+  }
 
   // After OAuth (or any sign-in), the browser lands back on /login with an
   // active session. Only move the user onward once they have a completed

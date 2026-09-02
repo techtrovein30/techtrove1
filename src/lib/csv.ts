@@ -10,7 +10,9 @@
  * are escaped per RFC 4180.
  */
 
-const FORMULA_CHAR_RE = /^[=+\-@\t\r]/;
+// N2: leading \n (line feed) included so a field can't inject a new row or
+// start a formula directly after a CR/LF.
+const FORMULA_CHAR_RE = /^[=+\-@\t\r\n]/;
 
 /** Escape a single field per RFC 4180 and neutralize leading formula chars. */
 export function csvEscapeField(value: unknown): string {

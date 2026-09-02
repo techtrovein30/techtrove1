@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Search,
   X,
@@ -396,10 +396,14 @@ export function AdminRegistrationsPage() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Registration | null>(null);
 
-  // L13: reset to page 1 whenever a filter or the query changes.
-  useEffect(() => {
+  // L13: reset to page 1 whenever a filter or the query changes. Resets state
+  // during render (React's recommended pattern) instead of in an effect.
+  const [filterKey, setFilterKey] = useState("");
+  const currentFilterKey = `${query}:${eventFilter}:${statusFilter}`;
+  if (currentFilterKey !== filterKey) {
+    setFilterKey(currentFilterKey);
     setPage(1);
-  }, [query, eventFilter, statusFilter]);
+  }
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();

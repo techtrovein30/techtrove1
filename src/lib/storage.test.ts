@@ -1,9 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   validateUploadFile,
   getUploadSignedUrl,
+  isSafeRelativeStoragePath,
+  reuploadPaymentProof,
+  uploadPaymentProof,
   MAX_FILE_SIZE_BYTES,
 } from "./storage";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("Unified Storage Module", () => {
   describe("validateUploadFile", () => {
@@ -57,5 +64,55 @@ describe("Unified Storage Module", () => {
       const result = await getUploadSignedUrl(legacyUrl);
       expect(result).toBe(legacyUrl);
     });
+
+    it("refuses absolute URLs outside the project storage origin (H09)", async () => {
+      expect(await getUploadSignedUrl("https://evil.example.com/payload.png")).toBeNull();
+    });
+  });
+
+  describe("isSafeRelativeStoragePath (H08)", () => {
+    it("accepts ordinary path segments", () => {
+      expect(isSafeRelativeStoragePath("payment-proofs/user123/reg456.png")).toBe(true);
+      expect(isSafeRelativeStoragePath("id-cards/abc/DEF.webp")).toBe(true);
+    });
+
+    it("rejects path traversal attempts", () => {
+      expect(isSafeRelativeStoragePath("../victim/file.png")).toBe(false);
+      expect(isSafeRelativeStoragePath("payment-proofs/../../etc/passwd")).toBe(false);
+      expect(isSafeRelativeStoragePath("..")).toBe(false);
+      expect(isSafeRelativeStoragePath("a/../b")).toBe(false);
+    });
+
+    it("rejects separators and unsafe characters", () => {
+      expect(isSafeRelativeStoragePath("a/b\\c")).toBe(false);
+      expect(isSafeRelativeStoragePath("a/b c")).toBe(false);
+      expect(isSafeRelativeStoragePath("a/b:c")).toBe(false);
+      expect(isSafeRelativeStoragePath("a//b")).toBe(false);
+      expect(isSafeRelativeStoragePath("")).toBe(false);
+    });
+  });
+
+  describe("reuploadPaymentProof (path ownership)", () => {
+    it("rejects a path outside the caller's own folder", async () => {
+      const badPath = "payment-proofs/other-user/reg.png";
+      await expect(reuploadPaymentProof("me", badPath, validFile())).rejects.toThrow(/contact support/i);
+    });
+
+    it("rejects traversal-inside-own-folder paths", async () => {
+      const badPath = "payment-proofs/me/../other/reg.png";
+      await expect(reuploadPaymentProof("me", badPath, validFile())).rejects.toThrow(/contact support/i);
+    });
+  });
+
+  describe("uploadPaymentProof", () => {
+    it("rejects unsafe user or registration ids before hitting storage", async () => {
+      await expect(uploadPaymentProof("../evil", "reg", validFile())).rejects.toThrow(/invalid user id/i);
+      await expect(uploadPaymentProof("me", "../evil", validFile())).rejects.toThrow(/invalid registration id/i);
+      await expect(uploadPaymentProof("me/../../x", "reg", validFile())).rejects.toThrow(/invalid user id/i);
+    });
   });
 });
+
+function validFile(): File {
+  return new File(["dummy"], "proof.png", { type: "image/png" });
+}

@@ -10,15 +10,12 @@ export function RegisterSuccessPage() {
   const [searchParams] = useSearchParams();
   const code = searchParams.get("code");
   const [registration, setRegistration] = useState<Registration | null>(null);
-  const [notFound, setNotFound] = useState(false);
+  const [notFound, setNotFound] = useState(() => !code);
   const [showReceipt, setShowReceipt] = useState(false);
 
   useEffect(() => {
+    if (!code) return;
     let cancelled = false;
-    if (!code) {
-      setNotFound(true);
-      return;
-    }
     api
       .getRegistrationByCode(code)
       .then((reg) => {

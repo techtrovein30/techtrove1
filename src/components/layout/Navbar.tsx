@@ -34,9 +34,14 @@ export function Navbar() {
   const { user, signOut } = useAuth();
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Close the mobile menu whenever the route changes. This resets state during
+  // render (React's recommended "adjust state when props change" pattern) so we
+  // don't call setState synchronously inside an effect (react-hooks rule).
+  const [prevPathname, setPrevPathname] = useState(location.pathname);
+  if (prevPathname !== location.pathname) {
+    setPrevPathname(location.pathname);
     setOpen(false);
-  }, [location.pathname]);
+  }
 
   // A01: focus trap + Escape-to-close for the modal mobile nav dialog.
   useEffect(() => {

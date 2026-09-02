@@ -24,7 +24,20 @@ export function useAdminRegistrations() {
   }
 
   useEffect(() => {
-    fetchRegistrations();
+    let cancelled = false;
+
+    // Initial load. All setState calls happen after the await, so we satisfy
+    // the react-hooks "no synchronous setState in effect" rule.
+    void (async () => {
+      try {
+        const data = await adminListRegistrations();
+        if (!cancelled) setRegistrations(data);
+      } catch (err) {
+        console.error("fetchRegistrations error:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
 
     // Listen to changes on both registration tables
     const channel = supabase
@@ -42,6 +55,7 @@ export function useAdminRegistrations() {
       .subscribe();
 
     return () => {
+      cancelled = true;
       supabase.removeChannel(channel);
     };
   }, []);

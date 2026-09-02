@@ -313,10 +313,14 @@ export function AdminStudentsPage() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<User | null>(null);
 
-  // L13: reset to page 1 whenever the query or filter changes.
-  useEffect(() => {
+  // L13: reset to page 1 whenever the query or filter changes. Resets state
+  // during render (React's recommended pattern) instead of in an effect.
+  const [filterKey, setFilterKey] = useState("");
+  const currentFilterKey = `${query}:${filter}`;
+  if (currentFilterKey !== filterKey) {
+    setFilterKey(currentFilterKey);
     setPage(1);
-  }, [query, filter]);
+  }
 
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
 

@@ -179,12 +179,10 @@ export const api = {
     const captainName = input.captainName.trim() || input.members[0]?.name.trim() || "";
     if (!captainName) throw new Error("Captain name is required.");
 
-    let teamName = input.teamName.trim();
-    if (isIndividual) {
-      teamName = teamName || captainName;
-    } else if (!teamName) {
-      throw new Error("Team name is required.");
-    }
+    const teamName = isIndividual
+      ? (input.teamName.trim() || captainName)
+      : input.teamName.trim();
+    if (!teamName) throw new Error("Team name is required.");
 
     // Fee is now securely calculated by the database trigger before insert.
     // The client no longer submits the fee to prevent tampering.
@@ -240,7 +238,7 @@ export const api = {
       registration_code: regCode,
       user_id: authUser.id,
       event_id: event.id,
-      team_name: input.teamName.trim(),
+      team_name: teamName,
       captain_name: input.captainName.trim(),
       payment_status: "pending",
       terms_accepted: true,

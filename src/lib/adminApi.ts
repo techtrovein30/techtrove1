@@ -153,7 +153,7 @@ export async function adminSignInWithGoogle(): Promise<void> {
       redirectTo: window.location.origin + "/wch1925?oauth=google",
     },
   });
-  if (error) throw error;
+  if (error) throw friendlyError(error, "Could not start Google sign-in.");
 }
 
 /**
@@ -167,7 +167,7 @@ export async function adminResolveOAuthAccess(): Promise<boolean> {
   if (!session?.user) return false;
 
   const { data, error } = await supabase.rpc("ensure_admin_access");
-  if (error) throw error;
+  if (error) throw friendlyError(error, "Could not verify admin access.");
   return data === true;
 }
 
@@ -448,7 +448,7 @@ export async function adminChangePassword(
   if (signInError) throw new Error("Current password is incorrect.");
 
   const { error } = await supabase.auth.updateUser({ password: newPassword });
-  if (error) throw new Error(error.message);
+  if (error) throw friendlyError(error, "Could not update the password.");
 
   // Invalidate any other active sessions for this account so a stolen
   // token can't persist after the password change (M06). The current
