@@ -159,6 +159,8 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   const activeEvent = event ?? preselectedEvent;
   const isIndividual = isIndividualEvent(activeEvent);
 
+  // Internal students never go through the payment step — their flow ends at review.
+  // External students have an additional payment step after review.
   const stepIds: StepId[] = isIndividual
     ? (teamType === "internal" ? ["sport", "terms", "members", "review"] : ["sport", "terms", "members", "review", "payment"])
     : (teamType === "internal" ? ["sport", "terms", "team", "members", "review"] : ["sport", "terms", "team", "members", "review", "payment"]);
@@ -257,6 +259,8 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  const [submitting, setSubmitting] = useState(false);
+
   async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }): Promise<void> {
     if (!event) throw new Error("Select an event first.");
     const indiv = isIndividualEvent(event);
@@ -289,6 +293,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
           onSelect={(ev) => selectEvent(ev)}
           events={allEvents}
           loading={eventsLoading}
+          isInternal={teamType === "internal"}
         />
       );
       break;
@@ -296,6 +301,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       stepBody = event && (
         <TermsStep
           event={event}
+          teamType={teamType}
           accepted={draft.termsAccepted}
           onAccept={(v) => setDraft((d) => ({ ...d, termsAccepted: v }))}
         />
@@ -332,13 +338,16 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   }
 
   const isFirst = step === "sport";
+  // For internal students, 'review' is the final step; for external it is 'payment'.
+  const isLastReview = teamType === "internal" && step === "review";
+  // isLast is true when on the very last step — used only for external payment
   const isLast = step === stepIds[stepIds.length - 1];
-  
+
   const nextLabel =
-    isLast && step === "review"
+    isLastReview
       ? "Confirm Registration"
       : step === "review"
-      ? "Proceed to payment"
+      ? "Proceed to Payment"
       : "Continue";
 
   function handleNextClick() {
@@ -412,8 +421,15 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length === 0) {
-      if (isLast && step === "review") {
-        handleRegistration().catch((e) => setErrors({ step: e.message }));
+      if (isLastReview) {
+        // Internal student — submit immediately, no payment step
+        setSubmitting(true);
+        handleRegistration()
+          .catch((e) => setErrors({ step: e.message }))
+          .finally(() => setSubmitting(false));
+      } else if (isLast) {
+        // External student on payment step — handled inside PaymentStep component
+        goNext();
       } else {
         goNext();
       }
@@ -433,7 +449,10 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
           </p>
         )}
 
-        {!isLast && (
+        {/* Always render the navigation row except on the external-only payment step
+            (PaymentStep has its own submit button). The old `!isLast` guard was
+            wrongly hiding the Confirm button for internal students on the review step. */}
+        {step !== "payment" && (
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
@@ -445,11 +464,13 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
             </button>
             <button
               type="button"
+              id="registration-next-btn"
               onClick={handleNextClick}
-              disabled={isLast && step === "review" && Object.keys(errors).length > 0 && "step" in errors}
+              disabled={submitting}
               className="clip-angle inline-flex items-center justify-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
             >
-              {nextLabel} <ArrowRight className="h-4 w-4" aria-hidden />
+              {submitting ? "Submitting\u2026" : nextLabel}
+              {!submitting && <ArrowRight className="h-4 w-4" aria-hidden />}
             </button>
           </div>
         )}
@@ -470,6 +491,7 @@ function SportStep({
   onSelect,
   events,
   loading,
+  isInternal,
 }: {
   days: Day[];
   selectedId: string | null;
@@ -478,6 +500,7 @@ function SportStep({
   onSelect: (ev: TechEvent) => void;
   events: TechEvent[];
   loading: boolean;
+  isInternal: boolean;
 }) {
   // Day shells for the tabs always exist via static data, so the day selector
   // renders immediately even before the async events fetch completes.
@@ -554,6 +577,8 @@ function SportStep({
             const active = ev.id === selectedId;
             const isIndiv = isIndividualEvent(ev);
             const isSport = isSportEvent(ev);
+            // Internal students always register for free — never show monetary amounts
+            const feeLabel = isInternal ? "Free" : formatPerPerson(ev.registrationFee);
             return (
               <button
                 key={ev.id}
@@ -572,8 +597,8 @@ function SportStep({
                   <span className="display block text-lg text-foreground">{ev.name}</span>
                   <span className="mt-0.5 block text-xs text-muted">
                     {isIndiv
-                      ? `Individual Event · ${formatPerPerson(ev.registrationFee)}`
-                      : `${ev.requiredPlayers} player${ev.requiredPlayers === 1 ? "" : "s"}${isSport && ev.maxSubstitutes ? ` · ${ev.maxSubstitutes} substitute${ev.maxSubstitutes === 1 ? "" : "s"}` : ""} · ${formatPerPerson(ev.registrationFee)}`}
+                      ? `Individual Event · ${feeLabel}`
+                      : `${ev.requiredPlayers} player${ev.requiredPlayers === 1 ? "" : "s"}${isSport && ev.maxSubstitutes ? ` · ${ev.maxSubstitutes} substitute${ev.maxSubstitutes === 1 ? "" : "s"}` : ""} · ${feeLabel}`}
                   </span>
                 </span>
                 {active && <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary-soft">Selected</span>}
@@ -588,16 +613,19 @@ function SportStep({
 
 function TermsStep({
   event,
+  teamType,
   accepted,
   onAccept,
 }: {
   event: TechEvent;
+  teamType: ParticipantType;
   accepted: boolean;
   onAccept: (v: boolean) => void;
 }) {
+  const isInternal = teamType === "internal";
   return (
     <StepShell
-      title={`Terms and conditions`}
+      title="Terms and conditions"
       lead={`Read the rules for ${event.name}. By proceeding you accept these terms on behalf of your team.`}
     >
       <ol className="divide-y divide-edge border-y border-edge">
@@ -618,11 +646,20 @@ function TermsStep({
           onChange={(e) => onAccept(e.target.checked)}
           className="mt-0.5 h-4 w-4 shrink-0 accent-[#7c3aed]"
         />
-        <span className="text-sm leading-relaxed text-foreground">
-          I agree to the Terms and Conditions, including that the registration fee of{" "}
-          <strong className="font-semibold">{formatPerPerson(event.registrationFee)}</strong>
-          (charged for each player and substitute entered) is non-refundable.
-        </span>
+        {isInternal ? (
+          // Internal students register for free — never mention a fee
+          <span className="text-sm leading-relaxed text-foreground">
+            I agree to the Terms and Conditions for {event.name}. I understand that my
+            registration as a SIMATS student is{" "}
+            <strong className="font-semibold text-emerald-400">free of charge</strong>.
+          </span>
+        ) : (
+          <span className="text-sm leading-relaxed text-foreground">
+            I agree to the Terms and Conditions, including that the registration fee of{" "}
+            <strong className="font-semibold">{formatPerPerson(event.registrationFee)}</strong>
+            {" "}(charged for each player and substitute entered) is non-refundable.
+          </span>
+        )}
       </label>
     </StepShell>
   );
@@ -927,6 +964,7 @@ function ReviewRow({ term, children }: { term: string; children: ReactNode }) {
 }
 
 function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft; teamType: ParticipantType }) {
+  const isInternal = teamType === "internal";
   const isIndividual = isIndividualEvent(event);
   const isSport = isSportEvent(event);
   const filledMembers = draft.members.filter((m) => m.name.trim());
@@ -935,7 +973,25 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
   const totalFee = computeTotalFee(event, draft.members, teamType);
 
   return (
-    <StepShell title="Review your entry" lead="Check everything carefully. Changes after payment cannot be made.">
+    <StepShell
+      title="Review your entry"
+      lead={
+        isInternal
+          ? "Check everything carefully before confirming. Your registration is free."
+          : "Check everything carefully. Changes after payment cannot be made."
+      }
+    >
+      {/* Free registration banner — shown only to internal students */}
+      {isInternal && (
+        <div className="flex items-center gap-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          <span className="shrink-0 text-lg" aria-hidden>✓</span>
+          <span>
+            <strong>Free registration</strong> — As a SIMATS student, no payment is required.
+            Click <em>Confirm Registration</em> below to finalise your slot.
+          </span>
+        </div>
+      )}
+
       <dl>
         <ReviewRow term="Event">{event.name}</ReviewRow>
         <ReviewRow term="Category">{event.category}</ReviewRow>
@@ -945,22 +1001,33 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
           <span
             className={
               "inline-flex border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] " +
-              (teamType === "internal"
+              (isInternal
                 ? "border-primary/50 bg-primary/10 text-primary-soft"
                 : "border-edge-strong bg-surface text-muted")
             }
           >
-            {teamType === "internal" ? "SIMATS Student" : "External Participant"}
+            {isInternal ? "SIMATS Student" : "External Participant"}
           </span>
         </ReviewRow>
-        <ReviewRow term="Fee per person">{teamType === "internal" ? "Free" : formatPerPerson(event.registrationFee)}</ReviewRow>
-        {!isIndividual && (
+        {/* Hide all fee rows for internal students */}
+        {!isInternal && (
+          <>
+            <ReviewRow term="Fee per person">{formatPerPerson(event.registrationFee)}</ReviewRow>
+            {!isIndividual && (
+              <ReviewRow term="Team members">
+                {filledPlayers} player{filledPlayers === 1 ? "" : "s"}
+                {isSport && filledSubs > 0 ? ` · ${filledSubs} substitute${filledSubs === 1 ? "" : "s"}` : ""}
+              </ReviewRow>
+            )}
+            <ReviewRow term="Total registration fee">{formatFee(totalFee)}</ReviewRow>
+          </>
+        )}
+        {isInternal && !isIndividual && (
           <ReviewRow term="Team members">
             {filledPlayers} player{filledPlayers === 1 ? "" : "s"}
             {isSport && filledSubs > 0 ? ` · ${filledSubs} substitute${filledSubs === 1 ? "" : "s"}` : ""}
           </ReviewRow>
         )}
-        <ReviewRow term="Total registration fee">{formatFee(totalFee)}</ReviewRow>
         <ReviewRow term="Terms accepted">{draft.termsAccepted ? "Yes" : "No"}</ReviewRow>
       </dl>
 

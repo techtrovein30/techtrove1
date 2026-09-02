@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowLeft, BadgeCheck } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Copy, Check } from "lucide-react";
 import { useEvent } from "../lib/useEvents";
-import { formatFee } from "../lib/utils";
 import { api } from "../lib/api";
 import type { Registration } from "../lib/api";
 
@@ -12,6 +11,7 @@ export function RegisterSuccessPage() {
   const [registration, setRegistration] = useState<Registration | null>(null);
   const [notFound, setNotFound] = useState(() => !code);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!code) return;
@@ -31,6 +31,17 @@ export function RegisterSuccessPage() {
 
   const { event } = useEvent(registration?.eventId);
 
+  // Internal registrations are free (fee === 0) and instantly confirmed
+  const isInternal = registration !== null && registration.fee === 0;
+
+  function copyCode() {
+    if (!registration) return;
+    navigator.clipboard.writeText(registration.registrationCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
   return (
     <div className="reveal-up mx-auto max-w-3xl px-4 pb-24 pt-28 text-center sm:px-6 md:pt-36">
       <span className="glow-purple mx-auto flex h-16 w-16 items-center justify-center border border-primary bg-primary/15">
@@ -40,14 +51,46 @@ export function RegisterSuccessPage() {
       <p className="eyebrow mt-8">TechTrove 3.0</p>
       <h1 className="display mt-3 text-5xl text-foreground sm:text-7xl">Registration successful</h1>
       <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-muted">
-        Your team is in. Keep your registration ID safe — it is your reference for all
-        communication with the organizing committee.
+        {isInternal
+          ? "You're registered! Keep your Registration ID safe — it's your reference for all communication with the organising committee."
+          : "Your team is in. Keep your registration ID safe — it is your reference for all communication with the organizing committee."}
       </p>
 
       {!notFound && (
-        <p className="mt-6 inline-flex border border-primary/60 bg-primary/10 px-5 py-2.5 font-mono text-lg tracking-[0.2em] text-primary-soft">
-          {registration ? registration.registrationCode : "TT-...."}
-        </p>
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Registration ID</p>
+          <div className="flex items-center gap-3">
+            <p
+              id="registration-id-display"
+              className="inline-flex border border-primary/60 bg-primary/10 px-5 py-2.5 font-mono text-lg tracking-[0.2em] text-primary-soft"
+            >
+              {registration ? registration.registrationCode : "TT-…"}
+            </p>
+            {registration && (
+              <button
+                type="button"
+                onClick={copyCode}
+                aria-label="Copy Registration ID"
+                className="flex h-10 w-10 items-center justify-center border border-edge text-muted transition-colors hover:border-primary hover:text-primary-soft"
+              >
+                {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+              </button>
+            )}
+          </div>
+          {/* Show confirmation status badge for internal vs pending for external */}
+          {registration && (
+            <span
+              className={
+                "mt-2 border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] " +
+                (isInternal
+                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                  : "border-amber-500/50 bg-amber-500/10 text-amber-300")
+              }
+            >
+              {isInternal ? "✓ Confirmed — No payment required" : "Payment verification pending"}
+            </span>
+          )}
+        </div>
       )}
 
       {notFound && (
@@ -95,8 +138,11 @@ export function RegisterSuccessPage() {
                     return subs.length > 0 ? subs.join(", ") : "None";
                   })(),
                 ],
-                ["Fee", formatFee(registration.fee)],
-                ...(registration.utrNumber ? [["UTR / Txn ID", registration.utrNumber]] : []),
+                // Only show fee and UTR rows for external participants
+                ...(!isInternal ? [
+                  ["Fee", formatFee(registration.fee)],
+                  ...(registration.utrNumber ? [["UTR / Txn ID", registration.utrNumber]] : []),
+                ] : []),
               ].map(([term, value]) => (
                 <div key={term} className="flex flex-col gap-1 border-b border-edge py-3 last:border-b-0 sm:flex-row sm:justify-between sm:gap-8">
                   <dt className="shrink-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">{term}</dt>
@@ -104,17 +150,23 @@ export function RegisterSuccessPage() {
                 </div>
               ))}
               <div className="flex items-center justify-between pt-4">
-                <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Payment status</dt>
+                <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Status</dt>
                 <dd>
                   <span
                     className={
                       "border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] " +
-                      (registration.paymentStatus === "recorded"
+                      (isInternal
+                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                        : registration.paymentStatus === "recorded"
                         ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
                         : "border-amber-500/50 bg-amber-500/10 text-amber-300")
                     }
                   >
-                    {registration.paymentStatus === "recorded" ? "Paid" : "Pending"}
+                    {isInternal
+                      ? "Confirmed"
+                      : registration.paymentStatus === "recorded"
+                      ? "Paid"
+                      : "Pending"}
                   </span>
                 </dd>
               </div>
