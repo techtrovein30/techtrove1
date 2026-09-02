@@ -26,6 +26,7 @@ import {
 import type { ParticipantRow, RegistrationRow } from "./db";
 
 import { getUploadSignedUrl, adminDeletePaymentProof } from "./storage";
+import { createReuploadNotification } from "./notifications";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -282,8 +283,11 @@ export async function getAdminStats(): Promise<AdminStats> {
 
 export async function adminListUsers(): Promise<User[]> {
   await requireAdmin();
+  
+  // Debug log for registration counts
+  getRegistrationCountsByUser().then(counts => console.log("ADMIN COUNTS DEBUG:", counts)).catch(err => console.error("ADMIN COUNTS ERROR:", err));
+  
   const users = (await getAllParticipants())
-    .filter((u) => u.role !== "admin")
     .sort((a, b) => (a.created_at > b.created_at ? -1 : 1));
   return users.map(profileToUser);
 }
@@ -440,10 +444,10 @@ export async function adminRequestPaymentReupload(
   const table = await findRegistrationTableById(regId);
   if (!table) throw new Error("Registration not found.");
 
-  // ── Step B: fetch the current proof path before we mutate anything ────────
+  // ── Step B: fetch the current proof path + user_id/team_name before we mutate anything
   const { data: current, error: fetchError } = await supabase
     .from(table)
-    .select("payment_proof_path, payment_screenshot_path, payment_screenshot_url")
+    .select("user_id, team_name, payment_proof_path, payment_screenshot_path, payment_screenshot_url")
     .eq("id", regId)
     .single();
 
@@ -524,7 +528,24 @@ export async function adminRequestPaymentReupload(
     );
   }
 
-  return rowToRegistration(data as unknown as RegistrationRow);
+  const result = rowToRegistration(data as unknown as RegistrationRow);
+
+  // ── Step F: create a notification for the registration owner ──────────────
+  const regUserId = (current as Record<string, unknown>).user_id as string | undefined;
+  const regTeamName = (current as Record<string, unknown>).team_name as string | undefined;
+  if (regUserId) {
+    // Fire-and-forget: notification creation should not block the response
+    createReuploadNotification(
+      regUserId,
+      regId,
+      regTeamName ?? "your team",
+      reason,
+    ).catch((err) => {
+      console.error("[admin] Failed to create reupload notification:", err);
+    });
+  }
+
+  return result;
 }
 
 export async function adminDeleteRegistration(regId: string): Promise<void> {

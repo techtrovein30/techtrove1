@@ -4,6 +4,7 @@ import { LogOut, Menu, X, User, ChevronRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { cn } from "../../lib/utils";
 import { Brand } from "../site/Brand";
+import { NotificationBell } from "../ui/NotificationBell";
 
 const links = [
   { to: "/", label: "Home" },
@@ -175,6 +176,7 @@ export function Navbar() {
           <div className="hidden items-center gap-3 lg:flex">
             {user ? (
               <>
+                <NotificationBell userId={user.id} />
                 <Link
                   to="/profile"
                   className="group relative flex items-center gap-2.5 rounded-sm border border-edge/60 bg-surface/40 px-3.5 py-2 backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:shadow-[0_0_20px_rgba(124,58,237,0.12)]"

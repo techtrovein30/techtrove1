@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
-import { Search, Users, X } from "lucide-react";
+import { Search, Users, X, Download } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
+import { toCsv, downloadCsv } from "../../lib/csv";
 
 export function AdminTeamsPage() {
   const { registrations } = useAdminRegistrations();
@@ -38,6 +39,24 @@ export function AdminTeamsPage() {
     }
     return groups;
   }, [filteredTeams]);
+
+  function exportCSV() {
+    if (filteredTeams.length === 0) return;
+    const headers = ["Event", "Team Name", "Captain", "Registration Code", "Members Count", "Fee Status", "Registered Date"];
+    const rows = filteredTeams.map(t => [
+      events.find((e) => e.id === t.eventId)?.name ?? t.eventId,
+      t.teamName,
+      t.captainName,
+      t.registrationCode,
+      t.members.length.toString(),
+      t.paymentStatus,
+      new Date(t.createdAt).toLocaleDateString()
+    ]);
+    downloadCsv(
+      `techtrove_teams_${new Date().toISOString().split('T')[0]}.csv`,
+      toCsv(headers, rows)
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -78,7 +97,7 @@ export function AdminTeamsPage() {
                     { term: "Captain", value: selectedTeam.captainName },
                     { 
                       term: "Fee Status", 
-                      value: <span className={`font-semibold capitalize ${selectedTeam.paymentStatus === "recorded" ? "text-emerald-400" : "text-amber-400"}`}>
+                      value: <span className={`font-semibold capitalize ${selectedTeam.paymentStatus !== "pending" ? "text-emerald-400" : "text-amber-400"}`}>
                         {selectedTeam.paymentStatus} ({formatFee(selectedTeam.fee)})
                       </span> 
                     },
@@ -134,6 +153,14 @@ export function AdminTeamsPage() {
             {filteredTeams.length !== 1 ? "s" : ""} across events
           </p>
         </div>
+        <button
+          onClick={exportCSV}
+          disabled={filteredTeams.length === 0}
+          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.06] disabled:opacity-50"
+        >
+          <Download className="h-4 w-4 text-muted" />
+          Export CSV
+        </button>
       </div>
 
       {/* Controls */}
@@ -211,7 +238,7 @@ export function AdminTeamsPage() {
                         </div>
                         <span
                           className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
-                            t.paymentStatus === "recorded"
+                            t.paymentStatus !== "pending"
                               ? "bg-emerald-500/10 text-emerald-400"
                               : "bg-amber-500/10 text-amber-400"
                           }`}

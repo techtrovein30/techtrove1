@@ -6,7 +6,6 @@ import {
   CreditCard,
   LogOut,
   Menu,
-  Settings,
   ShieldCheck,
   Users,
   ClipboardList,
@@ -24,7 +23,6 @@ const navItems = [
   { to: "/wch1925/teams", label: "Teams", icon: UsersRound },
   { to: "/wch1925/payments", label: "Payments", icon: CreditCard },
   { to: "/wch1925/events", label: "Events", icon: CalendarDays },
-  { to: "/wch1925/settings", label: "Settings", icon: Settings },
 ];
 
 function NavItem({

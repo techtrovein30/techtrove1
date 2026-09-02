@@ -4,6 +4,7 @@ import { ArrowLeft, BadgeCheck, Copy, Check } from "lucide-react";
 import { useEvent } from "../lib/useEvents";
 import { api } from "../lib/api";
 import type { Registration } from "../lib/api";
+import { formatFee } from "../lib/utils";
 
 export function RegisterSuccessPage() {
   const [searchParams] = useSearchParams();

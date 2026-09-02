@@ -7,6 +7,7 @@ import {
   Pencil,
   Check,
   ChevronLeft,
+  Download,
 } from "lucide-react";
 import type { User, Registration } from "../../lib/api";
 import {
@@ -18,6 +19,7 @@ import {
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminUsers } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
+import { toCsv, downloadCsv } from "../../lib/csv";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 
 type Filter = "all" | "internal" | "external";
@@ -31,11 +33,13 @@ function StudentDetail({
   onClose,
   onDeleted,
   onUpdated,
+  initialEditing = false,
 }: {
   student: User;
   onClose: () => void;
   onDeleted: (id: string) => void;
   onUpdated: (u: User) => void;
+  initialEditing?: boolean;
 }) {
   const { events } = useAllEvents();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
@@ -43,7 +47,7 @@ function StudentDetail({
   useEffect(() => {
     adminGetUserRegistrations(student.id).then(setRegistrations).catch(() => {});
   }, [student.id]);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initialEditing);
   const [editForm, setEditForm] = useState({
     fullName: student.fullName,
     college: student.college ?? "",
@@ -137,6 +141,11 @@ function StudentDetail({
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
+            {editError && (
+              <div className="rounded bg-red-500/10 p-3 text-sm text-red-400 border border-red-500/20">
+                {editError}
+              </div>
+            )}
             <div className="flex flex-col items-center justify-center space-y-3 pb-6 pt-2 border-b border-white/[0.06]">
               <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/20 text-2xl font-bold text-primary-soft shadow-[0_0_30px_rgba(124,58,237,0.15)] ring-1 ring-primary/30">
                 {student.fullName.charAt(0).toUpperCase()}
@@ -265,12 +274,12 @@ function StudentDetail({
                         </div>
                         <span
                           className={`shrink-0 border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
-                            reg.paymentStatus === "recorded"
+                            reg.paymentStatus !== "pending"
                               ? "border-emerald-500/40 text-emerald-400"
                               : "border-amber-500/40 text-amber-400"
                           }`}
                         >
-                          {reg.paymentStatus === "recorded" ? "Paid" : "Pending"}
+                          {reg.paymentStatus !== "pending" ? "Confirmed" : "Pending"}
                         </span>
                       </div>
                       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
@@ -312,6 +321,9 @@ export function AdminStudentsPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<User | null>(null);
+  const [selectedEditing, setSelectedEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState<User | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // L13: reset to page 1 whenever the query or filter changes. Resets state
   // during render (React's recommended pattern) instead of in an effect.
@@ -351,6 +363,7 @@ export function AdminStudentsPage() {
   const handleUserDeleted = useCallback(() => {
     refresh();
     setSelected(null);
+    setConfirmingDelete(null);
   }, [refresh]);
 
   const handleUserUpdated = useCallback((updated: User) => {
@@ -358,14 +371,71 @@ export function AdminStudentsPage() {
     setSelected(updated);
   }, [refresh]);
 
+  async function handleInlineDelete() {
+    if (!confirmingDelete) return;
+    try {
+      await adminDeleteUser(confirmingDelete.id);
+      handleUserDeleted();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed.");
+    }
+  }
+
+  function openEditPanel(user: User) {
+    setSelected(user);
+    setSelectedEditing(true);
+  }
+
+  function exportCSV() {
+    if (filtered.length === 0) return;
+    const headers = ["ID", "Name", "Type", "Email", "Reg Number", "College", "Phone", "Registrations", "Joined Date"];
+    const rows = filtered.map(u => [
+      u.id,
+      u.fullName,
+      u.participantType,
+      u.email,
+      u.regNumber ?? "N/A",
+      u.college ?? "N/A",
+      u.phone ?? "N/A",
+      registrationCounts[u.id] ?? 0,
+      "N/A"
+    ]);
+    downloadCsv(
+      `techtrove_students_${new Date().toISOString().split('T')[0]}.csv`,
+      toCsv(headers, rows)
+    );
+  }
+
   return (
     <div className="space-y-6">
       {selected && (
         <StudentDetail
           student={selected}
-          onClose={() => setSelected(null)}
+          onClose={() => { setSelected(null); setSelectedEditing(false); }}
           onDeleted={handleUserDeleted}
           onUpdated={handleUserUpdated}
+          initialEditing={selectedEditing}
+        />
+      )}
+
+      {/* Standalone confirm delete dialog (for inline table delete) */}
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete student account"
+          description={
+            <>
+              This will permanently delete{" "}
+              <strong className="text-foreground">{confirmingDelete.fullName}</strong>'s
+              account and all their event registrations. This action cannot be
+              undone.
+              {deleteError && (
+                <p className="mt-2 text-xs text-red-400">{deleteError}</p>
+              )}
+            </>
+          }
+          confirmLabel="Delete account"
+          onConfirm={handleInlineDelete}
+          onCancel={() => { setConfirmingDelete(null); setDeleteError(null); }}
         />
       )}
 
@@ -378,6 +448,14 @@ export function AdminStudentsPage() {
             {allUsers.length !== 1 ? "s" : ""}
           </p>
         </div>
+        <button
+          onClick={exportCSV}
+          disabled={filtered.length === 0}
+          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.06] disabled:opacity-50"
+        >
+          <Download className="h-4 w-4 text-muted" />
+          Export CSV
+        </button>
       </div>
 
       {/* Search + filters */}
@@ -415,7 +493,7 @@ export function AdminStudentsPage() {
           <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-white/[0.07]">
-                {["Name", "Type", "Email / Reg No.", "College", "Registrations"].map(
+                {["Name", "Type", "Email / Reg No.", "College", "Registrations", "Actions"].map(
                   (h) => (
                     <th
                       key={h}
@@ -425,7 +503,6 @@ export function AdminStudentsPage() {
                     </th>
                   )
                 )}
-                <th className="w-10 px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
@@ -487,7 +564,24 @@ export function AdminStudentsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <ChevronRight className="h-4 w-4 text-muted" />
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openEditPanel(u); }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-white/10 text-muted transition-colors hover:text-primary-soft hover:border-primary/40 hover:bg-primary/10"
+                          title="Edit student"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setConfirmingDelete(u); }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-red-500/20 text-red-400/70 transition-colors hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10"
+                          title="Delete student"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

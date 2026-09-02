@@ -46,9 +46,7 @@ const AdminPaymentsPage = lazy(() =>
 const AdminEventsPage = lazy(() =>
   import("./pages/admin/AdminEventsPage").then((m) => ({ default: m.AdminEventsPage }))
 );
-const AdminSettingsPage = lazy(() =>
-  import("./pages/admin/AdminSettingsPage").then((m) => ({ default: m.AdminSettingsPage }))
-);
+
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -99,7 +97,7 @@ export default function App() {
               <Route path="teams" element={<AdminTeamsPage />} />
               <Route path="payments" element={<AdminPaymentsPage />} />
               <Route path="events" element={<AdminEventsPage />} />
-              <Route path="settings" element={<AdminSettingsPage />} />
+
               <Route path="*" element={<Navigate to="/wch1925/dashboard" replace />} />
             </Route>
           </Route>

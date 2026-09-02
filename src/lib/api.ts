@@ -36,7 +36,7 @@ interface RegistrationInsertRow {
   event_id: string;
   team_name: string;
   captain_name: string;
-  payment_status: "pending";
+  payment_status: "pending" | "confirmed";
   terms_accepted: boolean;
   members: RegistrationMember[];
   utr_number?: string;

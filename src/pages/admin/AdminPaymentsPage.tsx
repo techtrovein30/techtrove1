@@ -126,17 +126,17 @@ export function AdminPaymentsPage() {
 
   function exportCSV() {
     if (filtered.length === 0) return;
-    const headers = ["Registration Code", "Team Name", "Event", "Captain", "Fee Amount", "Status", "UTR Number", "Proof Path"];
+    const headers = ["Team Name", "Captain Name", "Fee (₹)", "UTR Number", "Registration Code", "Event", "Status", "Proof Path"];
     const rows = filtered.map(r => {
       const ev = events.find(e => e.id === r.eventId);
       return [
-        r.registrationCode,
-        r.teamName,
+        String(r.teamName ?? ""),
+        String(r.captainName ?? ""),
+        String(r.fee ?? 0),
+        r.utrNumber ? String(r.utrNumber) : "N/A",
+        String(r.registrationCode ?? ""),
         ev?.name ?? r.eventId,
-        r.captainName,
-        r.fee,
-        r.paymentStatus,
-        r.utrNumber ?? "",
+        String(r.paymentStatus ?? ""),
         r.paymentScreenshotPath ?? r.paymentScreenshotUrl ?? ""
       ];
     });
