@@ -245,11 +245,11 @@ function RegistrationCard({
             </div>
           )}
 
-          {hasScreenshot ? (
+          {hasScreenshot || needsReupload ? (
             <>
               <p className="mt-1 text-xs text-muted">
                 {needsReupload
-                  ? "Upload a new screenshot to replace the one under review."
+                  ? "Upload a new screenshot to replace the rejected one."
                   : "Screenshot submitted · awaiting admin approval."}
               </p>
               <input
