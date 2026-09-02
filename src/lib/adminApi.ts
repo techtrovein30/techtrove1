@@ -185,6 +185,52 @@ export interface AdminStats {
   recentRegistrations: Registration[];
 }
 
+export interface PaymentSummary {
+  totalRevenue: number;
+  pendingRevenue: number;
+  recordedCount: number;
+  pendingCount: number;
+  perEventRevenue: Record<string, { count: number; revenue: number }>;
+}
+
+/**
+ * Reads the live revenue summary from the database via the get_payment_summary
+ * RPC (see pay.sql). Revenue is summed server-side from the DB-computed fee
+ * column, so it updates in real time the moment a payment is accepted.
+ * Returns null when the RPC is unavailable (function not deployed yet) so
+ * callers can fall back to a client-side tally.
+ */
+export async function getPaymentSummaryFromDb(): Promise<PaymentSummary | null> {
+  await requireAdmin();
+
+  const { data, error } = await supabase.rpc("get_payment_summary");
+  if (error) {
+    console.warn(
+      "[admin] get_payment_summary RPC unavailable, using client tally:",
+      error.message,
+    );
+    return null;
+  }
+
+  const row = data as unknown as {
+    total_revenue?: number;
+    pending_revenue?: number;
+    recorded_count?: number;
+    pending_count?: number;
+    per_event_revenue?: Record<string, { count: number; revenue: number }>;
+  } | null;
+
+  if (!row) return null;
+
+  return {
+    totalRevenue: Number(row.total_revenue ?? 0),
+    pendingRevenue: Number(row.pending_revenue ?? 0),
+    recordedCount: Number(row.recorded_count ?? 0),
+    pendingCount: Number(row.pending_count ?? 0),
+    perEventRevenue: row.per_event_revenue ?? {},
+  };
+}
+
 export async function getAdminStats(): Promise<AdminStats> {
   await requireAdmin();
 
@@ -196,11 +242,25 @@ export async function getAdminStats(): Promise<AdminStats> {
   let recorded = 0;
   let revenue = 0;
 
+  // Revenue is computed by the database (pay.sql get_payment_summary RPC) so it
+  // always reflects the server-computed fees in real time — it is never
+  // hardcoded. Falls back to a client-side tally only if the RPC isn't
+  // deployed yet.
+  const dbSummary = await getPaymentSummaryFromDb();
+  if (dbSummary) {
+    pending = dbSummary.pendingCount;
+    recorded = dbSummary.recordedCount;
+    revenue = dbSummary.totalRevenue;
+  } else {
+    for (const r of registrations) {
+      if (r.payment_status === "pending") pending++;
+      else recorded++;
+      if (r.payment_status === "recorded") revenue += r.fee;
+    }
+  }
+
   for (const r of registrations) {
     perEvent[r.event_id] = (perEvent[r.event_id] ?? 0) + 1;
-    if (r.payment_status === "pending") pending++;
-    else recorded++;
-    if (r.payment_status === "recorded") revenue += r.fee;
   }
 
   const recentRegistrations = registrations.slice(0, 8).map(rowToRegistration);

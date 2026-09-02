@@ -1091,6 +1091,31 @@ function PaymentStep({
         </dl>
       </div>
 
+      <div className="mt-6 flex flex-col items-start gap-5 border border-edge bg-surface/40 p-6 sm:flex-row sm:items-center">
+        <div className="shrink-0 border border-edge bg-white p-3">
+          <img
+            src="/images/payment-qr.png"
+            alt="QR code to scan and pay your registration fee"
+            width={176}
+            height={176}
+            className="block h-40 w-40"
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-soft">
+            Scan to pay
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-foreground">
+            Open any UPI app, scan this QR, and pay the{" "}
+            <span className="font-semibold text-primary-soft">{formatFee(totalFee)}</span> shown above.
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Enter the transaction's 12-digit UTR number and upload the screenshot below.
+            Your slot is confirmed only after the payment is verified.
+          </p>
+        </div>
+      </div>
+
       <div className="mt-8 space-y-5">
         <Field
           label="UTR / Transaction Number"
