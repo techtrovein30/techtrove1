@@ -279,3 +279,40 @@ export async function getUploadSignedUrl(
     return null;
   }
 }
+
+/**
+ * Deletes a payment proof object from the uploads bucket on behalf of an admin.
+ *
+ * Called during the "Request Re-upload" flow so the old screenshot is genuinely
+ * removed from Storage (not merely hidden by nulling the DB reference).
+ *
+ * The caller is responsible for ensuring the admin is authenticated; the
+ * existing Storage RLS policy "Users and admins can delete uploads" enforces
+ * this at the Supabase layer.
+ *
+ * Throws if the path is unsafe or if Storage deletion reports an error.
+ */
+export async function adminDeletePaymentProof(path: string): Promise<void> {
+  // Strip bucket prefix if accidentally included (same convention as the rest
+  // of this file: stored paths are already relative to the bucket).
+  const cleanPath = path.startsWith("uploads/")
+    ? path.slice("uploads/".length)
+    : path;
+
+  if (!cleanPath || !isSafeRelativeStoragePath(cleanPath)) {
+    throw new Error(
+      "Cannot delete: invalid or unsafe Storage path: " + JSON.stringify(path),
+    );
+  }
+
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .remove([cleanPath]);
+
+  if (error) {
+    console.error("[admin] Storage deletion failed for", cleanPath, error);
+    throw new Error(
+      "Failed to delete the old payment screenshot from Storage: " + error.message,
+    );
+  }
+}

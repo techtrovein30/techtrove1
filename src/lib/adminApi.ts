@@ -25,7 +25,7 @@ import {
 } from "./db";
 import type { ParticipantRow, RegistrationRow } from "./db";
 
-import { getUploadSignedUrl } from "./storage";
+import { getUploadSignedUrl, adminDeletePaymentProof } from "./storage";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -436,9 +436,35 @@ export async function adminRequestPaymentReupload(
 ): Promise<Registration> {
   await requireAdmin();
 
+  // ── Step A: find which table owns this registration ───────────────────────
   const table = await findRegistrationTableById(regId);
   if (!table) throw new Error("Registration not found.");
 
+  // ── Step B: fetch the current proof path before we mutate anything ────────
+  const { data: current, error: fetchError } = await supabase
+    .from(table)
+    .select("payment_proof_path, payment_screenshot_path, payment_screenshot_url")
+    .eq("id", regId)
+    .single();
+
+  if (fetchError || !current) {
+    throw friendlyError(
+      fetchError ?? new Error("No row returned."),
+      "Could not fetch registration details before deletion.",
+    );
+  }
+
+  const isExternal = table === "registrations_external";
+
+  // Determine the old Storage path based on which table we are operating on.
+  // External: prefer payment_screenshot_path, fall back to payment_screenshot_url.
+  // Internal: use payment_proof_path.
+  const oldPath = isExternal
+    ? ((current as Record<string, unknown>).payment_screenshot_path ??
+        (current as Record<string, unknown>).payment_screenshot_url) as string | null | undefined
+    : (current as Record<string, unknown>).payment_proof_path as string | null | undefined;
+
+  // ── Step C: validate the admin's request ─────────────────────────────────
   const reason = req.reason.trim();
   const note = req.note?.trim();
   if (!reason) throw new Error("A reason is required to request re-upload.");
@@ -447,19 +473,57 @@ export async function adminRequestPaymentReupload(
     ? `RE_UPLOAD_REQUESTED — ${reason} · ${note}`
     : `RE_UPLOAD_REQUESTED — ${reason}`;
 
+  // ── Step D: delete the old Storage object ─────────────────────────────────
+  // Fail loudly — we must not claim success if the file is still in the bucket.
+  if (oldPath) {
+    await adminDeletePaymentProof(oldPath);
+    // adminDeletePaymentProof throws on error, so reaching this line means
+    // the object was genuinely removed from the uploads bucket.
+  } else {
+    console.warn(
+      `[admin] adminRequestPaymentReupload: registration ${regId} has no screenshot path to delete.`,
+    );
+  }
+
+  // ── Step E: update the database ───────────────────────────────────────────
+  // Column set differs between external and internal tables.
+  const dbUpdate: Record<string, unknown> = {
+    payment_status: "pending",
+    payment_review_note: reviewNote,
+  };
+
+  if (isExternal) {
+    dbUpdate.payment_screenshot_path = null;
+    dbUpdate.payment_screenshot_url = null;
+    // Also clear payment_proof_path if it exists on the external table.
+    dbUpdate.payment_proof_path = null;
+  } else {
+    // registrations_internal only has payment_proof_path.
+    dbUpdate.payment_proof_path = null;
+  }
+
   const { data, error } = await supabase
     .from(table)
-    .update({ payment_review_note: reviewNote })
+    .update(dbUpdate)
     .eq("id", regId)
     .select()
     .single();
 
   if (error || !data) {
+    // Storage deletion already happened. Log a clear warning so the admin
+    // knows the DB is now inconsistent (file gone but paths not cleared).
+    console.error(
+      `[admin] CRITICAL: Storage object deleted for reg ${regId} but DB update failed.`,
+      error,
+    );
     throw friendlyError(
       error ?? new Error("No registration row was updated."),
-      "Re-upload request could not be saved. The payment review note field is not enabled yet — run query_change_for_rejection.txt in Supabase.",
+      "The old screenshot was deleted from Storage, but the database update failed. Please manually clear the screenshot path for registration " +
+        regId +
+        " in Supabase.",
     );
   }
+
   return rowToRegistration(data as unknown as RegistrationRow);
 }
 

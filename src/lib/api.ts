@@ -20,7 +20,7 @@ import {
   getRegistrationByCode,
 } from "./db";
 import type { RegistrationRow } from "./db";
-import { reuploadPaymentProof } from "./storage";
+import { uploadPaymentProof, adminDeletePaymentProof } from "./storage";
 import { isSportEvent, isIndividualEvent, validateRegisterNumber, validateEmail, validatePhoneNumber } from "./validation";
 
 // Type-only import to keep db.ts's type import from forming a runtime cycle
@@ -289,10 +289,19 @@ export const api = {
 
   // ── Re-upload a payment screenshot (participant side) ────────────────────
   /**
-   * Overwrites the payment screenshot already attached to one of the signed-in
-   * user's registrations. The re-upload uses the exact stored path (upsert),
-   * so the registration row needs no update — admins see the new file through
-   * the existing screenshot path. Only the registration owner may do this.
+   * Creates a fresh payment proof screenshot for a registration that had its
+   * old screenshot deleted by an admin "Request Re-upload" action.
+   *
+   * Flow:
+   *   1. Authenticate and verify registration ownership.
+   *   2. Upload the new file to Storage (generates a new path).
+   *   3. Call the participant_update_screenshot SECURITY DEFINER RPC to link
+   *      the new path to the registration and clear the rejection note.
+   *   4. If the RPC fails, delete the newly uploaded file so it is not
+   *      orphaned in the bucket, then throw.
+   *
+   * The participant never gets a direct UPDATE on the registration table;
+   * only the narrow RPC is used so fee/payment_status/event_id are protected.
    */
   async reuploadPaymentScreenshot(
     registrationId: string,
@@ -301,16 +310,48 @@ export const api = {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) throw new Error("You need to sign in first.");
 
+    // Verify the registration belongs to this user before doing anything else.
     const row = await getRegistrationById(registrationId);
     if (!row || row.user_id !== authUser.id) {
       throw new Error("Registration not found.");
     }
 
-    const screenshotPath = await reuploadPaymentProof(
+    // Upload a new file — always generates a fresh path so the previous
+    // (admin-deleted) object is not referenced.
+    const screenshotPath = await uploadPaymentProof(
       authUser.id,
-      row.payment_screenshot_path ?? row.payment_screenshot_url,
-      file
+      registrationId,
+      file,
     );
+
+    // Call the narrow SECURITY DEFINER RPC to link the path and clear the note.
+    const { error: rpcError } = await supabase.rpc(
+      "participant_update_screenshot",
+      {
+        p_registration_id: registrationId,
+        p_screenshot_path: screenshotPath,
+      },
+    );
+
+    if (rpcError) {
+      // The file was uploaded but the DB link failed — delete the orphaned
+      // object so the bucket stays clean, then surface a clear error.
+      console.error(
+        "[participant] RPC participant_update_screenshot failed after upload:",
+        rpcError,
+      );
+      await adminDeletePaymentProof(screenshotPath).catch((delErr) => {
+        console.error(
+          "[participant] Could not clean up orphaned screenshot after RPC failure:",
+          delErr,
+        );
+      });
+      throw new Error(
+        "Your screenshot was uploaded but could not be linked to your registration. " +
+          "Please try again or contact support.",
+      );
+    }
+
     return { screenshotPath };
   },
 };

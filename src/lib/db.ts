@@ -193,8 +193,9 @@ export interface RegistrationRow {
   members: unknown;
   created_at: string;
   utr_number?: string;
-  payment_screenshot_path?: string;
-  payment_screenshot_url?: string;
+  payment_proof_path?: string;       // used by registrations_internal (and registrations_external)
+  payment_screenshot_path?: string;  // used by registrations_external only
+  payment_screenshot_url?: string;   // used by registrations_external only
   payment_review_note?: string;
 }
 
