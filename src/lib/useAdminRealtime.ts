@@ -10,15 +10,34 @@ export function useAdminRegistrations() {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
 
-  function fetchRegistrations() {
-    adminListRegistrations()
-      .then(setRegistrations)
-      .finally(() => setLoading(false))
-      .catch(() => {});
+  async function fetchRegistrations() {
+    try {
+      const data = await adminListRegistrations();
+      setRegistrations(data);
+      return data;
+    } catch (err) {
+      console.error("fetchRegistrations error:", err);
+      return [];
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    fetchRegistrations();
+    let cancelled = false;
+
+    // Initial load. All setState calls happen after the await, so we satisfy
+    // the react-hooks "no synchronous setState in effect" rule.
+    void (async () => {
+      try {
+        const data = await adminListRegistrations();
+        if (!cancelled) setRegistrations(data);
+      } catch (err) {
+        console.error("fetchRegistrations error:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
 
     // Listen to changes on both registration tables
     const channel = supabase
@@ -36,11 +55,12 @@ export function useAdminRegistrations() {
       .subscribe();
 
     return () => {
+      cancelled = true;
       supabase.removeChannel(channel);
     };
   }, []);
 
-  return { registrations, loading, refresh: fetchRegistrations };
+  return { registrations, setRegistrations, loading, refresh: fetchRegistrations };
 }
 
 /**

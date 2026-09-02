@@ -9,16 +9,13 @@ export function RegisterSuccessPage() {
   const [searchParams] = useSearchParams();
   const code = searchParams.get("code");
   const [registration, setRegistration] = useState<Registration | null>(null);
-  const [notFound, setNotFound] = useState(false);
+  const [notFound, setNotFound] = useState(() => !code);
   const [showReceipt, setShowReceipt] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    if (!code) return;
     let cancelled = false;
-    if (!code) {
-      setNotFound(true);
-      return;
-    }
     api
       .getRegistrationByCode(code)
       .then((reg) => {
@@ -141,8 +138,11 @@ export function RegisterSuccessPage() {
                     return subs.length > 0 ? subs.join(", ") : "None";
                   })(),
                 ],
-                // Only show fee row for external participants
-                ...(!isInternal ? [["Fee", `Rs ${registration.fee}`]] : []),
+                // Only show fee and UTR rows for external participants
+                ...(!isInternal ? [
+                  ["Fee", formatFee(registration.fee)],
+                  ...(registration.utrNumber ? [["UTR / Txn ID", registration.utrNumber]] : []),
+                ] : []),
               ].map(([term, value]) => (
                 <div key={term} className="flex flex-col gap-1 border-b border-edge py-3 last:border-b-0 sm:flex-row sm:justify-between sm:gap-8">
                   <dt className="shrink-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">{term}</dt>
@@ -165,7 +165,7 @@ export function RegisterSuccessPage() {
                     {isInternal
                       ? "Confirmed"
                       : registration.paymentStatus === "recorded"
-                      ? "Recorded (demo)"
+                      ? "Paid"
                       : "Pending"}
                   </span>
                 </dd>

@@ -1,11 +1,23 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Check, CreditCard, Users, CalendarDays } from "lucide-react";
+import {
+  ArrowRight,
+  Copy,
+  Check,
+  CreditCard,
+  Users,
+  CalendarDays,
+  RefreshCcw,
+  Loader2,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import type { Registration } from "../lib/api";
+import { validateUploadFile } from "../lib/storage";
 import { useEvent } from "../lib/useEvents";
 import type { TechEvent } from "../lib/eventStore";
+import { days as staticDays } from "../data/techtrove";
+import { formatFee } from "../lib/utils";
 import { siteConfig } from "../data/techtrove";
 
 function initialsOf(name: string): string {
@@ -29,33 +41,110 @@ function formatDate(iso: string): string {
   });
 }
 
-function RegStatusBadge({ status, fee }: { status: string; fee: number }) {
-  // Internal registrations are free (fee === 0) and are instantly confirmed
-  const isConfirmed = fee === 0 || status === "confirmed" || status === "recorded";
+function reviewNoteLabel(note: string): string {
+  return note.replace(/^RE_UPLOAD_REQUESTED\s*—\s*/, "");
+}
+
+function dayLabelOf(event: TechEvent | undefined): string {
+  if (!event) return "";
+  return staticDays.find((d) => d.id === event.dayId)?.label ?? "";
+}
+
+function RegStatusBadge({ registration }: { registration: Registration }) {
+  const participantType = registration.members[0]?.participantType;
+
+  // Internal participant registrations are free and never carry a payment
+  // screenshot, so a Paid/Pending badge would be misleading.
+  if (participantType === "internal") {
+    return (
+      <span className="inline-flex items-center gap-1.5 border border-edge-strong bg-surface px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
+        <Users className="h-3 w-3" aria-hidden />
+        Free Entry
+      </span>
+    );
+  }
+
+  const isRecorded = registration.paymentStatus === "recorded";
+  const needsReupload = !isRecorded && !!registration.paymentReviewNote;
   return (
     <span
       className={
         "inline-flex items-center gap-1.5 border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] " +
-        (isConfirmed
+        (isRecorded
           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-          : "border-amber-500/40 bg-amber-500/10 text-amber-400")
+          : needsReupload
+          ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
+          : "border-sky-500/40 bg-sky-500/10 text-sky-400")
       }
     >
       <CreditCard className="h-3 w-3" aria-hidden />
-      {fee === 0 ? "Confirmed" : isConfirmed ? "Paid" : "Pending"}
+      {isRecorded ? "Payment recorded" : needsReupload ? "Re-upload requested" : "Pending payment"}
     </span>
   );
 }
 
-function RegistrationCard({ registration }: { registration: Registration }) {
+function RegistrationCard({
+  registration,
+  onChanged,
+}: {
+  registration: Registration;
+  onChanged?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadDone, setUploadDone] = useState(false);
   const { event }: { event: TechEvent | undefined } = useEvent(registration.eventId);
+
+  const participantType = registration.members[0]?.participantType;
+  const screenshotPath = registration.paymentScreenshotPath ?? registration.paymentScreenshotUrl;
+  const hasScreenshot = !!screenshotPath;
+  const needsReupload =
+    participantType === "external" &&
+    registration.paymentStatus === "pending" &&
+    !!registration.paymentReviewNote;
 
   function copyCode() {
     navigator.clipboard.writeText(registration.registrationCode).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = e.target.files?.[0];
+    if (!selected) {
+      setSelectedFile(null);
+      return;
+    }
+    const validation = validateUploadFile(selected);
+    if (!validation.valid) {
+      setUploadError(validation.error ?? "Invalid file.");
+      setSelectedFile(null);
+      return;
+    }
+    setUploadError(null);
+    setSelectedFile(selected);
+  }
+
+  async function handleReupload() {
+    if (!selectedFile) return;
+    setUploadBusy(true);
+    setUploadError(null);
+    setUploadDone(false);
+    try {
+      await api.reuploadPaymentScreenshot(registration.id, selectedFile);
+      setUploadDone(true);
+      setSelectedFile(null);
+      onChanged?.();
+    } catch (err) {
+      setUploadError(
+        err instanceof Error ? err.message : "Re-upload failed. Please try again."
+      );
+    } finally {
+      setUploadBusy(false);
+    }
   }
 
   return (
@@ -70,8 +159,19 @@ function RegistrationCard({ registration }: { registration: Registration }) {
           <h3 className="display mt-1 text-2xl text-foreground sm:text-3xl">
             {event?.name ?? "Unknown Event"}
           </h3>
+          {(dayLabelOf(event) || event?.time) && (
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+              {dayLabelOf(event) && <span>{dayLabelOf(event)}</span>}
+              {event?.time && (
+                <>
+                  <span aria-hidden className="text-muted/50">·</span>
+                  <span className="font-mono">{event.time}</span>
+                </>
+              )}
+            </p>
+          )}
         </div>
-        <RegStatusBadge status={registration.paymentStatus} fee={registration.fee} />
+        <RegStatusBadge registration={registration} />
       </div>
 
       <div className="relative mt-5 grid gap-4 border-t border-edge pt-5 sm:grid-cols-2">
@@ -102,10 +202,97 @@ function RegistrationCard({ registration }: { registration: Registration }) {
         <div>
           <span className="eyebrow block text-muted">Fee</span>
           <p className="mt-1 text-sm font-semibold text-foreground">
-            {registration.fee > 0 ? `₹${registration.fee}` : "Free"}
+            {participantType === "internal" ? "Free" : formatFee(registration.fee)}
           </p>
         </div>
+        {registration.utrNumber && (
+          <div className="sm:col-span-2">
+            <span className="eyebrow block text-muted">UTR / Transaction ID</span>
+            <code className="mt-1 block font-mono text-xs font-bold text-primary-soft">
+              {registration.utrNumber}
+            </code>
+          </div>
+        )}
       </div>
+
+      {/* Payment screenshot state + re-upload (external registrations only) */}
+      {participantType === "internal" ? (
+        <div className="relative mt-5 border-t border-edge pt-5">
+          <span className="eyebrow block text-muted">Payment</span>
+          <p className="mt-1 text-xs text-muted">
+            Free entry — no payment screenshot is required for internal registrations.
+          </p>
+        </div>
+      ) : registration.paymentStatus === "recorded" ? (
+        <div className="relative mt-5 border-t border-edge pt-5">
+          <span className="eyebrow block text-muted">Payment screenshot</span>
+          <span className="mt-1 inline-flex items-center gap-1.5 border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-400">
+            <Check className="h-3 w-3" aria-hidden />
+            Payment verified
+          </span>
+        </div>
+      ) : (
+        <div className="relative mt-5 border-t border-edge pt-5">
+          <span className="eyebrow block text-muted">Payment screenshot</span>
+
+          {needsReupload && registration.paymentReviewNote && (
+            <div className="mt-2 border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              <span className="flex items-center gap-1.5 font-semibold uppercase tracking-[0.14em]">
+                <RefreshCcw className="h-3 w-3" aria-hidden />
+                Re-upload requested
+              </span>
+              <span className="mt-0.5 block">{reviewNoteLabel(registration.paymentReviewNote)}</span>
+            </div>
+          )}
+
+          {hasScreenshot || needsReupload ? (
+            <>
+              <p className="mt-1 text-xs text-muted">
+                {needsReupload
+                  ? "Upload a new screenshot to replace the rejected one."
+                  : "Screenshot submitted · awaiting admin approval."}
+              </p>
+              <input
+                type="file"
+                accept="image/jpeg, image/png, image/webp"
+                onChange={handleFileChange}
+                className="mt-3 block w-full text-sm text-muted file:mr-4 file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-wider file:text-primary-soft hover:file:bg-primary/30"
+              />
+              <button
+                type="button"
+                onClick={handleReupload}
+                disabled={uploadBusy || !selectedFile}
+                className="clip-angle mt-3 inline-flex items-center gap-2 bg-primary px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
+              >
+                {uploadBusy ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Uploading…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Upload new screenshot
+                  </>
+                )}
+              </button>
+            </>
+          ) : (
+            <p className="mt-1 text-xs text-muted">
+              No payment screenshot is attached to this registration. Please contact support.
+            </p>
+          )}
+
+          {uploadError && (
+            <p role="alert" className="mt-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+              {uploadError}
+            </p>
+          )}
+          {uploadDone && (
+            <p role="status" className="mt-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+              Payment screenshot re-uploaded. Awaiting admin review again.
+            </p>
+          )}
+        </div>
+      )}
 
       {registration.members.length > 0 && (
         <div className="relative mt-5 border-t border-edge pt-5">
@@ -188,15 +375,20 @@ export function ProfilePage() {
     }
   }, [user, authLoading, navigate]);
 
+  const loadRegistrations = useCallback(() => {
+    api
+      .listMyRegistrations()
+      .then(setRegistrations)
+      .catch(() => setRegistrations([]))
+      .finally(() => setLoading(false));
+  }, []);
+
   useEffect(() => {
-    if (user) {
-      api
-        .listMyRegistrations()
-        .then(setRegistrations)
-        .catch(() => setRegistrations([]))
-        .finally(() => setLoading(false));
-    }
-  }, [user]);
+    if (!user) return;
+    loadRegistrations();
+    window.addEventListener("focus", loadRegistrations);
+    return () => window.removeEventListener("focus", loadRegistrations);
+  }, [user, loadRegistrations]);
 
   if (authLoading || !user) {
     return (
@@ -284,7 +476,7 @@ export function ProfilePage() {
                 Your registrations
               </p>
               <h2 className="display mt-3 text-3xl text-foreground sm:text-4xl">
-                Events you joined
+                Registered events
               </h2>
               <hr className="rule-line mt-4 w-32" />
             </div>
@@ -325,7 +517,11 @@ export function ProfilePage() {
           ) : (
             <div className="mt-8 grid gap-6 lg:grid-cols-2">
               {registrations.map((reg) => (
-                <RegistrationCard key={reg.id} registration={reg} />
+                <RegistrationCard
+                  key={reg.id}
+                  registration={reg}
+                  onChanged={loadRegistrations}
+                />
               ))}
             </div>
           )}

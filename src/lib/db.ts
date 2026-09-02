@@ -31,6 +31,7 @@ export interface ParticipantRow {
   reg_number: string | null;
   college: string | null;
   phone: string | null;
+  id_card_path?: string | null;
   role: "user" | "admin" | null;
   created_at: string;
 }
@@ -89,13 +90,13 @@ export async function getParticipantByEmail(
     supabase
       .from("internal_participants")
       .select("*")
-      .ilike("email", normalized)
+      .eq("email", normalized)
       .maybeSingle(),
 
     supabase
       .from("external_participants")
       .select("*")
-      .ilike("email", normalized)
+      .eq("email", normalized)
       .maybeSingle(),
   ]);
 
@@ -192,7 +193,10 @@ export interface RegistrationRow {
   members: unknown;
   created_at: string;
   utr_number?: string;
-  payment_screenshot_url?: string;
+  payment_proof_path?: string;       // used by registrations_internal (and registrations_external)
+  payment_screenshot_path?: string;  // used by registrations_external only
+  payment_screenshot_url?: string;   // used by registrations_external only
+  payment_review_note?: string;
 }
 
 /** Find which table holds a registration id. Returns null if absent. */
@@ -271,7 +275,7 @@ export async function getRegistrationByCode(code: string): Promise<RegistrationR
     const { data } = await supabase
       .from(table)
       .select("*")
-      .ilike("registration_code", code)
+      .eq("registration_code", code)
       .maybeSingle();
     if (data) return data as unknown as RegistrationRow;
   }

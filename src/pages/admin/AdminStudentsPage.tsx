@@ -76,7 +76,7 @@ function StudentDetail({
       await adminDeleteUser(student.id);
       onDeleted(student.id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      setEditError(err instanceof Error ? err.message : "Delete failed.");
     }
     setConfirmDelete(false);
   }
@@ -180,6 +180,7 @@ function StudentDetail({
                             [key]: e.target.value,
                           }))
                         }
+                        maxLength={key === "phone" ? 15 : 120}
                         className="w-full border border-white/10 bg-[#1a1a1a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
                       />
                     </div>
@@ -311,6 +312,15 @@ export function AdminStudentsPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<User | null>(null);
+
+  // L13: reset to page 1 whenever the query or filter changes. Resets state
+  // during render (React's recommended pattern) instead of in an effect.
+  const [filterKey, setFilterKey] = useState("");
+  const currentFilterKey = `${query}:${filter}`;
+  if (currentFilterKey !== filterKey) {
+    setFilterKey(currentFilterKey);
+    setPage(1);
+  }
 
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
 

@@ -9,17 +9,25 @@ import {
   ChevronLeft,
   Download,
   ClipboardList,
+  Image as ImageIcon,
+  Copy,
+  Check,
+  Loader2,
+  RefreshCcw,
 } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
   adminUpdateRegistration,
   adminDeleteRegistration,
+  adminRequestPaymentReupload,
 } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
+import { toCsv, downloadCsv } from "../../lib/csv";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
-import { isSportEvent } from "../../lib/validation";
+import { ProofModal } from "../../components/admin/ProofModal";
+import { ReuploadRequestDialog } from "../../components/admin/ReuploadRequestDialog";
 
 type StatusFilter = "all" | "pending" | "recorded";
 
@@ -39,17 +47,69 @@ function RegistrationDetail({
   const { events } = useAllEvents();
   const event = events.find((e) => e.id === registration.eventId);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showProofModal, setShowProofModal] = useState(false);
+  const [showReuploadDialog, setShowReuploadDialog] = useState(false);
+  const [reuploadBusy, setReuploadBusy] = useState(false);
+  const [reuploadBanner, setReuploadBanner] = useState<string | null>(null);
+  const [copiedUtr, setCopiedUtr] = useState(false);
+  const [busyPayment, setBusyPayment] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  function copyUtr() {
+    if (!registration.utrNumber) return;
+    navigator.clipboard.writeText(registration.utrNumber).then(() => {
+      setCopiedUtr(true);
+      setTimeout(() => setCopiedUtr(false), 2000);
+    });
+  }
 
   async function togglePaymentStatus() {
+    const nextStatus =
+      registration.paymentStatus === "recorded" ? "pending" : "recorded";
+
+    // Optimistic UI update
+    onUpdated({ ...registration, paymentStatus: nextStatus });
+    setBusyPayment(true);
+
     try {
-      const nextStatus =
-        registration.paymentStatus === "recorded" ? "pending" : "recorded";
       const updated = await adminUpdateRegistration(registration.id, {
         paymentStatus: nextStatus,
+        // Once a payment is approved, clear any outstanding re-upload request.
+        // Only write the note column when one exists so the update keeps
+        // working before the deferred SQL adds the column.
+        paymentReviewNote:
+          nextStatus === "recorded" && registration.paymentReviewNote ? null : undefined,
       });
       onUpdated(updated);
+      if (nextStatus === "recorded") setReuploadBanner(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Update failed.");
+      // Revert optimistic update
+      onUpdated(registration);
+      setDetailError(err instanceof Error ? err.message : "Payment update failed.");
+    } finally {
+      setBusyPayment(false);
+    }
+  }
+
+  async function handleRequestReupload(reason: string, note: string) {
+    setReuploadBusy(true);
+    setDetailError(null);
+    try {
+      const updated = await adminRequestPaymentReupload(registration.id, {
+        reason,
+        note,
+      });
+      onUpdated(updated);
+      setReuploadBanner(
+        "Screenshot re-upload requested. The participant has been notified to upload a new screenshot.",
+      );
+      setShowReuploadDialog(false);
+    } catch (err) {
+      setDetailError(
+        err instanceof Error ? err.message : "Re-upload request could not be saved.",
+      );
+    } finally {
+      setReuploadBusy(false);
     }
   }
 
@@ -58,17 +118,47 @@ function RegistrationDetail({
       await adminDeleteRegistration(registration.id);
       onDeleted(registration.id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      setDetailError(err instanceof Error ? err.message : "Delete failed.");
     }
     setConfirmDelete(false);
   }
 
   const players = registration.members.filter((m) => m.role === "player");
   const substitutes = registration.members.filter((m) => m.role === "substitute");
-  const showSubstitutes = isSportEvent(event) && substitutes.length > 0;
+  const screenshotPath = registration.paymentScreenshotPath ?? registration.paymentScreenshotUrl;
+  const hasReuploadRequest = !!registration.paymentReviewNote;
+  const reviewNoteLabel = hasReuploadRequest
+    ? registration.paymentReviewNote!.replace(/^RE_UPLOAD_REQUESTED\s*—\s*/, "")
+    : "";
 
   return (
     <>
+      {detailError && (
+        <div role="alert" className="flex items-start justify-between gap-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <span>{detailError}</span>
+          <button
+            type="button"
+            onClick={() => setDetailError(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {reuploadBanner && (
+        <div role="status" className="flex items-start justify-between gap-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+          <span>{reuploadBanner}</span>
+          <button
+            type="button"
+            onClick={() => setReuploadBanner(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss banner"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {confirmDelete && (
         <ConfirmDialog
           title="Delete registration"
@@ -82,6 +172,27 @@ function RegistrationDetail({
           confirmLabel="Delete registration"
           onConfirm={handleDelete}
           onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+
+      {showReuploadDialog && (
+        <ReuploadRequestDialog
+          teamName={registration.teamName}
+          registrationCode={registration.registrationCode}
+          busy={reuploadBusy}
+          onConfirm={handleRequestReupload}
+          onCancel={() => setShowReuploadDialog(false)}
+        />
+      )}
+
+      {showProofModal && (
+        <ProofModal
+          isOpen={showProofModal}
+          onClose={() => setShowProofModal(false)}
+          path={screenshotPath}
+          title={`Payment Proof · ${registration.teamName}`}
+          subtitle={`Registration ${registration.registrationCode} · ${event?.name ?? registration.eventId}`}
+          utrNumber={registration.utrNumber}
         />
       )}
 
@@ -110,33 +221,92 @@ function RegistrationDetail({
 
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
             {/* Payment banner */}
-            <div className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-[#1a1a1a] p-4">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-                  Payment Status
-                </p>
-                <p className="mt-1 text-sm font-semibold text-foreground capitalize">
-                  {registration.paymentStatus}
-                </p>
+            <div className="rounded-lg border border-white/[0.07] bg-[#1a1a1a] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+                    Payment Status
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-foreground capitalize">
+                    {registration.paymentStatus}
+                  </p>
+                </div>
+                <button
+                  onClick={togglePaymentStatus}
+                  disabled={busyPayment}
+                  className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
+                    registration.paymentStatus === "recorded"
+                      ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                      : "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                  }`}
+                >
+                  {busyPayment ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
+                    </>
+                  ) : registration.paymentStatus === "recorded" ? (
+                    <>
+                      <Clock className="h-3.5 w-3.5" /> Mark Pending
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
+                    </>
+                  )}
+                </button>
               </div>
-              <button
-                onClick={togglePaymentStatus}
-                className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors ${
-                  registration.paymentStatus === "recorded"
-                    ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                    : "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-                }`}
-              >
-                {registration.paymentStatus === "recorded" ? (
-                  <>
-                    <Clock className="h-3.5 w-3.5" /> Mark Pending
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
-                  </>
-                )}
-              </button>
+
+              {/* Re-upload requested marker */}
+              {hasReuploadRequest && (
+                <div className="border-t border-amber-500/30 pt-3">
+                  <span className="inline-flex items-center gap-1.5 border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-300">
+                    <RefreshCcw className="h-3 w-3" aria-hidden />
+                    Re-upload requested
+                  </span>
+                  <p className="mt-1.5 text-xs text-muted">{reviewNoteLabel}</p>
+                </div>
+              )}
+
+              {/* Payment Proof & UTR Actions */}
+              {(registration.utrNumber || screenshotPath) && (
+                <div className="border-t border-white/[0.06] pt-3 flex flex-wrap items-center justify-between gap-2">
+                  {registration.utrNumber ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase font-semibold tracking-wider text-muted">UTR:</span>
+                      <code className="font-mono text-xs font-bold text-primary-soft">{registration.utrNumber}</code>
+                      <button
+                        type="button"
+                        onClick={copyUtr}
+                        className="text-muted hover:text-foreground transition-colors p-1"
+                        title="Copy UTR"
+                      >
+                        {copiedUtr ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                  ) : <div />}
+
+                  <div className="flex items-center gap-2">
+                    {screenshotPath && (
+                      <button
+                        type="button"
+                        onClick={() => setShowProofModal(true)}
+                        className="inline-flex items-center gap-1.5 rounded bg-primary/20 border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary-soft hover:bg-primary/30 transition-colors"
+                      >
+                        <ImageIcon className="h-3.5 w-3.5" /> View Screenshot
+                      </button>
+                    )}
+                    {screenshotPath && registration.paymentStatus === "pending" && (
+                      <button
+                        type="button"
+                        onClick={() => setShowReuploadDialog(true)}
+                        className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors"
+                      >
+                        <RefreshCcw className="h-3.5 w-3.5" /> Request Re-upload
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Overview */}
@@ -151,6 +321,9 @@ function RegistrationDetail({
                   { term: "Team Name", value: registration.teamName },
                   { term: "Captain Name", value: registration.captainName },
                   { term: "Fee Amount", value: formatFee(registration.fee) },
+                  ...(registration.utrNumber
+                    ? [{ term: "UTR / Transaction ID", value: registration.utrNumber }]
+                    : []),
                   {
                     term: "Created At",
                     value: new Date(registration.createdAt).toLocaleString(),
@@ -185,7 +358,7 @@ function RegistrationDetail({
                 ))}
               </div>
 
-              {showSubstitutes && (
+              {substitutes.length > 0 && (
                 <>
                   <h3 className="mb-3 mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
                     Substitutes ({substitutes.length})
@@ -222,6 +395,15 @@ export function AdminRegistrationsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Registration | null>(null);
+
+  // L13: reset to page 1 whenever a filter or the query changes. Resets state
+  // during render (React's recommended pattern) instead of in an effect.
+  const [filterKey, setFilterKey] = useState("");
+  const currentFilterKey = `${query}:${eventFilter}:${statusFilter}`;
+  if (currentFilterKey !== filterKey) {
+    setFilterKey(currentFilterKey);
+    setPage(1);
+  }
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -264,22 +446,16 @@ export function AdminRegistrationsPage() {
         ev?.name ?? r.eventId,
         r.teamName,
         r.captainName,
-        r.fee.toString(),
+        r.fee,
         r.paymentStatus,
         new Date(r.createdAt).toISOString()
-      ].map(field => `"${field}"`).join(",");
+      ];
     });
-    
-    const csvContent = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `techtrove_registrations_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    downloadCsv(
+      `techtrove_registrations_${new Date().toISOString().split('T')[0]}.csv`,
+      toCsv(headers, rows)
+    );
   }
 
   return (

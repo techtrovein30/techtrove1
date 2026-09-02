@@ -223,7 +223,6 @@ export function HomePage() {
         <img
           src="/images/arena.webp"
           alt=""
-          loading="lazy"
           className="absolute inset-0 h-full w-full object-cover opacity-25"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background/70 to-background" />
@@ -231,7 +230,6 @@ export function HomePage() {
           <img
             src="/images/techtrove-logo.webp"
             alt="TechTrove 3.0 logo"
-            loading="lazy"
             className="glow-emblem h-20 w-auto"
           />
           <h2 className="display mt-8 text-5xl text-foreground sm:text-7xl">Claim your slot</h2>

@@ -8,7 +8,7 @@ import { days as staticDays } from "../data/techtrove";
 import { formatFee, formatPerPerson } from "../lib/utils";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
-import { supabase } from "../lib/supabase";
+import { validateUploadFile, uploadPaymentProof } from "../lib/storage";
 import type { ParticipantType, RegistrationMember } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { Field } from "../components/ui/Field";
@@ -21,6 +21,7 @@ import {
   validateRegisterNumber,
   validateEmail,
   validatePhoneNumber,
+  validateUtrNumber,
 } from "../lib/validation";
 
 interface MemberDraft {
@@ -40,19 +41,24 @@ interface Draft {
   members: MemberDraft[];
 }
 
-function makeEmptyMembers(event: TechEvent | undefined): MemberDraft[] {
+function makeEmptyMembers(
+  event: TechEvent | undefined,
+  captainName = "",
+  captainEmail = "",
+  captainPhone = "",
+): MemberDraft[] {
   if (!event) return [];
   const isSport = isSportEvent(event);
   const required = event.requiredPlayers ?? 1;
   const maxSubs = isSport ? (event.maxSubstitutes ?? 0) : 0;
 
   const players: MemberDraft[] = Array.from({ length: required }, (_, i) => ({
-    name: "",
+    name: i === 0 ? captainName : "",
     role: "player",
     position: i + 1,
-    email: "",
+    email: i === 0 ? captainEmail : "",
     regNumber: "",
-    phone: "",
+    phone: i === 0 ? captainPhone : "",
   }));
   const subs: MemberDraft[] = Array.from({ length: maxSubs }, (_, i) => ({
     name: "",
@@ -163,15 +169,24 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
 
-  // Once events load, populate members + selected day for pre-selected event if not already done
+  // Once events load, populate members + selected day for pre-selected event if not already done.
+  // setState is deferred into a microtask so no state is set synchronously inside
+  // the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
     if (preselectedEvent && draft.eventId === preselectedEvent.id && draft.members.length === 0) {
-      setDraft((d) => ({
-        ...d,
-        members: makeEmptyMembers(preselectedEvent),
-        captainName: d.captainName || (user?.fullName ?? ""),
-      }));
-      setSelectedDayId(preselectedEvent.dayId);
+      void Promise.resolve().then(() => {
+        setDraft((d) => ({
+          ...d,
+          members: makeEmptyMembers(
+            preselectedEvent,
+            user?.fullName ?? "",
+            user?.email ?? "",
+            user?.phone ?? "",
+          ),
+          captainName: d.captainName || (user?.fullName ?? ""),
+        }));
+        setSelectedDayId(preselectedEvent.dayId);
+      });
     }
   }, [preselectedEvent, draft.eventId, draft.members.length, user]);
 
@@ -180,7 +195,12 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     setDraft((d) => ({
       ...d,
       eventId: ev.id,
-      members: makeEmptyMembers(ev),
+      members: makeEmptyMembers(
+        ev,
+        user?.fullName ?? "",
+        user?.email ?? "",
+        user?.phone ?? "",
+      ),
       captainName: d.captainName || (user?.fullName ?? ""),
       teamName: indiv ? (user?.fullName ?? ev.name) : d.teamName,
     }));
@@ -201,6 +221,32 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     }));
   }
 
+  // Safety sync: if member[0] name/email ended up empty (e.g. timing edge on
+  // preselected-event route), backfill from the authenticated user profile.
+  // setState is deferred into a microtask (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (!user) return;
+    if (draft.members.length === 0) return;
+    const captain = draft.members[0];
+    if (!captain.name && user.fullName) {
+      void Promise.resolve().then(() => {
+        setDraft((d) => ({
+          ...d,
+          members: d.members.map((m, i) =>
+            i === 0
+              ? {
+                  ...m,
+                  name: m.name || user.fullName,
+                  email: m.email || user.email || "",
+                  phone: m.phone || user.phone || "",
+                }
+              : m
+          ),
+        }));
+      });
+    }
+  }, [user, draft.members]);
+
   function goNext() {
     const i = stepIds.indexOf(step);
     setStep(stepIds[Math.min(i + 1, stepIds.length - 1)]);
@@ -215,7 +261,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotUrl: string }): Promise<void> {
+  async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }): Promise<void> {
     if (!event) throw new Error("Select an event first.");
     const indiv = isIndividualEvent(event);
     const firstMember = draft.members[0];
@@ -279,6 +325,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
           errors={errors}
           teamType={teamType}
           onUpdateMember={updateMember}
+          captainUser={user}
         />
       );
       break;
@@ -319,17 +366,30 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     if (step === "members" && event) {
       const required = event.requiredPlayers ?? 1;
       const isSport = isSportEvent(event);
+      // For the captain slot (position 1) the name is locked from the user
+      // profile and may not live in m.name — use user.fullName as fallback.
+      const captainName = user?.fullName?.trim() ?? "";
 
       draft.members.forEach((m, i) => {
         if (!isSport && m.role === "substitute") return;
 
-        if (m.role === "player" && !m.name.trim()) {
+        // Effective name: for captain slot use profile name as fallback
+        const effectiveName = (m.position === 1 && m.role === "player")
+          ? (m.name.trim() || captainName)
+          : m.name.trim();
+        // Effective email: for captain slot, email is always from their Google
+        // account stored in the draft (pre-filled from user.email)
+        const effectiveEmail = (m.position === 1 && m.role === "player")
+          ? (m.email.trim() || user?.email?.trim() || "")
+          : m.email.trim();
+
+        if (m.role === "player" && !effectiveName) {
           const slotLabel = isIndividual ? "Participant" : `Player ${String(m.position).padStart(2, "0")}`;
           nextErrors[`member-${i}-name`] = `${slotLabel} name is required.`;
         }
 
-        if (m.name.trim()) {
-          const emailErr = validateEmail(m.email, teamType);
+        if (effectiveName) {
+          const emailErr = validateEmail(effectiveEmail, teamType);
           if (emailErr) nextErrors[`member-${i}-email`] = emailErr;
 
           if (teamType === "internal") {
@@ -347,7 +407,13 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
         }
       });
 
-      const filledPlayers = draft.members.filter((m) => m.role === "player" && m.name.trim()).length;
+      const filledPlayers = draft.members.filter((m) => {
+        if (m.role !== "player") return false;
+        const effectiveName = (m.position === 1)
+          ? (m.name.trim() || captainName)
+          : m.name.trim();
+        return !!effectiveName;
+      }).length;
       if (filledPlayers < required) {
         nextErrors.step = isIndividual ? "Please enter your participant details." : `Fill in all ${required} required player slots.`;
       }
@@ -649,12 +715,14 @@ function MembersStep({
   errors,
   teamType,
   onUpdateMember,
+  captainUser,
 }: {
   event?: TechEvent;
   draft: Draft;
   errors: Record<string, string>;
   teamType: ParticipantType;
   onUpdateMember: (index: number, patch: Partial<MemberDraft>) => void;
+  captainUser?: { fullName: string; email: string; phone?: string } | null;
 }) {
   const required = event?.requiredPlayers ?? 1;
   const isSport = isSportEvent(event);
@@ -678,6 +746,7 @@ function MembersStep({
         <div className="space-y-6">
           {players.map((m) => {
             const globalIdx = draft.members.indexOf(m);
+            const isCaptainSlot = m.position === 1;
             return (
               <MemberCard
                 key={globalIdx}
@@ -687,6 +756,8 @@ function MembersStep({
                 teamType={teamType}
                 errors={errors}
                 onUpdate={(patch) => onUpdateMember(globalIdx, patch)}
+                isCaptainSlot={isCaptainSlot}
+                captainUser={isCaptainSlot ? captainUser : undefined}
               />
             );
           })}
@@ -725,6 +796,8 @@ function MemberCard({
   teamType,
   errors,
   onUpdate,
+  isCaptainSlot = false,
+  captainUser,
 }: {
   member: MemberDraft;
   index: number;
@@ -732,6 +805,8 @@ function MemberCard({
   teamType: ParticipantType;
   errors: Record<string, string>;
   onUpdate: (patch: Partial<MemberDraft>) => void;
+  isCaptainSlot?: boolean;
+  captainUser?: { fullName: string; email: string; phone?: string } | null;
 }) {
   const isInternal = teamType === "internal";
 
@@ -749,41 +824,122 @@ function MemberCard({
         >
           {isInternal ? "SIMATS Student" : "External"}
         </span>
+        {isCaptainSlot && (
+          <span className="border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-400">
+            Team Captain · You
+          </span>
+        )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Full name"
-          required
-          value={member.name}
-          onChange={(e) => onUpdate({ name: e.target.value })}
-          error={errors[`member-${index}-name`]}
-          autoComplete="off"
-          hint="This name will be reflected on the certificate."
-        />
-        <Field
-          label="Email"
-          required
-          type="email"
-          value={member.email}
-          onChange={(e) => onUpdate({ email: e.target.value })}
-          error={errors[`member-${index}-email`]}
-          placeholder={isInternal ? "e.g. student@saveetha.com" : "e.g. alex@example.com"}
-          autoComplete="off"
-        />
-        {isInternal ? (
-          <>
-            <Field
-              label="Registration number"
-              required
-              value={member.regNumber}
-              onChange={(e) => onUpdate({ regNumber: e.target.value })}
-              error={errors[`member-${index}-reg`]}
-              placeholder="e.g. 19xxxxxxxx"
-              autoComplete="off"
-            />
+      {/* Captain slot: name locked from profile, only ask email + phone */}
+      {isCaptainSlot && captainUser ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Locked name display */}
+          <div className="sm:col-span-2">
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+              Full name
+            </p>
+            <div className="flex items-center gap-3 border border-edge bg-background/60 px-4 py-3">
+              <span className="flex-1 text-sm text-foreground">{captainUser.fullName}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-soft/70">
+                From your profile
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-muted">This name will be reflected on the certificate.</p>
+          </div>
+          {/* Locked email display */}
+          <div>
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+              Email
+            </p>
+            <div className="flex items-center gap-3 border border-edge bg-background/60 px-4 py-3">
+              <span className="flex-1 text-sm text-foreground">{captainUser.email}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-soft/70">
+                Google account
+              </span>
+            </div>
+          </div>
+          {isInternal ? (
+            <>
+              <Field
+                label="Registration number"
+                required
+                value={member.regNumber}
+                onChange={(e) => onUpdate({ regNumber: e.target.value })}
+                error={errors[`member-${index}-reg`]}
+                placeholder="e.g. 19xxxxxxxx"
+                autoComplete="off"
+              />
+              <Field
+                label="Phone number"
+                type="tel"
+                value={member.phone}
+                onChange={(e) => onUpdate({ phone: e.target.value })}
+                error={errors[`member-${index}-phone`]}
+                placeholder="e.g. 9876543210"
+                autoComplete="tel"
+              />
+            </>
+          ) : (
             <Field
               label="Phone number"
+              required
+              type="tel"
+              value={member.phone}
+              onChange={(e) => onUpdate({ phone: e.target.value })}
+              error={errors[`member-${index}-phone`]}
+              placeholder="e.g. 9876543210"
+              autoComplete="tel"
+            />
+          )}
+        </div>
+      ) : (
+        /* Normal member slot: all fields editable */
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Full name"
+            required
+            value={member.name}
+            onChange={(e) => onUpdate({ name: e.target.value })}
+            error={errors[`member-${index}-name`]}
+            autoComplete="off"
+            hint="This name will be reflected on the certificate."
+          />
+          <Field
+            label="Email"
+            required
+            type="email"
+            value={member.email}
+            onChange={(e) => onUpdate({ email: e.target.value })}
+            error={errors[`member-${index}-email`]}
+            placeholder={isInternal ? "e.g. student@saveetha.com" : "e.g. alex@example.com"}
+            autoComplete="off"
+          />
+          {isInternal ? (
+            <>
+              <Field
+                label="Registration number"
+                required
+                value={member.regNumber}
+                onChange={(e) => onUpdate({ regNumber: e.target.value })}
+                error={errors[`member-${index}-reg`]}
+                placeholder="e.g. 19xxxxxxxx"
+                autoComplete="off"
+              />
+              <Field
+                label="Phone number"
+                type="tel"
+                value={member.phone}
+                onChange={(e) => onUpdate({ phone: e.target.value })}
+                error={errors[`member-${index}-phone`]}
+                placeholder="e.g. 9876543210"
+                autoComplete="off"
+              />
+            </>
+          ) : (
+            <Field
+              label="Phone number"
+              required
               type="tel"
               value={member.phone}
               onChange={(e) => onUpdate({ phone: e.target.value })}
@@ -791,20 +947,9 @@ function MemberCard({
               placeholder="e.g. 9876543210"
               autoComplete="off"
             />
-          </>
-        ) : (
-          <Field
-            label="Phone number"
-            required
-            type="tel"
-            value={member.phone}
-            onChange={(e) => onUpdate({ phone: e.target.value })}
-            error={errors[`member-${index}-phone`]}
-            placeholder="e.g. 9876543210"
-            autoComplete="off"
-          />
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -925,8 +1070,9 @@ function PaymentStep({
   event: TechEvent;
   draft: Draft;
   teamType: ParticipantType;
-  onPay: (details: { utrNumber: string; paymentScreenshotUrl: string }) => Promise<void>;
+  onPay: (details: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }) => Promise<void>;
 }) {
+  const { user } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -941,49 +1087,50 @@ function PaymentStep({
       setFile(null);
       return;
     }
-    if (selected.size > 1048576) {
-      setError("File size must be less than 1MB.");
+    
+    const validation = validateUploadFile(selected);
+    if (!validation.valid) {
+      setError(validation.error ?? "Invalid file.");
       setFile(null);
       return;
     }
+
     setError(null);
     setFile(selected);
   }
 
   async function pay() {
-    if (!utrNumber.trim()) {
-      setError("Please enter the UTR / Transaction number.");
+    const utrError = validateUtrNumber(utrNumber);
+    if (utrError) {
+      setError(utrError);
       return;
     }
     if (!file) {
       setError("Please upload a payment screenshot.");
       return;
     }
+    if (!user?.id) {
+      setError("You must be signed in to submit payment proof.");
+      return;
+    }
 
     setBusy(true);
     setError(null);
     try {
-      // 1. Upload file
-      const ext = file.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${ext}`;
+      // Generate a unique registration id segment for the upload path (crypto,
+      // not Math.random — C03).
+      const rand = new Uint32Array(4);
+      crypto.getRandomValues(rand);
+      const regFileId = `reg_${Date.now()}_${Array.from(rand, (n) => n.toString(36)).join("")}`;
       
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('payment_screenshots')
-        .upload(fileName, file);
+      // Upload directly to private 'uploads/payment-proofs/{user_id}/{regFileId}.{ext}'
+      const storagePath = await uploadPaymentProof(user.id, regFileId, file);
 
-      if (uploadError) {
-        throw new Error("Failed to upload screenshot: " + uploadError.message);
-      }
-
-      // 2. Get Public URL
-      const { data: urlData } = supabase.storage
-        .from('payment_screenshots')
-        .getPublicUrl(uploadData.path);
-
-      // 3. Complete Registration
+      // Complete Registration with the relative storage path
       await onPay({
         utrNumber: utrNumber.trim(),
-        paymentScreenshotUrl: urlData.publicUrl,
+        paymentScreenshotPath: storagePath,
+        paymentScreenshotUrl: storagePath,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payment could not be recorded. Try again.");
@@ -1011,6 +1158,31 @@ function PaymentStep({
         </dl>
       </div>
 
+      <div className="mt-6 flex flex-col items-start gap-5 border border-edge bg-surface/40 p-6 sm:flex-row sm:items-center">
+        <div className="shrink-0 border border-edge bg-white p-3">
+          <img
+            src="/images/payment-qr.png"
+            alt="QR code to scan and pay your registration fee"
+            width={176}
+            height={176}
+            className="block h-40 w-40"
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-soft">
+            Scan to pay
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-foreground">
+            Open any UPI app, scan this QR, and pay the{" "}
+            <span className="font-semibold text-primary-soft">{formatFee(totalFee)}</span> shown above.
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Enter the transaction's 12-digit UTR number and upload the screenshot below.
+            Your slot is confirmed only after the payment is verified.
+          </p>
+        </div>
+      </div>
+
       <div className="mt-8 space-y-5">
         <Field
           label="UTR / Transaction Number"
@@ -1031,7 +1203,7 @@ function PaymentStep({
             onChange={handleFileChange}
             className="block w-full text-sm text-muted file:mr-4 file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-wider file:text-primary-soft hover:file:bg-primary/30"
           />
-          <p className="mt-1 text-[10px] text-muted">Max file size: 1MB. Allowed: JPG, PNG, WEBP.</p>
+          <p className="mt-1 text-[10px] text-muted">Max file size: 2MB. Allowed formats: JPG, PNG, WEBP.</p>
         </div>
       </div>
 

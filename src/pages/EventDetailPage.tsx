@@ -4,7 +4,7 @@ import { useEvent } from "../lib/useEvents";
 import { formatFee } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 
-import { isSportEvent, isIndividualEvent } from "../lib/validation";
+import { isSportEvent, isIndividualEvent, safeEventImage } from "../lib/validation";
 
 export function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -13,6 +13,7 @@ export function EventDetailPage() {
 
   const isSport = isSportEvent(event);
   const isIndividual = isIndividualEvent(event);
+  const heroImage = safeEventImage(event?.image);
 
   if (loading) {
     return (
@@ -49,10 +50,10 @@ export function EventDetailPage() {
     <div className="reveal-up">
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-edge">
-        {event.image && (
+        {heroImage && (
           <>
             <img
-              src={event.image}
+              src={heroImage}
               alt=""
               className="absolute inset-0 h-full w-full object-cover opacity-30"
             />
