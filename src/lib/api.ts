@@ -52,7 +52,7 @@ export interface RegistrationMember {
   phone?: string;
 }
 
-export type PaymentStatus = "pending" | "recorded";
+export type PaymentStatus = "pending" | "recorded" | "confirmed";
 
 export interface Registration {
   id: string;
@@ -72,9 +72,15 @@ export interface Registration {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * Generates a unique ID with a timestamp component + 8 random base-36 chars.
+ * Format: PREFIX-<ts4>-<rand8>  e.g. TT-L8K2-A4FG9Z01
+ * The timestamp prefix makes collisions astronomically unlikely even under load.
+ */
 function makeId(prefix: string): string {
-  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `${prefix}-${rand}`;
+  const ts = Date.now().toString(36).slice(-4).toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 10).toUpperCase();
+  return `${prefix}-${ts}-${rand}`;
 }
 
 /** Find the email for a username or reg-number across both participant tables. */
@@ -215,9 +221,11 @@ export const api = {
       registration_code: regCode,
       user_id: authUser.id,
       event_id: event.id,
-      team_name: input.teamName.trim(),
-      captain_name: input.captainName.trim(),
-      payment_status: "pending",
+      team_name: teamName,
+      captain_name: captainName,
+      // Internal registrations are free and confirmed instantly.
+      // External registrations start as pending until payment is verified.
+      payment_status: participantType === "internal" ? "confirmed" : "pending",
       terms_accepted: true,
       members,
     };
@@ -229,14 +237,28 @@ export const api = {
       regPayload.payment_screenshot_url = input.paymentScreenshotUrl.trim();
     }
 
-    const { data: reg, error } = await supabase
-      .from(regTable)
-      .insert(regPayload)
-      .select()
-      .single();
+    // Attempt insert; retry once with a fresh code if we hit a unique-code collision.
+    let reg: any = null;
+    let insertError: any = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        // Regenerate both IDs on retry
+        regPayload.id = makeId("R");
+        regPayload.registration_code = makeId("TT");
+      }
+      const { data, error } = await supabase
+        .from(regTable)
+        .insert(regPayload)
+        .select()
+        .single();
+      if (!error) { reg = data; insertError = null; break; }
+      // 23505 = unique_violation — retry makes sense
+      if (error.code !== "23505") { insertError = error; break; }
+      insertError = error;
+    }
 
-    if (error || !reg) {
-      throw new Error(error?.message ?? "Failed to create registration.");
+    if (insertError || !reg) {
+      throw new Error(insertError?.message ?? "Failed to create registration.");
     }
 
     return {

@@ -29,19 +29,20 @@ function formatDate(iso: string): string {
   });
 }
 
-function RegStatusBadge({ status }: { status: string }) {
-  const isRecorded = status === "recorded";
+function RegStatusBadge({ status, fee }: { status: string; fee: number }) {
+  // Internal registrations are free (fee === 0) and are instantly confirmed
+  const isConfirmed = fee === 0 || status === "confirmed" || status === "recorded";
   return (
     <span
       className={
         "inline-flex items-center gap-1.5 border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] " +
-        (isRecorded
+        (isConfirmed
           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
           : "border-amber-500/40 bg-amber-500/10 text-amber-400")
       }
     >
       <CreditCard className="h-3 w-3" aria-hidden />
-      {isRecorded ? "Paid" : "Pending"}
+      {fee === 0 ? "Confirmed" : isConfirmed ? "Paid" : "Pending"}
     </span>
   );
 }
@@ -70,7 +71,7 @@ function RegistrationCard({ registration }: { registration: Registration }) {
             {event?.name ?? "Unknown Event"}
           </h3>
         </div>
-        <RegStatusBadge status={registration.paymentStatus} />
+        <RegStatusBadge status={registration.paymentStatus} fee={registration.fee} />
       </div>
 
       <div className="relative mt-5 grid gap-4 border-t border-edge pt-5 sm:grid-cols-2">
