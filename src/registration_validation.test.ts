@@ -156,7 +156,7 @@ describe("Registration System Validation & Dynamic Rules Test Suite", () => {
     // Calling createRegistration with invalid internal reg number
     await expect(
       api.createRegistration({
-        eventId: "day-2-hackathon",
+        eventIds: ["day-2-hackathon"],
         teamName: "Team Alpha",
         captainName: "John Doe",
         termsAccepted: true,

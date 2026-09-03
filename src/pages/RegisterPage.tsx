@@ -34,7 +34,7 @@ interface MemberDraft {
 }
 
 interface Draft {
-  eventId: string | null;
+  eventIds: string[];
   termsAccepted: boolean;
   captainName: string;
   teamName: string;
@@ -42,15 +42,12 @@ interface Draft {
 }
 
 function makeEmptyMembers(
-  event: TechEvent | undefined,
+  required: number,
+  maxSubs: number,
   captainName = "",
   captainEmail = "",
   captainPhone = "",
 ): MemberDraft[] {
-  if (!event) return [];
-  const isSport = isSportEvent(event);
-  const required = event.requiredPlayers ?? 1;
-  const maxSubs = isSport ? (event.maxSubstitutes ?? 0) : 0;
 
   const players: MemberDraft[] = Array.from({ length: required }, (_, i) => ({
     name: i === 0 ? captainName : "",
@@ -92,7 +89,7 @@ function buildMembersFromDraft(draftMembers: MemberDraft[], teamType: Participan
 }
 
 const initialDraft: Draft = {
-  eventId: null,
+  eventIds: [],
   termsAccepted: false,
   captainName: "",
   teamName: "",
@@ -153,10 +150,13 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   const preselectedEvent = preselectedId ? allEvents.find((e) => e.id === preselectedId) : undefined;
   const [draft, setDraft] = useState<Draft>(() => {
     if (!preselectedId) return initialDraft;
-    return { ...initialDraft, eventId: preselectedId, members: [] };
+    return { ...initialDraft, eventIds: [preselectedId], members: [] };
   });
-  const event = draft.eventId ? allEvents.find((e) => e.id === draft.eventId) : undefined;
+  const selectedEvents = allEvents.filter(e => draft.eventIds.includes(e.id));
+  const event = selectedEvents.length > 0 ? selectedEvents[0] : undefined;
   const activeEvent = event ?? preselectedEvent;
+  // const maxRequiredPlayers = selectedEvents.length > 0 ? Math.max(...selectedEvents.map(e => e.requiredPlayers ?? 1)) : (activeEvent?.requiredPlayers ?? 1);
+  // const maxSubsAllowed = selectedEvents.length > 0 ? Math.max(...selectedEvents.map(e => isSportEvent(e) ? (e.maxSubstitutes ?? 0) : 0)) : (isSportEvent(activeEvent) ? (activeEvent?.maxSubstitutes ?? 0) : 0);
   const isIndividual = isIndividualEvent(activeEvent);
 
   // Internal students never go through the payment step — their flow ends at review.
@@ -173,12 +173,13 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   // setState is deferred into a microtask so no state is set synchronously inside
   // the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
-    if (preselectedEvent && draft.eventId === preselectedEvent.id && draft.members.length === 0) {
+    if (preselectedEvent && draft.eventIds[0] === preselectedEvent.id && draft.members.length === 0) {
       void Promise.resolve().then(() => {
         setDraft((d) => ({
           ...d,
           members: makeEmptyMembers(
-            preselectedEvent,
+            preselectedEvent?.requiredPlayers ?? 1,
+            isSportEvent(preselectedEvent) ? (preselectedEvent.maxSubstitutes ?? 0) : 0,
             user?.fullName ?? "",
             user?.email ?? "",
             user?.phone ?? "",
@@ -188,21 +189,39 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
         setSelectedDayId(preselectedEvent.dayId);
       });
     }
-  }, [preselectedEvent, draft.eventId, draft.members.length, user]);
+  }, [preselectedEvent, draft.eventIds[0], draft.members.length, user]);
 
   function selectEvent(ev: TechEvent) {
-    const indiv = isIndividualEvent(ev);
+    const isMultiSelect = ev.dayId === "day-2" || ev.dayId === "day-3";
+    let newEventIds = [...draft.eventIds];
+    
+    if (isMultiSelect) {
+      if (newEventIds.includes(ev.id)) {
+        newEventIds = newEventIds.filter(id => id !== ev.id);
+      } else {
+        if (newEventIds.length > 0 && !isMultiSelect) newEventIds = [];
+        newEventIds.push(ev.id);
+      }
+    } else {
+      newEventIds = [ev.id];
+    }
+    
+    const sEvs = allEvents.filter(e => newEventIds.includes(e.id));
+    const maxReq = sEvs.length > 0 ? Math.max(...sEvs.map(e => e.requiredPlayers ?? 1)) : 1;
+    const mSubs = sEvs.length > 0 ? Math.max(...sEvs.map(e => isSportEvent(e) ? (e.maxSubstitutes ?? 0) : 0)) : 0;
+    
     setDraft((d) => ({
       ...d,
-      eventId: ev.id,
+      eventIds: newEventIds,
       members: makeEmptyMembers(
-        ev,
+        maxReq,
+        mSubs,
         user?.fullName ?? "",
         user?.email ?? "",
-        user?.phone ?? "",
+        user?.phone ?? ""
       ),
       captainName: d.captainName || (user?.fullName ?? ""),
-      teamName: indiv ? (user?.fullName ?? ev.name) : d.teamName,
+      teamName: isIndividualEvent(ev) ? (user?.fullName ?? ev.name) : d.teamName,
     }));
     setSelectedDayId(ev.dayId);
     setErrors({});
@@ -210,7 +229,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
   function selectDay(dayId: string) {
     setSelectedDayId(dayId);
-    setDraft((d) => (d.eventId ? { ...d, eventId: null, members: [] } : d));
+    setDraft((d) => (d.eventIds.length > 0 ? { ...d, eventIds: [], members: [] } : d));
     setErrors({});
   }
 
@@ -271,14 +290,14 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       : draft.teamName.trim();
 
     const registration = await api.createRegistration({
-      eventId: event.id,
+      eventIds: draft.eventIds,
       teamName,
       captainName,
       members: buildMembersFromDraft(draft.members, teamType),
       termsAccepted: draft.termsAccepted,
       ...paymentDetails,
     });
-    navigate(`/register/success?code=${encodeURIComponent(registration.registrationCode)}`);
+    navigate(`/register/success?code=${encodeURIComponent(registration[0].registrationCode)}`);
   }
 
   let stepBody: ReactNode;
@@ -287,7 +306,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       stepBody = (
         <SportStep
           days={days}
-          selectedId={draft.eventId}
+          selectedIds={draft.eventIds}
           selectedDayId={selectedDayId}
           onSelectDay={selectDay}
           onSelect={(ev) => selectEvent(ev)}
@@ -357,7 +376,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   function validateAndNext(): void {
     const nextErrors: Record<string, string> = {};
 
-    if (step === "sport" && !draft.eventId) nextErrors.step = "Select an event to continue.";
+    if (step === "sport" && draft.eventIds.length === 0) nextErrors.step = "Select an event to continue.";
     if (step === "terms" && !draft.termsAccepted) nextErrors.step = "You must accept the Terms and Conditions.";
     if (step === "team" && !isIndividual) {
       if (!draft.teamName.trim()) nextErrors.teamName = "Team name is required.";
@@ -485,7 +504,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
 function SportStep({
   days,
-  selectedId,
+  selectedIds,
   selectedDayId,
   onSelectDay,
   onSelect,
@@ -494,7 +513,7 @@ function SportStep({
   isInternal,
 }: {
   days: Day[];
-  selectedId: string | null;
+  selectedIds: string[];
   selectedDayId: string | null;
   onSelectDay: (id: string) => void;
   onSelect: (ev: TechEvent) => void;
@@ -509,8 +528,7 @@ function SportStep({
   // Determine which day to display. If the selected event belongs to a day,
   // restore that day even if the user navigated back to this step. Otherwise
   // default to the first available day so events are visible immediately.
-  const chosenDayId =
-    (selectedId && events.find((e) => e.id === selectedId)?.dayId) || selectedDayId;
+  const chosenDayId = (selectedIds.length > 0 && events.find((e) => e.id === selectedIds[0])?.dayId) || selectedDayId;
   const defaultDayId = dayTabs.find((d) => d.events.some((e) => e.registrationOpen))?.id ?? dayTabs[0]?.id;
   const activeDayId = chosenDayId || defaultDayId;
 
@@ -574,7 +592,7 @@ function SportStep({
       ) : (
         <div role="radiogroup" aria-label={`Available events on ${activeDay!.name}`} className="mt-6 grid gap-3 sm:grid-cols-2">
           {openDayEvents.map((ev) => {
-            const active = ev.id === selectedId;
+            const active = selectedIds.includes(ev.id);
             const isIndiv = isIndividualEvent(ev);
             const isSport = isSportEvent(ev);
             // Internal students always register for free — never show monetary amounts

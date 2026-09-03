@@ -66,8 +66,13 @@ export function LoginPage() {
     }
   }, [loading, user, googlePendingProfile, next, navigate]);
 
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value;
+    if (key === "phone") {
+      value = value.replace(/\D/g, "").slice(0, 10);
+    }
+    setForm((f) => ({ ...f, [key]: value }));
+  };
 
   async function handleGoogleSignIn() {
     setError(null);
@@ -252,6 +257,7 @@ export function LoginPage() {
                     value={form.phone}
                     onChange={set("phone")}
                     autoComplete="tel"
+                    maxLength={10}
                   />
                 </>
               ) : (
@@ -270,6 +276,7 @@ export function LoginPage() {
                     value={form.phone}
                     onChange={set("phone")}
                     autoComplete="tel"
+                    maxLength={10}
                   />
                 </>
               )}
