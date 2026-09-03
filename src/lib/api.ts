@@ -196,7 +196,13 @@ export const api = {
       if (!screenshotPath) throw new Error("Payment screenshot is required for external participants.");
     }
 
-    const results: Registration[] = [];
+    // Build every row first so we can validate all events up-front, then insert
+    // the whole batch in ONE call. Postgres treats a multi-row INSERT as a single
+    // atomic statement: if any row fails a constraint, NOTHING is committed. This
+    // prevents a partial registration (e.g. only the first selected event being
+    // saved) when a user signs up for multiple Tech/Non-Tech events that share a
+    // single registration_code flat pass.
+    const rows: RegistrationInsertRow[] = [];
 
     for (const eventId of input.eventIds) {
       const event = getEvent(eventId);
@@ -211,7 +217,7 @@ export const api = {
       if (!teamName) throw new Error("Team name is required.");
 
       const regId = makeId("R");
-      
+
       const regPayload: RegistrationInsertRow = {
         id: regId,
         registration_code: regCode,
@@ -238,14 +244,15 @@ export const api = {
         regPayload.payment_screenshot_url = screenshotPath!;
       }
 
-      const { data, error } = await supabase.from(regTable).insert(regPayload).select().single();
-      if (error) {
-        throw new Error(error.message || "Failed to create registration for event " + event.name);
-      }
-      results.push(mapRegistrationRow(data));
+      rows.push(regPayload);
     }
 
-    return results;
+    const { data, error } = await supabase.from(regTable).insert(rows).select();
+    if (error) {
+      throw new Error(error.message || "Failed to create registration.");
+    }
+
+    return (data ?? []).map(mapRegistrationRow);
   },
 
   // ── List registrations for the signed-in user ─────────────────────────────

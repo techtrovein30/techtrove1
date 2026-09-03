@@ -31,6 +31,18 @@ import { ReuploadRequestDialog } from "../../components/admin/ReuploadRequestDia
 
 type StatusFilter = "all" | "pending" | "recorded";
 
+/** One flat-pass batch: every registration row sharing a registration_code. */
+interface BatchGroup {
+  code: string;
+  rows: Registration[];
+  totalFee: number;
+  eventNames: string[];
+  teamName: string;
+  captainName: string;
+  createdAt: string;
+  paymentStatus: "pending" | "recorded";
+}
+
 const PAGE_SIZE = 15;
 
 function RegistrationDetail({
@@ -423,8 +435,38 @@ export function AdminRegistrationsPage() {
     });
   }, [registrations, query, eventFilter, statusFilter, events]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Group registrations into flat-pass batches keyed by registration_code.
+  // Each batch is ONE payment that may cover multiple events, so we collapse
+  // the per-event rows into a single row showing the batch total fee.
+  const grouped = useMemo<BatchGroup[]>(() => {
+    const byCode = new Map<string, Registration[]>();
+    for (const r of filtered) {
+      const list = byCode.get(r.registrationCode) ?? [];
+      list.push(r);
+      byCode.set(r.registrationCode, list);
+    }
+
+    return Array.from(byCode.values()).map((rows) => {
+      const first = rows[0];
+      const totalFee = rows.reduce((sum, r) => sum + (r.fee ?? 0), 0);
+      const eventNames = rows
+        .map((r) => events.find((e) => e.id === r.eventId)?.name ?? r.eventId)
+        .filter((n, i, arr) => arr.indexOf(n) === i);
+      return {
+        code: first.registrationCode,
+        rows,
+        totalFee,
+        eventNames,
+        teamName: first.teamName,
+        captainName: first.captainName,
+        createdAt: first.createdAt,
+        paymentStatus: (first.paymentStatus === "recorded" ? "recorded" : "pending") as "pending" | "recorded",
+      };
+    });
+  }, [filtered, events]);
+
+  const totalPages = Math.max(1, Math.ceil(grouped.length / PAGE_SIZE));
+  const paged = grouped.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleDeleted = useCallback(() => {
     refresh();
@@ -474,8 +516,7 @@ export function AdminRegistrationsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Registrations</h1>
           <p className="mt-1 text-sm text-muted">
-            {registrations.length} team entry
-            {registrations.length !== 1 ? "ies" : ""}
+            {grouped.length} team entr{grouped.length !== 1 ? "ies" : "y"}
           </p>
         </div>
         <button
@@ -573,44 +614,54 @@ export function AdminRegistrationsPage() {
                   </td>
                 </tr>
               ) : (
-                paged.map((r) => {
-                  const ev = events.find((e) => e.id === r.eventId);
+                paged.map((group) => {
                   return (
                     <tr
-                      key={r.id}
+                      key={group.code}
                       className="cursor-pointer transition-colors hover:bg-white/[0.025]"
-                      onClick={() => setSelected(r)}
+                      onClick={() => setSelected(group.rows[0])}
                     >
                       <td className="px-4 py-3">
                         <div>
                           <p className="font-medium text-foreground">
-                            {r.teamName}
+                            {group.teamName}
                           </p>
                           <p className="text-xs font-mono text-primary-soft">
-                            {r.registrationCode}
+                            {group.code}
                           </p>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-muted">
-                        {ev?.name ?? r.eventId}
+                        {group.eventNames.length > 1 ? (
+                          <div>
+                            <span className="text-[10px] uppercase tracking-[0.1em]">
+                              {group.eventNames.join(" · ")}
+                            </span>
+                            <span className="ml-2 rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-muted">
+                              {group.eventNames.length}
+                            </span>
+                          </div>
+                        ) : (
+                          group.eventNames[0] ?? group.rows[0].eventId
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-muted">{r.captainName}</td>
+                      <td className="px-4 py-3 text-muted">{group.captainName}</td>
                       <td className="px-4 py-3 text-foreground font-medium">
-                        {formatFee(r.fee)}
+                        {formatFee(group.totalFee)}
                       </td>
                       <td className="px-4 py-3">
                         <span
                           className={`border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
-                            r.paymentStatus === "recorded"
+                            group.paymentStatus === "recorded"
                               ? "border-emerald-500/40 text-emerald-400"
                               : "border-amber-500/40 text-amber-400"
                           }`}
                         >
-                          {r.paymentStatus === "recorded" ? "Paid" : "Pending"}
+                          {group.paymentStatus === "recorded" ? "Paid" : "Pending"}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-muted">
-                        {new Date(r.createdAt).toLocaleDateString()}
+                        {new Date(group.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3">
                         <ChevronRight className="h-4 w-4 text-muted" />
@@ -628,7 +679,7 @@ export function AdminRegistrationsPage() {
           <div className="flex items-center justify-between border-t border-white/[0.07] px-4 py-3">
             <p className="text-xs text-muted">
               {(page - 1) * PAGE_SIZE + 1}–
-              {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+              {Math.min(page * PAGE_SIZE, grouped.length)} of {grouped.length}
             </p>
             <div className="flex gap-1">
               <button

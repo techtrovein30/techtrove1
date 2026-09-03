@@ -40,6 +40,20 @@ export function AdminTeamsPage() {
     return groups;
   }, [filteredTeams]);
 
+  // Per flat-pass batch: one registration_code covers one or more events for a
+  // single payment. Track the batch total fee + event count so per-event cards
+  // can show the real billed amount instead of a per-event ₹0.
+  const batchInfo = useMemo(() => {
+    const map = new Map<string, { totalFee: number; eventCount: number }>();
+    for (const r of registrations) {
+      const cur = map.get(r.registrationCode) ?? { totalFee: 0, eventCount: 0 };
+      cur.totalFee += r.fee ?? 0;
+      cur.eventCount += 1;
+      map.set(r.registrationCode, cur);
+    }
+    return map;
+  }, [registrations]);
+
   function exportCSV() {
     if (filteredTeams.length === 0) return;
     const headers = ["Event", "Team Name", "Captain", "Registration Code", "Members Count", "Fee Status", "Registered Date"];
@@ -98,7 +112,7 @@ export function AdminTeamsPage() {
                     { 
                       term: "Fee Status", 
                       value: <span className={`font-semibold capitalize ${selectedTeam.paymentStatus !== "pending" ? "text-emerald-400" : "text-amber-400"}`}>
-                        {selectedTeam.paymentStatus} ({formatFee(selectedTeam.fee)})
+                        {selectedTeam.paymentStatus} ({formatFee((batchInfo.get(selectedTeam.registrationCode)?.eventCount ?? 1) > 1 ? batchInfo.get(selectedTeam.registrationCode)!.totalFee : selectedTeam.fee)})
                       </span> 
                     },
                   ].map((r) => (
@@ -221,41 +235,54 @@ export function AdminTeamsPage() {
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-5 bg-white/[0.01]">
-                  {teams.map((t) => (
-                    <div
-                      key={t.id}
-                      onClick={() => setSelectedTeam(t)}
-                      className="group cursor-pointer rounded-xl border border-white/[0.06] bg-[#1a1a1a] p-4 transition-all hover:-translate-y-0.5 hover:border-white/[0.12] hover:bg-white/[0.04] hover:shadow-lg hover:shadow-black/20"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-bold text-foreground transition-colors group-hover:text-primary-soft">
-                            {t.teamName}
-                          </h3>
-                          <p className="text-xs font-mono text-muted group-hover:text-primary-soft/70">
-                            {t.registrationCode}
-                          </p>
+                  {teams.map((t) => {
+                    const info = batchInfo.get(t.registrationCode);
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => setSelectedTeam(t)}
+                        className="group cursor-pointer rounded-xl border border-white/[0.06] bg-[#1a1a1a] p-4 transition-all hover:-translate-y-0.5 hover:border-white/[0.12] hover:bg-white/[0.04] hover:shadow-lg hover:shadow-black/20"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h3 className="font-bold text-foreground transition-colors group-hover:text-primary-soft">
+                              {t.teamName}
+                            </h3>
+                            <p className="text-xs font-mono text-muted group-hover:text-primary-soft/70">
+                              {t.registrationCode}
+                            </p>
+                          </div>
+                          <span
+                            className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
+                              t.paymentStatus !== "pending"
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : "bg-amber-500/10 text-amber-400"
+                            }`}
+                          >
+                            {t.paymentStatus}
+                          </span>
                         </div>
-                        <span
-                          className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
-                            t.paymentStatus !== "pending"
-                              ? "bg-emerald-500/10 text-emerald-400"
-                              : "bg-amber-500/10 text-amber-400"
-                          }`}
-                        >
-                          {t.paymentStatus}
-                        </span>
-                      </div>
-                      
-                      <div className="mt-4 space-y-1.5 text-xs text-muted">
-                        <p>Captain: <span className="font-medium text-foreground">{t.captainName}</span></p>
-                        <div className="flex items-center gap-1.5">
-                          <Users className="h-3.5 w-3.5 opacity-70" />
-                          <span>{t.members.length} Members</span>
+
+                        <div className="mt-4 space-y-1.5 text-xs text-muted">
+                          <p>Captain: <span className="font-medium text-foreground">{t.captainName}</span></p>
+                          <div className="flex items-center gap-1.5">
+                            <Users className="h-3.5 w-3.5 opacity-70" />
+                            <span>{t.members.length} Members</span>
+                          </div>
+                          {info && info.eventCount > 1 && (
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-primary-soft">
+                                {info.eventCount}-event pass
+                              </span>
+                              <span className="font-semibold text-foreground">
+                                {formatFee(info.totalFee)}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );

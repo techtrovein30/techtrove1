@@ -5,7 +5,8 @@ import { ArrowLeft, ArrowRight, Lock } from "lucide-react";
 import { useAllEvents, useEvent } from "../lib/useEvents";
 import type { TechEvent, Day } from "../lib/eventStore";
 import { days as staticDays } from "../data/techtrove";
-import { formatFee, formatPerPerson } from "../lib/utils";
+import { formatFee } from "../lib/utils";
+import { computeTotalFee, isTechPassEvent } from "../lib/fees";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
 import { validateUploadFile, uploadPaymentProof } from "../lib/storage";
@@ -66,12 +67,6 @@ function makeEmptyMembers(
     phone: "",
   }));
   return [...players, ...subs];
-}
-
-function computeTotalFee(event: TechEvent | undefined, members: MemberDraft[], teamType: ParticipantType): number {
-  if (teamType === "internal") return 0;
-  const filled = members.filter((m) => m.name.trim()).length;
-  return (event?.registrationFee ?? 0) * filled;
 }
 
 function buildMembersFromDraft(draftMembers: MemberDraft[], teamType: ParticipantType): RegistrationMember[] {
@@ -157,7 +152,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   const activeEvent = event ?? preselectedEvent;
   // const maxRequiredPlayers = selectedEvents.length > 0 ? Math.max(...selectedEvents.map(e => e.requiredPlayers ?? 1)) : (activeEvent?.requiredPlayers ?? 1);
   // const maxSubsAllowed = selectedEvents.length > 0 ? Math.max(...selectedEvents.map(e => isSportEvent(e) ? (e.maxSubstitutes ?? 0) : 0)) : (isSportEvent(activeEvent) ? (activeEvent?.maxSubstitutes ?? 0) : 0);
-  const isIndividual = isIndividualEvent(activeEvent);
+  const isIndividual = isIndividualEvent(activeEvent) || isTechPassEvent(activeEvent);
 
   // Internal students never go through the payment step — their flow ends at review.
   // External students have an additional payment step after review.
@@ -178,8 +173,8 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
         setDraft((d) => ({
           ...d,
           members: makeEmptyMembers(
-            preselectedEvent?.requiredPlayers ?? 1,
-            isSportEvent(preselectedEvent) ? (preselectedEvent.maxSubstitutes ?? 0) : 0,
+            isTechPassEvent(preselectedEvent) ? 1 : (preselectedEvent?.requiredPlayers ?? 1),
+            isSportEvent(preselectedEvent) && !isTechPassEvent(preselectedEvent) ? (preselectedEvent.maxSubstitutes ?? 0) : 0,
             user?.fullName ?? "",
             user?.email ?? "",
             user?.phone ?? "",
@@ -196,40 +191,55 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     let newEventIds = [...draft.eventIds];
     
     if (isMultiSelect) {
+      // Tech / Non-Tech multi-select.
+      // Prevent mixed registrations: if any day-1 sports are selected,
+      // clear them so a single registration is either all-tech/non-tech OR one sport.
+      newEventIds = newEventIds.filter(id => {
+        const existing = allEvents.find(e => e.id === id);
+        return existing && existing.dayId !== "day-1";
+      });
       if (newEventIds.includes(ev.id)) {
         newEventIds = newEventIds.filter(id => id !== ev.id);
       } else {
-        if (newEventIds.length > 0 && !isMultiSelect) newEventIds = [];
         newEventIds.push(ev.id);
       }
     } else {
-      newEventIds = [ev.id];
+      // Day-1 sports: single-select, and clicking the already-selected sport
+      // unselects it (toggles off) so the user can pick nothing if they change
+      // their mind.
+      newEventIds = newEventIds.includes(ev.id) ? [] : [ev.id];
     }
     
     const sEvs = allEvents.filter(e => newEventIds.includes(e.id));
-    const maxReq = sEvs.length > 0 ? Math.max(...sEvs.map(e => e.requiredPlayers ?? 1)) : 1;
-    const mSubs = sEvs.length > 0 ? Math.max(...sEvs.map(e => isSportEvent(e) ? (e.maxSubstitutes ?? 0) : 0)) : 0;
+    const allTechPass = sEvs.length > 0 && sEvs.every(isTechPassEvent);
+    const maxReq = allTechPass ? 1 : (sEvs.length > 0 ? Math.max(...sEvs.map(e => e.requiredPlayers ?? 1)) : 1);
+    const mSubs = allTechPass ? 0 : (sEvs.length > 0 ? Math.max(...sEvs.map(e => isSportEvent(e) ? (e.maxSubstitutes ?? 0) : 0)) : 0);
     
     setDraft((d) => ({
       ...d,
       eventIds: newEventIds,
-      members: makeEmptyMembers(
-        maxReq,
-        mSubs,
-        user?.fullName ?? "",
-        user?.email ?? "",
-        user?.phone ?? ""
-      ),
+      // When nothing is selected, clear members so no phantom player slots remain.
+      members: newEventIds.length === 0
+        ? []
+        : makeEmptyMembers(
+            maxReq,
+            mSubs,
+            user?.fullName ?? "",
+            user?.email ?? "",
+            user?.phone ?? ""
+          ),
       captainName: d.captainName || (user?.fullName ?? ""),
-      teamName: isIndividualEvent(ev) ? (user?.fullName ?? ev.name) : d.teamName,
+      teamName: isIndividualEvent(ev) || isTechPassEvent(ev) ? (user?.fullName ?? ev.name) : d.teamName,
     }));
     setSelectedDayId(ev.dayId);
     setErrors({});
   }
 
   function selectDay(dayId: string) {
+    // Switching the visible day tab must NOT clear already-selected events.
+    // Day-2/Day-3 selections (Tech/Non-Tech flat pass) accumulate across days,
+    // so the user can keep them while browsing into another day.
     setSelectedDayId(dayId);
-    setDraft((d) => (d.eventIds.length > 0 ? { ...d, eventIds: [], members: [] } : d));
     setErrors({});
   }
 
@@ -269,12 +279,17 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
   function goNext() {
     const i = stepIds.indexOf(step);
     setStep(stepIds[Math.min(i + 1, stepIds.length - 1)]);
+    // A stale validation alert from the previous step must not linger on the
+    // next one (or reappear when navigating back) — it is recomputed fresh on
+    // each Continue via validateAndNext().
+    setErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function goBack() {
     const i = stepIds.indexOf(step);
     setStep(stepIds[Math.max(i - 1, 0)]);
+    setErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -349,10 +364,10 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       );
       break;
     case "review":
-      stepBody = event && <ReviewStep event={event} draft={draft} teamType={teamType} />;
+      stepBody = event && <ReviewStep events={selectedEvents} event={event} draft={draft} teamType={teamType} />;
       break;
     case "payment":
-      stepBody = event && <PaymentStep event={event} draft={draft} teamType={teamType} onPay={handleRegistration} />;
+      stepBody = event && <PaymentStep events={selectedEvents} event={event} draft={draft} teamType={teamType} onPay={handleRegistration} />;
       break;
   }
 
@@ -383,7 +398,11 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       if (!draft.captainName.trim()) nextErrors.captainName = "Captain name is required.";
     }
     if (step === "members" && event) {
-      const required = event.requiredPlayers ?? 1;
+      // Because day-2/day-3 (Tech/Non-Tech) events are a single-player flat
+      // pass, exactly ONE participant slot is created. Validation must demand
+      // that same count — NOT the event's raw requiredPlayers (which may be a
+      // team roster); otherwise the pass is unfairly rejected as incomplete.
+      const required = isTechPassEvent(event) ? 1 : (event.requiredPlayers ?? 1);
       const isSport = isSportEvent(event);
       // For the captain slot (position 1) the name is locked from the user
       // profile and may not live in m.name — use user.fullName as fallback.
@@ -463,7 +482,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
         {stepBody}
 
         {"step" in errors && errors.step && (
-          <p role="alert" className="border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <p role="alert" className="border border-red-500/40 bg-red-950/40 px-5 py-4 text-sm text-red-200">
             {errors.step}
           </p>
         )}
@@ -525,12 +544,14 @@ function SportStep({
   // renders immediately even before the async events fetch completes.
   const dayTabs = days.length > 0 ? days : staticDays;
 
-  // Determine which day to display. If the selected event belongs to a day,
-  // restore that day even if the user navigated back to this step. Otherwise
-  // default to the first available day so events are visible immediately.
-  const chosenDayId = (selectedIds.length > 0 && events.find((e) => e.id === selectedIds[0])?.dayId) || selectedDayId;
+  // Determine which day to display.
+  // The user's explicit tab choice (selectedDayId) always wins. Only when no
+  // day tab has been chosen do we fall back to the first selected event's day
+  // (so returning to this step after navigating away shows the relevant day).
+  const firstSelectedDay =
+    selectedIds.length > 0 && events.find((e) => e.id === selectedIds[0])?.dayId;
   const defaultDayId = dayTabs.find((d) => d.events.some((e) => e.registrationOpen))?.id ?? dayTabs[0]?.id;
-  const activeDayId = chosenDayId || defaultDayId;
+  const activeDayId = selectedDayId || (!selectedIds.length ? defaultDayId : firstSelectedDay) || defaultDayId;
 
   const activeDay = activeDayId ? dayTabs.find((d) => d.id === activeDayId) : undefined;
   const dayEvents = events.filter((e) => e.dayId === activeDayId);
@@ -583,6 +604,41 @@ function SportStep({
         })}
       </div>
 
+      {!isInternal && (
+        <div className="mt-6 border border-edge-strong bg-surface/40 p-4 text-sm text-foreground">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary-soft">How payment works</p>
+          <ul className="mt-2.5 space-y-1.5 text-xs leading-relaxed text-muted">
+            <li>
+              <strong className="text-foreground">Day 2 &amp; Day 3 (Tech / Non-Tech):</strong> a single flat{" "}
+              <strong className="text-primary-soft">Rs 75</strong> pass covers every event you tick across both days.
+            </li>
+            <li>
+              <strong className="text-foreground">Day 1 Sports:</strong> pay per sport —{" "}
+              Rs 75 for Carrom / Chess, Rs 600 for team sports. Each selected sport is billed separately.
+            </li>
+          </ul>
+        </div>
+      )}
+
+      {selectedIds.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 border border-primary/40 bg-primary/10 px-4 py-3 text-xs text-foreground">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary-soft">Selected:</span>
+          {events.filter((e) => selectedIds.includes(e.id)).map((e) => (
+            <span key={e.id} className="inline-flex items-center gap-1 border border-edge-strong bg-background px-2 py-1">
+              {e.name}
+              <button
+                type="button"
+                aria-label={`Remove ${e.name}`}
+                onClick={() => onSelect(e)}
+                className="text-muted hover:text-red-300"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           {[1,2,3,4].map((i) => <div key={i} className="animate-pulse h-16 bg-white/10" />)}
@@ -593,10 +649,10 @@ function SportStep({
         <div role="radiogroup" aria-label={`Available events on ${activeDay!.name}`} className="mt-6 grid gap-3 sm:grid-cols-2">
           {openDayEvents.map((ev) => {
             const active = selectedIds.includes(ev.id);
-            const isIndiv = isIndividualEvent(ev);
+            const isIndiv = isIndividualEvent(ev) || isTechPassEvent(ev);
             const isSport = isSportEvent(ev);
             // Internal students always register for free — never show monetary amounts
-            const feeLabel = isInternal ? "Free" : formatPerPerson(ev.registrationFee);
+            const feeLabel = isInternal ? "Free" : isTechPassEvent(ev) ? `Rs ${ev.registrationFee ?? 0} flat` : formatFee(ev.registrationFee);
             return (
               <button
                 key={ev.id}
@@ -674,8 +730,13 @@ function TermsStep({
         ) : (
           <span className="text-sm leading-relaxed text-foreground">
             I agree to the Terms and Conditions, including that the registration fee of{" "}
-            <strong className="font-semibold">{formatPerPerson(event.registrationFee)}</strong>
-            {" "}(charged for each player and substitute entered) is non-refundable.
+            <strong className="font-semibold">
+              {isTechPassEvent(event) ? `Rs ${event.registrationFee ?? 0} flat` : formatFee(event.registrationFee)}
+            </strong>
+            {" "}
+            {isTechPassEvent(event)
+              ? "covers all selected Technical / Non-Technical events and is non-refundable."
+              : "is a flat fee per team/event and is non-refundable."}
           </span>
         )}
       </label>
@@ -744,7 +805,7 @@ function MembersStep({
 }) {
   const required = event?.requiredPlayers ?? 1;
   const isSport = isSportEvent(event);
-  const isIndividual = isIndividualEvent(event);
+  const isIndividual = isIndividualEvent(event) || isTechPassEvent(event);
   const maxSubs = isSport ? (event?.maxSubstitutes ?? 0) : 0;
 
   const players = draft.members.filter((m) => m.role === "player");
@@ -829,7 +890,7 @@ function MemberCard({
   const isInternal = teamType === "internal";
 
   return (
-    <div className="border border-edge bg-surface/40 p-5 transition-colors hover:border-primary/30">
+    <div className="border border-primary/30 bg-surface/30 p-5 shadow-[0_0_30px_-12px_rgba(124,58,237,0.4)] transition-all hover:border-primary/50">
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <span className="display text-lg text-foreground">{label}</span>
         <span
@@ -871,9 +932,10 @@ function MemberCard({
               Email
             </p>
             <div className="flex items-center gap-3 border border-edge bg-background/60 px-4 py-3">
-              <span className="flex-1 text-sm text-foreground">{captainUser.email}</span>
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-soft/70">
-                Google account
+              <span className="flex-1 break-all text-sm text-foreground">{captainUser.email}</span>
+              <span className="flex flex-col items-end gap-0.5 text-[10px] font-semibold uppercase leading-tight tracking-[0.14em] text-primary-soft/70">
+                <span>Google</span>
+                <span>Account</span>
               </span>
             </div>
           </div>
@@ -981,14 +1043,15 @@ function ReviewRow({ term, children }: { term: string; children: ReactNode }) {
   );
 }
 
-function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft; teamType: ParticipantType }) {
+function ReviewStep({ events, event, draft, teamType }: { events: TechEvent[]; event: TechEvent; draft: Draft; teamType: ParticipantType }) {
   const isInternal = teamType === "internal";
   const isIndividual = isIndividualEvent(event);
   const isSport = isSportEvent(event);
   const filledMembers = draft.members.filter((m) => m.name.trim());
   const filledPlayers = filledMembers.filter((m) => m.role === "player").length;
   const filledSubs = filledMembers.filter((m) => m.role === "substitute").length;
-  const totalFee = computeTotalFee(event, draft.members, teamType);
+  const totalFee = computeTotalFee(events, draft.members, teamType);
+  const isTech = isTechPassEvent(event);
 
   return (
     <StepShell
@@ -1030,11 +1093,23 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
         {/* Hide all fee rows for internal students */}
         {!isInternal && (
           <>
-            <ReviewRow term="Fee per person">{formatPerPerson(event.registrationFee)}</ReviewRow>
+            {isTech ? (
+              <ReviewRow term="Fee">
+                {formatFee(events[0]?.registrationFee ?? event.registrationFee)}
+                {events.length > 1 ? " — flat pass covers all selected Tech/Non-Tech events" : ""}
+              </ReviewRow>
+            ) : (
+              <ReviewRow term="Fee (flat)">{formatFee(event.registrationFee)}</ReviewRow>
+            )}
             {!isIndividual && (
               <ReviewRow term="Team members">
                 {filledPlayers} player{filledPlayers === 1 ? "" : "s"}
                 {isSport && filledSubs > 0 ? ` · ${filledSubs} substitute${filledSubs === 1 ? "" : "s"}` : ""}
+              </ReviewRow>
+            )}
+            {events.length > 1 && (
+              <ReviewRow term="Selected events">
+                {events.map((e) => e.name).join(", ")}
               </ReviewRow>
             )}
             <ReviewRow term="Total registration fee">{formatFee(totalFee)}</ReviewRow>
@@ -1080,11 +1155,13 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
 }
 
 function PaymentStep({
+  events,
   event,
   draft,
   teamType,
   onPay,
 }: {
+  events: TechEvent[];
   event: TechEvent;
   draft: Draft;
   teamType: ParticipantType;
@@ -1097,7 +1174,8 @@ function PaymentStep({
   const [utrNumber, setUtrNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
-  const totalFee = computeTotalFee(event, draft.members, teamType);
+  const totalFee = computeTotalFee(events, draft.members, teamType);
+  const isTech = isTechPassEvent(event);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0];
@@ -1162,12 +1240,31 @@ function PaymentStep({
       <div className="border border-edge-strong bg-background p-6">
         <dl className="space-y-3 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-muted">{event.name} · fee per person</dt>
-            <dd>{formatPerPerson(event.registrationFee)}</dd>
+            <dt className="text-muted">
+              {isTech
+                ? events.length > 1
+                  ? `${events.length} Tech/Non-Tech events (flat pass)`
+                  : `${event.name} (flat pass)`
+                : `${event.name} · flat fee`}
+            </dt>
+            <dd>{isTech ? formatFee(events[0]?.registrationFee ?? event.registrationFee) : formatFee(event.registrationFee)}</dd>
           </div>
+          {events.length > 1 && !isTech && (
+            <div className="flex flex-col gap-1">
+              {events.map((e) => (
+                <div key={e.id} className="flex justify-between gap-4">
+                  <dt className="text-muted">{e.name}</dt>
+                  <dd>{formatFee(e.registrationFee)}</dd>
+                </div>
+              ))}
+            </div>
+          )}
+          {isTech && events.length > 1 && (
+            <p className="text-[11px] text-muted">One flat payment covers all selected Technical / Non-Technical events.</p>
+          )}
           <div className="flex justify-between gap-4">
             <dt className="text-muted">Team</dt>
-            <dd>{draft.teamName}</dd>
+            <dd>{draft.teamName || draft.captainName || "-"}</dd>
           </div>
           <div className="flex justify-between gap-4 border-t border-edge pt-3">
             <dt className="text-xs font-semibold uppercase tracking-[0.16em]">Amount payable</dt>

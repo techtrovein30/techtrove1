@@ -421,6 +421,35 @@ export async function adminUpdateRegistration(
   return rowToRegistration(data as unknown as RegistrationRow);
 }
 
+/**
+ * Update the payment_status of every registration in a batch (all rows that
+ * share one registration_code — i.e. one flat-pass covering multiple events).
+ * Runs atomically across whichever registration table holds the code.
+ */
+export async function adminUpdateRegistrationStatusByCode(
+  registrationCode: string,
+  status: "pending" | "recorded"
+): Promise<{ updated: number }> {
+  await requireAdmin();
+
+  if (!registrationCode.trim()) throw new Error("Registration code is required.");
+
+  for (const table of ["registrations_external", "registrations_internal"] as const) {
+    const { data, error } = await supabase
+      .from(table)
+      .update({ payment_status: status })
+      .eq("registration_code", registrationCode)
+      .select("id");
+
+    if (error) throw friendlyError(error, "Could not update the registration batch.");
+    if (data && data.length > 0) {
+      return { updated: data.length };
+    }
+  }
+
+  throw new Error("Registration not found.");
+}
+
 export interface AdminReuploadRequest {
   reason: string;
   note?: string;

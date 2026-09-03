@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2, RefreshCcw } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
-  adminUpdateRegistration,
+  adminUpdateRegistrationStatusByCode,
   adminRequestPaymentReupload,
 } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
@@ -13,6 +13,19 @@ import { ProofModal } from "../../components/admin/ProofModal";
 import { ReuploadRequestDialog } from "../../components/admin/ReuploadRequestDialog";
 
 type StatusFilter = "all" | "pending" | "recorded";
+
+/** One flat-pass batch: every registration row sharing a registration_code. */
+interface BatchGroup {
+  code: string;
+  rows: Registration[];
+  totalFee: number;
+  eventNames: string[];
+  teamName: string;
+  captainName: string;
+  utrNumber?: string;
+  proofPath?: string;
+  paymentStatus: "pending" | "recorded";
+}
 
 export function AdminPaymentsPage() {
   const { registrations, setRegistrations, refresh } = useAdminRegistrations();
@@ -54,13 +67,48 @@ export function AdminPaymentsPage() {
     });
   }, [registrations, query, eventFilter, statusFilter, events]);
 
+  // Group registrations into flat-pass batches keyed by registration_code.
+  // Each batch is ONE payment that may cover multiple events, so we collapse
+  // the per-event rows into a single row showing the batch total fee.
+  const grouped = useMemo<BatchGroup[]>(() => {
+    const byCode = new Map<string, Registration[]>();
+    for (const r of filtered) {
+      const list = byCode.get(r.registrationCode) ?? [];
+      list.push(r);
+      byCode.set(r.registrationCode, list);
+    }
+
+    return Array.from(byCode.values()).map((rows) => {
+      const first = rows[0];
+      const totalFee = rows.reduce((sum, r) => sum + (r.fee ?? 0), 0);
+      const eventNames = rows
+        .map((r) => events.find((e) => e.id === r.eventId)?.name ?? r.eventId)
+        .filter((n, i, arr) => arr.indexOf(n) === i);
+      return {
+        code: first.registrationCode,
+        rows,
+        totalFee,
+        eventNames,
+        teamName: first.teamName,
+        captainName: first.captainName,
+        utrNumber: first.utrNumber,
+        proofPath: first.paymentScreenshotPath ?? first.paymentScreenshotUrl,
+        paymentStatus: (first.paymentStatus === "recorded" ? "recorded" : "pending") as "pending" | "recorded",
+      };
+    });
+  }, [filtered, events]);
+
   const summary = useMemo(() => {
     let pendingCount = 0;
     let recordedCount = 0;
     let totalRevenue = 0;
     let pendingRevenue = 0;
 
+    // Revenue is per batch (each flat pass is billed once), so dedupe by code.
+    const seen = new Set<string>();
     for (const r of registrations) {
+      if (seen.has(r.registrationCode)) continue;
+      seen.add(r.registrationCode);
       if (r.paymentStatus === "recorded") {
         recordedCount++;
         totalRevenue += r.fee;
@@ -73,25 +121,27 @@ export function AdminPaymentsPage() {
     return { pendingCount, recordedCount, totalRevenue, pendingRevenue };
   }, [registrations]);
 
-  async function togglePaymentStatus(reg: Registration) {
+  async function togglePaymentStatus(group: BatchGroup) {
     const nextStatus =
-      reg.paymentStatus === "recorded" ? "pending" : "recorded";
+      group.paymentStatus === "recorded" ? "pending" : "recorded";
 
-    // Optimistic UI update
+    // Optimistic UI update — flip every row that shares this registration code.
     setRegistrations((prev) =>
-      prev.map((r) => (r.id === reg.id ? { ...r, paymentStatus: nextStatus } : r))
+      prev.map((r) =>
+        r.registrationCode === group.code ? { ...r, paymentStatus: nextStatus } : r
+      )
     );
-    setBusyId(reg.id);
+    setBusyId(group.code);
 
     try {
-      await adminUpdateRegistration(reg.id, {
-        paymentStatus: nextStatus,
-      });
+      await adminUpdateRegistrationStatusByCode(group.code, nextStatus);
       await refresh();
     } catch (err) {
       // Revert optimistic update
       setRegistrations((prev) =>
-        prev.map((r) => (r.id === reg.id ? { ...r, paymentStatus: reg.paymentStatus } : r))
+        prev.map((r) =>
+          r.registrationCode === group.code ? { ...r, paymentStatus: group.paymentStatus } : r
+        )
       );
       setRowError(err instanceof Error ? err.message : "Payment update failed.");
     } finally {
@@ -334,7 +384,7 @@ export function AdminPaymentsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
-              {filtered.length === 0 ? (
+              {grouped.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-16 text-center">
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.03] text-muted">
@@ -345,39 +395,52 @@ export function AdminPaymentsPage() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => {
-                  const ev = events.find((e) => e.id === r.eventId);
-                  const proofPath = r.paymentScreenshotPath ?? r.paymentScreenshotUrl;
+                grouped.map((group) => {
+                  const representative = group.rows[0];
+                  const proofPath = group.proofPath;
 
                   return (
-                    <tr key={r.id} className="transition-colors hover:bg-white/[0.025]">
+                    <tr key={group.code} className="transition-colors hover:bg-white/[0.025]">
                       <td className="px-4 py-3">
                         <div>
-                          <p className="font-medium text-foreground">{r.teamName}</p>
+                          <p className="font-medium text-foreground">{group.teamName}</p>
                           <p className="text-xs font-mono text-primary-soft">
-                            {r.registrationCode}
+                            {group.code}
                           </p>
+                          {group.eventNames.length > 1 && (
+                            <p className="mt-0.5 text-[10px] text-muted">
+                              {group.eventNames.length} events
+                            </p>
+                          )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted">{ev?.name ?? r.eventId}</td>
-                      <td className="px-4 py-3 text-muted">{r.captainName}</td>
+                      <td className="px-4 py-3 text-muted">
+                        {group.eventNames.length > 1 ? (
+                          <span className="text-[10px] uppercase tracking-[0.1em]">
+                            {group.eventNames.join(" · ")}
+                          </span>
+                        ) : (
+                          group.eventNames[0] ?? group.rows[0].eventId
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-muted">{group.captainName}</td>
                       <td className="px-4 py-3 font-semibold text-foreground">
-                        {formatFee(r.fee)}
+                        {formatFee(group.totalFee)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
-                          {r.utrNumber ? (
+                          {group.utrNumber ? (
                             <div className="flex items-center gap-1.5">
                               <code className="font-mono text-xs text-foreground bg-white/[0.05] px-1.5 py-0.5 rounded">
-                                {r.utrNumber}
+                                {group.utrNumber}
                               </code>
                               <button
                                 type="button"
-                                onClick={() => copyUtr(r.utrNumber!)}
+                                onClick={() => copyUtr(group.utrNumber!)}
                                 className="text-muted hover:text-foreground transition-colors p-0.5"
                                 title="Copy UTR"
                               >
-                                {copiedUtr === r.utrNumber ? (
+                                {copiedUtr === group.utrNumber ? (
                                   <Check className="h-3 w-3 text-emerald-400" />
                                 ) : (
                                   <Copy className="h-3 w-3" />
@@ -390,7 +453,7 @@ export function AdminPaymentsPage() {
                           {proofPath && (
                             <button
                               type="button"
-                              onClick={() => setSelectedProof(r)}
+                              onClick={() => setSelectedProof(representative)}
                               className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-soft hover:underline w-fit"
                             >
                               <ImageIcon className="h-3 w-3" /> View Proof
@@ -401,40 +464,40 @@ export function AdminPaymentsPage() {
                       <td className="px-4 py-3">
                         <span
                           className={`border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
-                            r.paymentStatus === "recorded"
+                            group.paymentStatus === "recorded"
                               ? "border-emerald-500/40 text-emerald-400"
                               : "border-amber-500/40 text-amber-400"
                           }`}
                         >
-                          {r.paymentStatus === "recorded" ? "Recorded" : "Pending"}
+                          {group.paymentStatus === "recorded" ? "Recorded" : "Pending"}
                         </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1.5 items-start">
                           <button
-                            onClick={() => togglePaymentStatus(r)}
-                            disabled={busyId === r.id}
+                            onClick={() => togglePaymentStatus(group)}
+                            disabled={busyId === group.code}
                             className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
-                              r.paymentStatus === "recorded"
+                              group.paymentStatus === "recorded"
                                 ? "border border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
                                 : "border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
                             }`}
                           >
-                            {busyId === r.id ? (
+                            {busyId === group.code ? (
                               <>
                                 <Loader2 className="h-3 w-3 animate-spin" /> Updating…
                               </>
-                            ) : r.paymentStatus === "recorded" ? (
+                            ) : group.paymentStatus === "recorded" ? (
                               "Mark Pending"
                             ) : (
                               "Mark Paid"
                             )}
                           </button>
-                          {r.paymentStatus === "pending" && proofPath && (
+                          {group.paymentStatus === "pending" && proofPath && (
                             <button
                               type="button"
-                              onClick={() => setReuploadTarget(r)}
-                              disabled={busyId === r.id}
+                              onClick={() => setReuploadTarget(representative)}
+                              disabled={busyId === group.code}
                               className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
                             >
                               <RefreshCcw className="h-3 w-3" /> Request Re-upload

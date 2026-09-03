@@ -27,6 +27,7 @@ export interface Day {
   id: string;
   label: string;
   name: string;
+  date: string;
   description: string;
   status: DayStatus;
   events: TechEvent[];
@@ -56,7 +57,7 @@ export const siteConfig = {
   tagline: "Innovate. Compete. Conquer.",
   description:
     "TechTrove 3.0 is the multi-day technical and sports symposium of SIMATS - three days of competition, creativity and collaboration across engineering, design and athletics.",
-  eventDate: "Date to be announced",
+  eventDate: "5 – 7 October",
   venue: "SIMATS Campus, Chennai",
   stats: [
     { value: "1000+", label: "Participants" },
@@ -68,12 +69,13 @@ export const siteConfig = {
   contact: {
     committee: "TechTrove 3.0 Organizing Committee",
     college: "SIMATS, Chennai",
-    email: "techtrove@example.edu",
-    phone: "+91 00000 00000",
+    email: "techtrovein3.0@gmail.com",
+    phone: "+91 96771 01571",
     venue: "SIMATS Campus, Chennai",
   },
   socials: [
     { label: "Instagram", url: "https://www.instagram.com/techtrove_3.0/" },
+    { label: "WhatsApp", url: "https://wa.me/919677101571" },
   ],
 };
 
@@ -86,6 +88,7 @@ export const days: Day[] = [
     id: "day-1",
     label: "Day 1",
     name: "Sports",
+    date: "5 October",
     description:
       "The symposium opens on the field. Compete across eight sports — from cricket to chess — and bring glory to your college.",
     status: "active",
@@ -95,6 +98,7 @@ export const days: Day[] = [
     id: "day-2",
     label: "Day 2",
     name: "Technical",
+    date: "6 October",
     description:
       "A day dedicated to technical excellence. Six events spanning paper presentation, hackathon, debugging, quiz, logo making, and the multi-stage Tech Maze.",
     status: "active",
@@ -104,6 +108,7 @@ export const days: Day[] = [
     id: "day-3",
     label: "Day 3",
     name: "Non-Technical",
+    date: "7 October",
     description:
       "Unleash your creativity and perform on the biggest stage. Eight non-technical events spanning fashion, dance, music, gaming, and more.",
     status: "active",

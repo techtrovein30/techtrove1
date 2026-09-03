@@ -74,7 +74,7 @@ interface StepShellProps {
 
 export function StepShell({ title, lead, children }: StepShellProps) {
   return (
-    <section className="clip-angle diag-stripes border border-edge bg-surface p-6 sm:p-9">
+    <section className="clip-angle diag-stripes border border-edge bg-surface p-6 sm:p-10">
       <h2 className="display text-3xl text-foreground sm:text-4xl">{title}</h2>
       {lead && <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">{lead}</p>}
       <hr className="rule-line mt-5 w-32" />

@@ -199,7 +199,7 @@ export function HomePage() {
                   {String(i + 1).padStart(2, "0")}
                 </span>
                 <span className="min-w-0 flex-1 py-1">
-                  <span className="eyebrow block">{day.label}</span>
+                  <span className="eyebrow block">{day.label} · {day.date}</span>
                   <span className="display mt-1 block text-3xl text-foreground sm:text-4xl">
                     {day.name}
                   </span>

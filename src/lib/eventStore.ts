@@ -34,7 +34,7 @@ function friendlyError(err: unknown, fallback: string): Error {
 // Day labels/names/descriptions/statuses are stored in the Supabase `days` table.
 // This replaces the old localStorage implementation.
 
-type DayMeta = Record<string, { label?: string; name?: string; description?: string; status?: Day["status"] }>;
+type DayMeta = Record<string, { label?: string; name?: string; date?: string; description?: string; status?: Day["status"] }>;
 
 // ─── Type mapping helpers ──────────────────────────────────────────────────
 
@@ -132,6 +132,7 @@ function groupIntoDays(rows: EventRow[], dayMeta: DayMeta): Day[] {
         id: dayId,
         label: meta?.label ?? dayId,
         name: meta?.name ?? dayId,
+        date: meta?.date ?? "",
         description: meta?.description ?? "",
         status: meta?.status ?? "active",
         events,
