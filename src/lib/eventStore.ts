@@ -20,6 +20,7 @@ import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
 import { days as staticDays } from "../data/techtrove";
 import type { Day, TechEvent } from "../data/techtrove";
+import { eventRulesMap } from "../data/eventRules";
 
 // Re-export types so consumers can import from one place
 export type { Day, TechEvent };
@@ -59,6 +60,9 @@ interface EventRow {
 }
 
 function rowToEvent(r: EventRow): TechEvent {
+  const hardcodedRules = eventRulesMap[r.name];
+  const rules = hardcodedRules ?? (r.rules ?? undefined);
+
   return {
     id: r.id,
     dayId: r.day_id,
@@ -75,7 +79,7 @@ function rowToEvent(r: EventRow): TechEvent {
     requiredPlayers: r.required_players ?? 1,
     maxSubstitutes: r.max_substitutes ?? 0,
     registrationOpen: r.registration_open ?? true,
-    rules: r.rules ?? undefined,
+    rules,
     prizes: r.prizes ?? undefined,
   } as TechEvent;
 }
