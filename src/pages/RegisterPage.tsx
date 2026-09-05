@@ -1299,14 +1299,19 @@ function PaymentStep({
       </div>
 
       <div className="mt-8 space-y-5">
-        <Field
-          label="UTR / Transaction Number"
-          required
-          value={utrNumber}
-          onChange={(e) => setUtrNumber(e.target.value)}
-          placeholder="e.g. 123456789012"
-          hint="Enter the 12-digit UPI transaction ID."
-        />
+        <div>
+          <Field
+            label="TRANSACTION / UTR NUMBER"
+            required
+            value={utrNumber}
+            onChange={(e) => setUtrNumber(e.target.value)}
+            placeholder="e.g. 123456789012"
+            hint="GPay → Transaction ID | PhonePe → UTR Number | FamPay → Transaction ID"
+          />
+          <p className="mt-2 text-xs text-muted">
+            If you paid through Google Pay (GPay), enter your Transaction ID. If you paid through PhonePe, enter your UTR number. If you paid through FamPay, enter your Transaction ID.
+          </p>
+        </div>
 
         <div>
           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
