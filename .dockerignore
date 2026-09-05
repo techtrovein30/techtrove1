@@ -1,0 +1,15 @@
+node_modules
+.git
+.env
+dist
+.DS_Store
+.husky
+.prettierrc
+eslint.config.js
+vitest.config.ts
+fix_ts_errors.py
+fix_typecheck.py
+update_api.py
+update_register.py
+registerpage_conflict.txt
+skills-lock.json
