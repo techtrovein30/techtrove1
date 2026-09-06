@@ -24,6 +24,7 @@ import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 import { ProofModal } from "../../components/admin/ProofModal";
+import { toCsv, downloadCsv } from "../../lib/csv";
 
 type StatusFilter = "all" | "pending" | "recorded";
 
@@ -342,19 +343,13 @@ export function AdminRegistrationsPage() {
         r.fee.toString(),
         r.paymentStatus,
         new Date(r.createdAt).toISOString()
-      ].map(field => `"${field}"`).join(",");
+      ];
     });
     
-    const csvContent = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `techtrove_registrations_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      `techtrove_registrations_${new Date().toISOString().split('T')[0]}.csv`,
+      toCsv(headers, rows)
+    );
   }
 
   return (

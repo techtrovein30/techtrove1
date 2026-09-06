@@ -144,9 +144,24 @@ export async function getUploadSignedUrl(
 ): Promise<string | null> {
   if (!path) return null;
 
-  // Handle case where an old absolute URL might still be present in legacy data
+  // Handle case where an old absolute URL might still be present in legacy data.
+  // Validate that the URL points to our trusted Supabase project origin.
   if (path.startsWith("http://") || path.startsWith("https://")) {
-    return path;
+    try {
+      const url = new URL(path);
+      const isTrustedSupabase =
+        url.hostname.endsWith(".supabase.co") ||
+        url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1";
+
+      if (isTrustedSupabase) {
+        return path;
+      }
+      console.warn("Refusing to use untrusted storage URL:", path);
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // Strip bucket prefix if accidentally included

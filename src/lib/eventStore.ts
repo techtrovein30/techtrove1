@@ -316,6 +316,19 @@ export async function adminAddEvent(
 }
 
 export async function adminDeleteEvent(eventId: string): Promise<void> {
+  // Guard: check if registrations exist in either table to prevent catastrophic cascade deletion
+  const [internalCheck, externalCheck] = await Promise.all([
+    supabase.from("registrations_internal").select("id", { count: "exact", head: true }).eq("event_id", eventId),
+    supabase.from("registrations_external").select("id", { count: "exact", head: true }).eq("event_id", eventId),
+  ]);
+
+  const totalRegs = (internalCheck.count ?? 0) + (externalCheck.count ?? 0);
+  if (totalRegs > 0) {
+    throw new Error(
+      `Cannot delete this event: ${totalRegs} active registration(s) exist. Please close registrations instead to preserve records.`
+    );
+  }
+
   const { error } = await supabase.from("events").delete().eq("id", eventId);
   if (error) throw new Error(error.message);
   await fetchAndCacheDays();

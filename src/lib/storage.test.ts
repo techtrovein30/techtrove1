@@ -57,5 +57,11 @@ describe("Unified Storage Module", () => {
       const result = await getUploadSignedUrl(legacyUrl);
       expect(result).toBe(legacyUrl);
     });
+
+    it("refuses untrusted absolute URLs outside the project storage origin", async () => {
+      const untrustedUrl = "https://evil.example.com/payload.png";
+      const result = await getUploadSignedUrl(untrustedUrl);
+      expect(result).toBeNull();
+    });
   });
 });
