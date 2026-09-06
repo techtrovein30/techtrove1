@@ -32,16 +32,16 @@ export function HomePage() {
               {siteConfig.tagline}
             </p>
 
-            <div className="mt-6 flex items-center gap-6 border-t border-edge pt-6 lg:hidden">
+            <div className="mt-6 flex flex-col sm:flex-row items-center sm:items-start gap-6 border-t border-edge pt-6 lg:hidden text-center sm:text-left">
               <img
                 src="/images/techtrove-logo.webp"
                 alt="TechTrove 3.0 wolf emblem"
-                className="glow-emblem h-28 w-auto self-start"
+                className="glow-emblem h-48 w-auto object-contain"
               />
-              <p className="max-w-xs text-sm leading-relaxed text-muted">{siteConfig.description}</p>
+              <p className="max-w-sm text-sm leading-relaxed text-muted">{siteConfig.description}</p>
             </div>
 
-            <dl className="mt-8 grid max-w-md grid-cols-2 gap-4 sm:mt-10">
+            <dl className="mt-8 grid max-w-md grid-cols-1 sm:grid-cols-2 gap-4 sm:mt-10">
               <div className="glass-panel glowing-border p-5">
                 <dt className="eyebrow text-primary-soft">Dates</dt>
                 <dd className="mt-2 text-sm font-semibold text-foreground">{siteConfig.eventDate}</dd>
@@ -112,23 +112,43 @@ export function HomePage() {
         >
           TechTrove 3.0
         </span>
-        <div className="relative max-w-2xl">
-          <p className="eyebrow">Symposium</p>
-          <h2 className="display mt-3 text-4xl text-foreground sm:text-6xl">
-            Three days.
-            <br />
-            One arena.
-          </h2>
-          <hr className="rule-line mt-6 w-40" />
-          <p className="mt-6 max-w-xl text-sm leading-relaxed text-muted sm:text-base">
-            TechTrove 3.0 brings technology, competition and sport onto the same stage. Day 1 belongs to
-            the field. Day 2 and Day 3 open up the technical and creative tracks of the symposium.
-          </p>
-          <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted sm:text-base">
-            Built for students who compete hard and build harder, TechTrove 3.0 is where colleges meet,
-            teams form and the SIMATS wolf finds its pack.
-          </p>
+        <div className="relative grid gap-12 lg:grid-cols-2 lg:gap-8 lg:items-center">
+          <div className="max-w-2xl">
+            <p className="eyebrow">Symposium</p>
+            <h2 className="display mt-3 text-4xl text-foreground sm:text-6xl">
+              Three days.
+              <br />
+              One arena.
+            </h2>
+            <hr className="rule-line mt-6 w-40" />
+            <p className="mt-6 text-sm leading-relaxed text-muted sm:text-base">
+              TechTrove 3.0 brings technology, competition and sport onto the same stage. Day 1 belongs to
+              the field. Day 2 and Day 3 open up the technical and creative tracks of the symposium.
+            </p>
+            <p className="mt-4 text-sm leading-relaxed text-muted sm:text-base">
+              Built for students who compete hard and build harder, TechTrove 3.0 is where colleges meet,
+              teams form and the SIMATS wolf finds its pack.
+            </p>
+          </div>
 
+          <div className="hidden lg:grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4">
+              <div className="glass-panel overflow-hidden p-2 glowing-border shadow-2xl transition-transform hover:-translate-y-1">
+                <img src="/images/sport-a.webp" className="h-56 w-full object-cover rounded-xl grayscale hover:grayscale-0 transition-all duration-500" alt="Sports Event" />
+              </div>
+              <div className="glass-panel overflow-hidden p-2 glowing-border shadow-2xl transition-transform hover:-translate-y-1">
+                <img src="/images/sport-b.webp" className="h-72 w-full object-cover rounded-xl grayscale hover:grayscale-0 transition-all duration-500" alt="Competition" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-4 pt-16">
+              <div className="glass-panel overflow-hidden p-2 glowing-border shadow-2xl transition-transform hover:-translate-y-1">
+                <img src="/images/sport-c.webp" className="h-72 w-full object-cover rounded-xl grayscale hover:grayscale-0 transition-all duration-500" alt="Tech Event" />
+              </div>
+              <div className="glass-panel overflow-hidden p-6 glowing-border flex items-center justify-center bg-background/30 shadow-2xl transition-transform hover:-translate-y-1">
+                <img src="/images/techtrove-logo.webp" className="h-40 w-auto object-contain glow-emblem" alt="TechTrove 3.0" />
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -179,7 +199,7 @@ export function HomePage() {
                   {String(i + 1).padStart(2, "0")}
                 </span>
                 <span className="min-w-0 flex-1 py-1">
-                  <span className="eyebrow block">{day.label}</span>
+                  <span className="eyebrow block">{day.label} · {day.date}</span>
                   <span className="display mt-1 block text-3xl text-foreground sm:text-4xl">
                     {day.name}
                   </span>
@@ -223,7 +243,6 @@ export function HomePage() {
         <img
           src="/images/arena.webp"
           alt=""
-          loading="lazy"
           className="absolute inset-0 h-full w-full object-cover opacity-25"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background/70 to-background" />
@@ -231,7 +250,6 @@ export function HomePage() {
           <img
             src="/images/techtrove-logo.webp"
             alt="TechTrove 3.0 logo"
-            loading="lazy"
             className="glow-emblem h-20 w-auto"
           />
           <h2 className="display mt-8 text-5xl text-foreground sm:text-7xl">Claim your slot</h2>

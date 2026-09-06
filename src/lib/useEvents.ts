@@ -42,13 +42,12 @@ export function useEvents(): UseEventsResult {
   // ── initial fetch + re-fetch on manual reload ─────────────────────────
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
     getDaysAsync()
       .then((d) => {
         if (!cancelled) {
           setDays(d);
+          setError(null);
           setLoading(false);
         }
       })
@@ -71,8 +70,10 @@ export function useEvents(): UseEventsResult {
     // Use a unique channel name per subscription so re-mounts (React StrictMode
     // double-invokes effects in dev) never collide on the same channel, which
     // otherwise throws "cannot add postgres_changes callbacks after subscribe()".
+    const rand = new Uint32Array(4);
+    crypto.getRandomValues(rand);
     const channel = supabase
-      .channel(`events-realtime-${Math.random().toString(36).slice(2)}`)
+      .channel(`events-realtime-${Array.from(rand, (n) => n.toString(36)).join("")}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "events" },
@@ -90,7 +91,7 @@ export function useEvents(): UseEventsResult {
     };
   }, []); // only once per mount
 
-  return { days, loading, error, reload: () => setTick((t) => t + 1) };
+  return { days, loading, error, reload: () => { setLoading(true); setError(null); setTick((t) => t + 1); } };
 }
 
 // ─── useAllEvents ────────────────────────────────────────────────────────────

@@ -1,18 +1,9 @@
 import { Check } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
+import { STEP_LABELS, type StepId } from "./steps";
 
-export const ALL_STEPS = ["sport", "terms", "team", "members", "review", "payment"] as const;
-export type StepId = (typeof ALL_STEPS)[number];
-
-const LABELS: Record<StepId, string> = {
-  sport: "Event",
-  terms: "Terms",
-  team: "Team",
-  members: "Members",
-  review: "Review",
-  payment: "Payment",
-};
+export type { StepId } from "./steps";
 
 export function RegistrationStepper({ current, steps }: { current: StepId; steps: StepId[] }) {
   const index = steps.indexOf(current);
@@ -45,7 +36,7 @@ export function RegistrationStepper({ current, steps }: { current: StepId; steps
                     active ? "text-foreground" : done ? "text-primary-soft" : "text-muted",
                   )}
                 >
-                  {LABELS[step]}
+                  {STEP_LABELS[step]}
                 </span>
               </div>
               {i < steps.length - 1 && (
@@ -63,7 +54,7 @@ export function RegistrationStepper({ current, steps }: { current: StepId; steps
       <div className="md:hidden">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
           Step {index + 1} of {steps.length} ·{" "}
-          <span className="text-primary-soft">{LABELS[current]}</span>
+          <span className="text-primary-soft">{STEP_LABELS[current]}</span>
         </p>
         <div className="mt-2.5 flex gap-1.5" aria-hidden>
           {steps.map((step, i) => (
@@ -83,7 +74,7 @@ interface StepShellProps {
 
 export function StepShell({ title, lead, children }: StepShellProps) {
   return (
-    <section className="clip-angle diag-stripes border border-edge bg-surface p-6 sm:p-9">
+    <section className="clip-angle diag-stripes border border-edge bg-surface p-6 sm:p-10">
       <h2 className="display text-3xl text-foreground sm:text-4xl">{title}</h2>
       {lead && <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">{lead}</p>}
       <hr className="rule-line mt-5 w-32" />

@@ -13,20 +13,35 @@ import {
   Copy,
   Check,
   Loader2,
+  RefreshCcw,
 } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
   adminUpdateRegistration,
   adminDeleteRegistration,
+  adminRequestPaymentReupload,
 } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
 import { useAdminRegistrations } from "../../lib/useAdminRealtime";
 import { formatFee } from "../../lib/utils";
+import { toCsv, downloadCsv } from "../../lib/csv";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 import { ProofModal } from "../../components/admin/ProofModal";
-import { toCsv, downloadCsv } from "../../lib/csv";
+import { ReuploadRequestDialog } from "../../components/admin/ReuploadRequestDialog";
 
 type StatusFilter = "all" | "pending" | "recorded";
+
+/** One flat-pass batch: every registration row sharing a registration_code. */
+interface BatchGroup {
+  code: string;
+  rows: Registration[];
+  totalFee: number;
+  eventNames: string[];
+  teamName: string;
+  captainName: string;
+  createdAt: string;
+  paymentStatus: "pending" | "recorded";
+}
 
 const PAGE_SIZE = 15;
 
@@ -45,8 +60,12 @@ function RegistrationDetail({
   const event = events.find((e) => e.id === registration.eventId);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showProofModal, setShowProofModal] = useState(false);
+  const [showReuploadDialog, setShowReuploadDialog] = useState(false);
+  const [reuploadBusy, setReuploadBusy] = useState(false);
+  const [reuploadBanner, setReuploadBanner] = useState<string | null>(null);
   const [copiedUtr, setCopiedUtr] = useState(false);
   const [busyPayment, setBusyPayment] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   function copyUtr() {
     if (!registration.utrNumber) return;
@@ -67,14 +86,42 @@ function RegistrationDetail({
     try {
       const updated = await adminUpdateRegistration(registration.id, {
         paymentStatus: nextStatus,
+        // Once a payment is approved, clear any outstanding re-upload request.
+        // Only write the note column when one exists so the update keeps
+        // working before the deferred SQL adds the column.
+        paymentReviewNote:
+          nextStatus === "recorded" && registration.paymentReviewNote ? null : undefined,
       });
       onUpdated(updated);
+      if (nextStatus === "recorded") setReuploadBanner(null);
     } catch (err) {
       // Revert optimistic update
       onUpdated(registration);
-      alert(err instanceof Error ? err.message : "Payment update failed.");
+      setDetailError(err instanceof Error ? err.message : "Payment update failed.");
     } finally {
       setBusyPayment(false);
+    }
+  }
+
+  async function handleRequestReupload(reason: string, note: string) {
+    setReuploadBusy(true);
+    setDetailError(null);
+    try {
+      const updated = await adminRequestPaymentReupload(registration.id, {
+        reason,
+        note,
+      });
+      onUpdated(updated);
+      setReuploadBanner(
+        "Screenshot re-upload requested. The participant has been notified to upload a new screenshot.",
+      );
+      setShowReuploadDialog(false);
+    } catch (err) {
+      setDetailError(
+        err instanceof Error ? err.message : "Re-upload request could not be saved.",
+      );
+    } finally {
+      setReuploadBusy(false);
     }
   }
 
@@ -83,7 +130,7 @@ function RegistrationDetail({
       await adminDeleteRegistration(registration.id);
       onDeleted(registration.id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      setDetailError(err instanceof Error ? err.message : "Delete failed.");
     }
     setConfirmDelete(false);
   }
@@ -91,9 +138,39 @@ function RegistrationDetail({
   const players = registration.members.filter((m) => m.role === "player");
   const substitutes = registration.members.filter((m) => m.role === "substitute");
   const screenshotPath = registration.paymentScreenshotPath ?? registration.paymentScreenshotUrl;
+  const hasReuploadRequest = !!registration.paymentReviewNote;
+  const reviewNoteLabel = hasReuploadRequest
+    ? registration.paymentReviewNote!.replace(/^RE_UPLOAD_REQUESTED\s*—\s*/, "")
+    : "";
 
   return (
     <>
+      {detailError && (
+        <div role="alert" className="flex items-start justify-between gap-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <span>{detailError}</span>
+          <button
+            type="button"
+            onClick={() => setDetailError(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {reuploadBanner && (
+        <div role="status" className="flex items-start justify-between gap-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+          <span>{reuploadBanner}</span>
+          <button
+            type="button"
+            onClick={() => setReuploadBanner(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss banner"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {confirmDelete && (
         <ConfirmDialog
           title="Delete registration"
@@ -107,6 +184,16 @@ function RegistrationDetail({
           confirmLabel="Delete registration"
           onConfirm={handleDelete}
           onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+
+      {showReuploadDialog && (
+        <ReuploadRequestDialog
+          teamName={registration.teamName}
+          registrationCode={registration.registrationCode}
+          busy={reuploadBusy}
+          onConfirm={handleRequestReupload}
+          onCancel={() => setShowReuploadDialog(false)}
         />
       )}
 
@@ -181,6 +268,17 @@ function RegistrationDetail({
                 </button>
               </div>
 
+              {/* Re-upload requested marker */}
+              {hasReuploadRequest && (
+                <div className="border-t border-amber-500/30 pt-3">
+                  <span className="inline-flex items-center gap-1.5 border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-300">
+                    <RefreshCcw className="h-3 w-3" aria-hidden />
+                    Re-upload requested
+                  </span>
+                  <p className="mt-1.5 text-xs text-muted">{reviewNoteLabel}</p>
+                </div>
+              )}
+
               {/* Payment Proof & UTR Actions */}
               {(registration.utrNumber || screenshotPath) && (
                 <div className="border-t border-white/[0.06] pt-3 flex flex-wrap items-center justify-between gap-2">
@@ -199,15 +297,26 @@ function RegistrationDetail({
                     </div>
                   ) : <div />}
 
-                  {screenshotPath && (
-                    <button
-                      type="button"
-                      onClick={() => setShowProofModal(true)}
-                      className="inline-flex items-center gap-1.5 rounded bg-primary/20 border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary-soft hover:bg-primary/30 transition-colors"
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" /> View Screenshot
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {screenshotPath && (
+                      <button
+                        type="button"
+                        onClick={() => setShowProofModal(true)}
+                        className="inline-flex items-center gap-1.5 rounded bg-primary/20 border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary-soft hover:bg-primary/30 transition-colors"
+                      >
+                        <ImageIcon className="h-3.5 w-3.5" /> View Screenshot
+                      </button>
+                    )}
+                    {screenshotPath && registration.paymentStatus === "pending" && (
+                      <button
+                        type="button"
+                        onClick={() => setShowReuploadDialog(true)}
+                        className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors"
+                      >
+                        <RefreshCcw className="h-3.5 w-3.5" /> Request Re-upload
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -299,6 +408,15 @@ export function AdminRegistrationsPage() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Registration | null>(null);
 
+  // L13: reset to page 1 whenever a filter or the query changes. Resets state
+  // during render (React's recommended pattern) instead of in an effect.
+  const [filterKey, setFilterKey] = useState("");
+  const currentFilterKey = `${query}:${eventFilter}:${statusFilter}`;
+  if (currentFilterKey !== filterKey) {
+    setFilterKey(currentFilterKey);
+    setPage(1);
+  }
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
     return registrations.filter((r) => {
@@ -317,8 +435,38 @@ export function AdminRegistrationsPage() {
     });
   }, [registrations, query, eventFilter, statusFilter, events]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Group registrations into flat-pass batches keyed by registration_code.
+  // Each batch is ONE payment that may cover multiple events, so we collapse
+  // the per-event rows into a single row showing the batch total fee.
+  const grouped = useMemo<BatchGroup[]>(() => {
+    const byCode = new Map<string, Registration[]>();
+    for (const r of filtered) {
+      const list = byCode.get(r.registrationCode) ?? [];
+      list.push(r);
+      byCode.set(r.registrationCode, list);
+    }
+
+    return Array.from(byCode.values()).map((rows) => {
+      const first = rows[0];
+      const totalFee = rows.reduce((sum, r) => sum + (r.fee ?? 0), 0);
+      const eventNames = rows
+        .map((r) => events.find((e) => e.id === r.eventId)?.name ?? r.eventId)
+        .filter((n, i, arr) => arr.indexOf(n) === i);
+      return {
+        code: first.registrationCode,
+        rows,
+        totalFee,
+        eventNames,
+        teamName: first.teamName,
+        captainName: first.captainName,
+        createdAt: first.createdAt,
+        paymentStatus: (first.paymentStatus === "recorded" ? "recorded" : "pending") as "pending" | "recorded",
+      };
+    });
+  }, [filtered, events]);
+
+  const totalPages = Math.max(1, Math.ceil(grouped.length / PAGE_SIZE));
+  const paged = grouped.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleDeleted = useCallback(() => {
     refresh();
@@ -340,12 +488,12 @@ export function AdminRegistrationsPage() {
         ev?.name ?? r.eventId,
         r.teamName,
         r.captainName,
-        r.fee.toString(),
+        r.fee,
         r.paymentStatus,
         new Date(r.createdAt).toISOString()
       ];
     });
-    
+
     downloadCsv(
       `techtrove_registrations_${new Date().toISOString().split('T')[0]}.csv`,
       toCsv(headers, rows)
@@ -368,8 +516,7 @@ export function AdminRegistrationsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Registrations</h1>
           <p className="mt-1 text-sm text-muted">
-            {registrations.length} team entry
-            {registrations.length !== 1 ? "ies" : ""}
+            {grouped.length} team entr{grouped.length !== 1 ? "ies" : "y"}
           </p>
         </div>
         <button
@@ -467,44 +614,54 @@ export function AdminRegistrationsPage() {
                   </td>
                 </tr>
               ) : (
-                paged.map((r) => {
-                  const ev = events.find((e) => e.id === r.eventId);
+                paged.map((group) => {
                   return (
                     <tr
-                      key={r.id}
+                      key={group.code}
                       className="cursor-pointer transition-colors hover:bg-white/[0.025]"
-                      onClick={() => setSelected(r)}
+                      onClick={() => setSelected(group.rows[0])}
                     >
                       <td className="px-4 py-3">
                         <div>
                           <p className="font-medium text-foreground">
-                            {r.teamName}
+                            {group.teamName}
                           </p>
                           <p className="text-xs font-mono text-primary-soft">
-                            {r.registrationCode}
+                            {group.code}
                           </p>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-muted">
-                        {ev?.name ?? r.eventId}
+                        {group.eventNames.length > 1 ? (
+                          <div>
+                            <span className="text-[10px] uppercase tracking-[0.1em]">
+                              {group.eventNames.join(" · ")}
+                            </span>
+                            <span className="ml-2 rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-muted">
+                              {group.eventNames.length}
+                            </span>
+                          </div>
+                        ) : (
+                          group.eventNames[0] ?? group.rows[0].eventId
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-muted">{r.captainName}</td>
+                      <td className="px-4 py-3 text-muted">{group.captainName}</td>
                       <td className="px-4 py-3 text-foreground font-medium">
-                        {formatFee(r.fee)}
+                        {formatFee(group.totalFee)}
                       </td>
                       <td className="px-4 py-3">
                         <span
                           className={`border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
-                            r.paymentStatus === "recorded"
+                            group.paymentStatus === "recorded"
                               ? "border-emerald-500/40 text-emerald-400"
                               : "border-amber-500/40 text-amber-400"
                           }`}
                         >
-                          {r.paymentStatus === "recorded" ? "Paid" : "Pending"}
+                          {group.paymentStatus === "recorded" ? "Paid" : "Pending"}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-muted">
-                        {new Date(r.createdAt).toLocaleDateString()}
+                        {new Date(group.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3">
                         <ChevronRight className="h-4 w-4 text-muted" />
@@ -522,7 +679,7 @@ export function AdminRegistrationsPage() {
           <div className="flex items-center justify-between border-t border-white/[0.07] px-4 py-3">
             <p className="text-xs text-muted">
               {(page - 1) * PAGE_SIZE + 1}–
-              {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+              {Math.min(page * PAGE_SIZE, grouped.length)} of {grouped.length}
             </p>
             <div className="flex gap-1">
               <button

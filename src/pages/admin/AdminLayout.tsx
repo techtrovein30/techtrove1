@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   BarChart3,
@@ -6,7 +6,6 @@ import {
   CreditCard,
   LogOut,
   Menu,
-  Settings,
   ShieldCheck,
   Users,
   ClipboardList,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { adminSignOut } from "../../lib/adminApi";
+import { seedEventsIfNeeded } from "../../lib/eventStore";
 import { cn } from "../../lib/utils";
 
 const navItems = [
@@ -23,7 +23,6 @@ const navItems = [
   { to: "/wch1925/teams", label: "Teams", icon: UsersRound },
   { to: "/wch1925/payments", label: "Payments", icon: CreditCard },
   { to: "/wch1925/events", label: "Events", icon: CalendarDays },
-  { to: "/wch1925/settings", label: "Settings", icon: Settings },
 ];
 
 function NavItem({
@@ -67,10 +66,40 @@ export function AdminLayout() {
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  function handleSignOut() {
-    adminSignOut();
+  // Seed the event store once — this layout is only mounted behind AdminRoute,
+  // so seeding (a DB write) never runs for unauthenticated visitors (H04).
+  useEffect(() => {
+    seedEventsIfNeeded().catch(() => {
+      // Seeding is best-effort; the events table may already be populated.
+    });
+  }, []);
+
+  const handleSignOut = useCallback(() => {
+    void adminSignOut();
     window.location.replace("/wch1925");
-  }
+  }, []);
+
+  // L15: auto sign-out after 15 minutes of inactivity in the admin panel.
+  useEffect(() => {
+    const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function resetIdle() {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => handleSignOut(), IDLE_TIMEOUT_MS);
+    }
+
+    const activityEvents = ["mousemove", "keydown", "click", "touchstart", "scroll"] as const;
+    activityEvents.forEach((evt) =>
+      window.addEventListener(evt, resetIdle, { passive: true })
+    );
+    resetIdle();
+
+    return () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      activityEvents.forEach((evt) => window.removeEventListener(evt, resetIdle));
+    };
+  }, [handleSignOut]);
 
   const sidebar = (
     <div className="flex h-full flex-col">

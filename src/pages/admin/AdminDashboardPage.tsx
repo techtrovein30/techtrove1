@@ -28,7 +28,7 @@ export function AdminDashboardPage() {
       .then(setStats)
       .catch((e) => {
         console.error("Dashboard error:", e);
-        setErrorMsg(e instanceof Error ? e.message : String(e));
+        setErrorMsg("Could not load dashboard statistics. Check your connection and try again.");
         setStats(null);
       });
   }

@@ -19,6 +19,7 @@ import { api } from "../lib/api";
 import type { User, ParticipantType } from "../lib/api";
 import { getParticipantById } from "../lib/db";
 import type { ParticipantRow } from "../lib/db";
+import { validateRegisterNumber, validateEmail, validatePhoneNumber } from "../lib/validation";
 
 interface GooglePendingProfile {
   authUserId: string;
@@ -40,7 +41,7 @@ interface AuthContextValue {
     college?: string;
     phone?: string;
   }) => Promise<User>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -73,24 +74,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Restore session on initial mount
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const resolved = await resolveSessionParticipant(session.user.id);
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        if (session?.user) {
+          const resolved = await resolveSessionParticipant(session.user.id);
 
-        if (resolved) {
-          setUser(resolved);
-        } else {
-          // Google OAuth user without a participant row yet
-          const meta = session.user.user_metadata ?? {};
-          setGooglePendingProfile({
-            authUserId: session.user.id,
-            email: session.user.email ?? meta.email ?? "",
-            fullName: meta.full_name ?? meta.name ?? session.user.email?.split("@")[0] ?? "",
-          });
+          if (resolved) {
+            setUser(resolved);
+          } else {
+            // Google OAuth user without a participant row yet
+            const meta = session.user.user_metadata ?? {};
+            setGooglePendingProfile({
+              authUserId: session.user.id,
+              email: session.user.email ?? meta.email ?? "",
+              fullName: meta.full_name ?? meta.name ?? session.user.email?.split("@")[0] ?? "",
+            });
+          }
         }
-      }
-      setLoading(false);
-    });
+      })
+      .catch((err) => {
+        // M12: never leave the app stuck in the loading state
+        console.error("AuthContext: session restore failed:", err);
+      })
+      .finally(() => setLoading(false));
 
     // Listen for auth state changes (sign-in, sign-out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -140,9 +146,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async completeGoogleProfile(input) {
         if (!googlePendingProfile) throw new Error("No pending Google profile to complete.");
 
-        const { authUserId, email } = googlePendingProfile;
+        // M10: enforce the participant type at runtime so we never write a
+        // profile to the wrong split table.
         const participantType = input.participantType;
+        if (participantType !== "internal" && participantType !== "external") {
+          throw new Error("Invalid participant type.");
+        }
+
+        const { authUserId, email } = googlePendingProfile;
         const fullName = input.fullName.trim();
+        if (!fullName) throw new Error("Full name is required.");
+
+        if (participantType === "internal") {
+          const regErr = validateRegisterNumber(input.regNumber, "internal");
+          if (regErr) throw new Error(regErr);
+
+          const emailErr = validateEmail(email, "internal");
+          if (emailErr) throw new Error(emailErr);
+
+          const phoneErr = validatePhoneNumber(input.phone, false);
+          if (phoneErr) throw new Error(phoneErr);
+        } else {
+          const emailErr = validateEmail(email, "external");
+          if (emailErr) throw new Error(emailErr);
+
+          const phoneErr = validatePhoneNumber(input.phone, true);
+          if (phoneErr) throw new Error(phoneErr);
+        }
+
         const usernameBase = fullName
           .toLowerCase()
           .split(/\s+/)
@@ -203,10 +234,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setGooglePendingProfile(null);
         return newUser;
       },
-      signOut() {
-        api.signOut();
-        setUser(null);
-        setGooglePendingProfile(null);
+      async signOut() {
+        // M11: wait for the server-side sign-out before clearing local state
+        // so we never show a phantom logged-out state.
+        try {
+          await api.signOut();
+        } finally {
+          setUser(null);
+          setGooglePendingProfile(null);
+        }
       },
     }),
     [user, loading, googlePendingProfile],
@@ -215,6 +251,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// The context and its hook are intentionally co-located — this is the standard
+// React pattern. Suppress the react-refresh fast-refresh advisory for the hook.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");

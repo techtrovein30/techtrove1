@@ -1,0 +1,18 @@
+﻿diff --cc src/pages/RegisterPage.tsx
+index 05bb3a9,15eb281..0000000
+--- a/src/pages/RegisterPage.tsx
++++ b/src/pages/RegisterPage.tsx
+@@@ -213,9 -257,7 +259,13 @@@ function RegistrationFlow({ preselected
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  
+++<<<<<<< HEAD
+ +  const [submitting, setSubmitting] = useState(false);
+ +
+ +  async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotUrl: string }): Promise<void> {
+++=======
++   async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }): Promise<void> {
+++>>>>>>> origin/main
+      if (!event) throw new Error("Select an event first.");
+      const indiv = isIndividualEvent(event);
+      const firstMember = draft.members[0];

@@ -90,13 +90,13 @@ export async function getParticipantByEmail(
     supabase
       .from("internal_participants")
       .select("*")
-      .ilike("email", normalized)
+      .eq("email", normalized)
       .maybeSingle(),
 
     supabase
       .from("external_participants")
       .select("*")
-      .ilike("email", normalized)
+      .eq("email", normalized)
       .maybeSingle(),
   ]);
 
@@ -193,8 +193,10 @@ export interface RegistrationRow {
   members: unknown;
   created_at: string;
   utr_number?: string;
-  payment_screenshot_path?: string;
-  payment_screenshot_url?: string;
+  payment_proof_path?: string;       // used by registrations_internal (and registrations_external)
+  payment_screenshot_path?: string;  // used by registrations_external only
+  payment_screenshot_url?: string;   // used by registrations_external only
+  payment_review_note?: string;
 }
 
 /** Find which table holds a registration id. Returns null if absent. */
@@ -273,21 +275,51 @@ export async function getRegistrationByCode(code: string): Promise<RegistrationR
     const { data } = await supabase
       .from(table)
       .select("*")
-      .ilike("registration_code", code)
+      .eq("registration_code", code)
       .maybeSingle();
     if (data) return data as unknown as RegistrationRow;
   }
   return null;
 }
 
-/** Registration counts keyed by user_id (admin panel). */
 export async function getRegistrationCountsByUser(): Promise<Record<string, number>> {
-  const [internal, external] = await Promise.all([
-    supabase.from("registrations_internal").select("user_id"),
-    supabase.from("registrations_external").select("user_id"),
+  const [registrations, participants] = await Promise.all([
+    getAllRegistrations(),
+    getAllParticipants()
   ]);
+
+  const idByEmail = new Map<string, string>();
+  const idByRegNo = new Map<string, string>();
+  
+  for (const p of participants) {
+    if (p.email) idByEmail.set(p.email.toLowerCase(), p.id);
+    // @ts-ignore - internal participants have reg_number
+    if (p.reg_number) idByRegNo.set(p.reg_number.toLowerCase(), p.id);
+  }
+
   const counts: Record<string, number> = {};
-  for (const row of internal.data ?? []) counts[row.user_id] = (counts[row.user_id] ?? 0) + 1;
-  for (const row of external.data ?? []) counts[row.user_id] = (counts[row.user_id] ?? 0) + 1;
+  
+  for (const reg of registrations) {
+    const uniqueUserIdsInReg = new Set<string>();
+    if (reg.user_id) uniqueUserIdsInReg.add(reg.user_id);
+    
+    if (Array.isArray(reg.members)) {
+      for (const m of reg.members as any[]) {
+        if (m.email) {
+          const uid = idByEmail.get(String(m.email).toLowerCase());
+          if (uid) uniqueUserIdsInReg.add(uid);
+        }
+        if (m.regNumber) {
+          const uid = idByRegNo.get(String(m.regNumber).toLowerCase());
+          if (uid) uniqueUserIdsInReg.add(uid);
+        }
+      }
+    }
+    
+    for (const uid of uniqueUserIdsInReg) {
+      counts[uid] = (counts[uid] ?? 0) + 1;
+    }
+  }
+  
   return counts;
 }

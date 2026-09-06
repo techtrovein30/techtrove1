@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { Navbar } from "./Navbar";
 import { Footer } from "./Footer";
+import { SocialFloater } from "./SocialFloater";
 
 /**
  * PublicLayout wraps all public-facing pages with the shared Navbar and Footer.
@@ -14,6 +15,7 @@ export function PublicLayout() {
         <Outlet />
       </main>
       <Footer />
+      <SocialFloater />
     </>
   );
 }

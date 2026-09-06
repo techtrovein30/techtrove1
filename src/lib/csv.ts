@@ -8,8 +8,10 @@
  * with a single quote so they render as literal text rather than executing
  * when opened in spreadsheet software like Excel or Google Sheets.
  * Double quotes within fields are escaped per RFC 4180.
+ *
+ * Leading \n (line feed) is included so a field cannot inject a new row or
+ * start a formula directly after a CR/LF.
  */
-
 const FORMULA_CHAR_RE = /^[=+\-@\t\r\n]/;
 
 /** Escape a single field per RFC 4180 and neutralize leading formula chars. */

@@ -4,10 +4,16 @@ import { useEvent } from "../lib/useEvents";
 import { formatFee } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 
+import { isSportEvent, isIndividualEvent, safeEventImage } from "../lib/validation";
+
 export function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const { event, day, loading } = useEvent(eventId);
   const { user } = useAuth();
+
+  const isSport = isSportEvent(event);
+  const isIndividual = isIndividualEvent(event);
+  const heroImage = safeEventImage(event?.image);
 
   if (loading) {
     return (
@@ -44,10 +50,10 @@ export function EventDetailPage() {
     <div className="reveal-up">
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-edge">
-        {event.image && (
+        {heroImage && (
           <>
             <img
-              src={event.image}
+              src={heroImage}
               alt=""
               className="absolute inset-0 h-full w-full object-cover opacity-30"
             />
@@ -90,12 +96,14 @@ export function EventDetailPage() {
                 </dt>
                 <dd className="display mt-3 text-3xl">{event.requiredPlayers ?? "TBA"}</dd>
               </div>
-              <div className="bg-surface p-5">
-                <dt className="eyebrow flex items-center gap-2">
-                  <UserPlus className="h-3.5 w-3.5" aria-hidden /> Substitutes
-                </dt>
-                <dd className="display mt-3 text-3xl">{event.maxSubstitutes ?? "TBA"}</dd>
-              </div>
+              {isSport && (
+                <div className="bg-surface p-5">
+                  <dt className="eyebrow flex items-center gap-2">
+                    <UserPlus className="h-3.5 w-3.5" aria-hidden /> Substitutes
+                  </dt>
+                  <dd className="display mt-3 text-3xl">{event.maxSubstitutes ?? 0}</dd>
+                </div>
+              )}
               <div className="bg-surface p-5">
                 <dt className="eyebrow flex items-center gap-2">
                   <Ticket className="h-3.5 w-3.5" aria-hidden /> Fee / person
@@ -156,19 +164,23 @@ export function EventDetailPage() {
               <p className="display mt-3 text-4xl text-foreground">
                 {user?.participantType === "internal" ? "Free" : formatFee(event.registrationFee)}
               </p>
-              <p className="mt-1 text-xs text-muted">per person · charged for each player &amp; substitute · non-refundable</p>
+              <p className="mt-1 text-xs text-muted">
+                per person · {isSport ? "charged for each player & substitute" : "charged per participant"} · non-refundable
+              </p>
 
               <dl className="mt-6 space-y-3 border-t border-edge pt-6 text-sm">
                 <div className="flex justify-between gap-4">
-                  <dt className="text-muted">Team size</dt>
+                  <dt className="text-muted">{isIndividual ? "Format" : "Team size"}</dt>
                   <dd className="font-medium text-foreground">
-                    {event.requiredPlayers ?? "-"} players
+                    {isIndividual ? "Individual" : `${event.requiredPlayers ?? "-"} players`}
                   </dd>
                 </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted">Substitutes</dt>
-                  <dd className="font-medium text-foreground">up to {event.maxSubstitutes ?? 0}</dd>
-                </div>
+                {isSport && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted">Substitutes</dt>
+                    <dd className="font-medium text-foreground">up to {event.maxSubstitutes ?? 0}</dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted">Status</dt>
                   <dd>

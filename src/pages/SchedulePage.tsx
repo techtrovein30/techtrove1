@@ -25,7 +25,7 @@ export function SchedulePage() {
               <article key={day.id}>
                 <header className="flex flex-wrap items-center justify-between gap-4 border-b border-edge pb-6">
                   <div>
-                    <p className="eyebrow">{day.label}</p>
+                    <p className="eyebrow">{day.label} · {day.date}</p>
                     <h2 className="display mt-2 text-3xl text-foreground sm:text-4xl">{day.name}</h2>
                   </div>
                   {day.status === "active" ? (

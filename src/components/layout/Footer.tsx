@@ -39,8 +39,22 @@ export function Footer() {
         <div>
           <h2 className="eyebrow">Reach us</h2>
           <ul className="mt-4 space-y-2.5 text-sm text-foreground/80">
-            <li>{siteConfig.contact.email}</li>
-            <li>{siteConfig.contact.phone}</li>
+            <li>
+              <a
+                href={`mailto:${siteConfig.contact.email}`}
+                className="break-all transition-colors hover:text-primary-soft"
+              >
+                {siteConfig.contact.email}
+              </a>
+            </li>
+            <li>
+              <a
+                href={`tel:${siteConfig.contact.phone.replace(/\s/g, "")}`}
+                className="transition-colors hover:text-primary-soft"
+              >
+                {siteConfig.contact.phone}
+              </a>
+            </li>
             <li>{siteConfig.contact.committee}</li>
           </ul>
           <ul className="mt-6 flex flex-wrap gap-3">
@@ -48,6 +62,8 @@ export function Footer() {
               <li key={social.label}>
                 <a
                   href={social.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="inline-flex border border-edge px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted transition-colors hover:border-primary hover:text-primary-soft"
                 >
                   {social.label}

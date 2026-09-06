@@ -20,39 +20,46 @@ export function ProofModal({
   utrNumber,
 }: ProofModalProps) {
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(isOpen && Boolean(path));
+  const [error, setError] = useState<string | null>(
+    isOpen && !path ? "No proof file path is attached to this record." : null
+  );
   const [copied, setCopied] = useState(false);
 
+  // Reset per-file state during render whenever the target (isOpen/path)
+  // changes, instead of calling setState synchronously inside the effect.
+  const [loadKey, setLoadKey] = useState<{ isOpen: boolean; path: string | null | undefined }>({
+    isOpen,
+    path,
+  });
+  if (loadKey.isOpen !== isOpen || loadKey.path !== path) {
+    setLoadKey({ isOpen, path });
+    setCopied(false);
+    setSignedUrl(null);
+    setLoading(isOpen && Boolean(path));
+    setError(isOpen && !path ? "No proof file path is attached to this record." : null);
+  }
+
   useEffect(() => {
+    if (!isOpen || !path) return;
     let cancelled = false;
 
-    if (isOpen && path) {
-      setLoading(true);
-      setError(null);
-      setSignedUrl(null);
-
-      adminGetSignedUrl(path, 600) // 10-minute temporary signed URL
-        .then((url) => {
-          if (cancelled) return;
-          if (!url) {
-            setError("Unable to generate signed URL. The file may have been removed or access is restricted.");
-          } else {
-            setSignedUrl(url);
-          }
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setError(err instanceof Error ? err.message : "Failed to load proof image.");
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    } else if (isOpen && !path) {
-      setError("No proof file path is attached to this record.");
-      setSignedUrl(null);
-      setLoading(false);
-    }
+    adminGetSignedUrl(path, 600) // 10-minute temporary signed URL
+      .then((url) => {
+        if (cancelled) return;
+        if (!url) {
+          setError("Unable to generate signed URL. The file may have been removed or access is restricted.");
+        } else {
+          setSignedUrl(url);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load proof image.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     return () => {
       cancelled = true;

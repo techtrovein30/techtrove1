@@ -5,6 +5,8 @@ import {
   Trash2,
   X,
   Calendar,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
 import {
   getDaysAsync,
@@ -38,6 +40,7 @@ function EventModal({
   const [players, setPlayers] = useState(event?.requiredPlayers ?? 7);
   const [subs, setSubs] = useState(event?.maxSubstitutes ?? 3);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     if (!name.trim()) {
@@ -45,15 +48,33 @@ function EventModal({
       return;
     }
 
+    // M16: reject NaN / out-of-range numerics before persisting.
+    const feeNum = Number(fee);
+    const playersNum = Number(players);
+    const subsNum = Number(subs);
+    if (!Number.isFinite(feeNum) || feeNum < 0) {
+      setError("Enter a valid fee.");
+      return;
+    }
+    if (!Number.isFinite(playersNum) || playersNum < 1) {
+      setError("Required players must be at least 1.");
+      return;
+    }
+    if (!Number.isFinite(subsNum) || subsNum < 0) {
+      setError("Max substitutes must be 0 or more.");
+      return;
+    }
+
+    setSaving(true);
     try {
       if (event) {
         await adminUpdateEvent(event.id, {
           name: name.trim(),
           category: category.trim(),
           description: description.trim(),
-          registrationFee: Number(fee),
-          requiredPlayers: Number(players),
-          maxSubstitutes: Number(subs),
+          registrationFee: feeNum,
+          requiredPlayers: playersNum,
+          maxSubstitutes: subsNum,
         });
       } else {
         await adminAddEvent(dayId, {
@@ -62,9 +83,9 @@ function EventModal({
           description: description.trim(),
           registrationOpen: true,
           registrationType: "team",
-          registrationFee: Number(fee),
-          requiredPlayers: Number(players),
-          maxSubstitutes: Number(subs),
+          registrationFee: feeNum,
+          requiredPlayers: playersNum,
+          maxSubstitutes: subsNum,
           rules: [
             "Team size must match the published player limits.",
             "All players must carry valid college ID cards.",
@@ -75,6 +96,8 @@ function EventModal({
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -100,6 +123,7 @@ function EventModal({
             <input
               type="text"
               value={name}
+              maxLength={100}
               onChange={(e) => setName(e.target.value)}
               className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
             />
@@ -113,6 +137,7 @@ function EventModal({
               <input
                 type="text"
                 value={category}
+                maxLength={50}
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
               />
@@ -123,6 +148,7 @@ function EventModal({
               </label>
               <input
                 type="number"
+                min={0}
                 value={fee}
                 onChange={(e) => setFee(Number(e.target.value))}
                 className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
@@ -137,6 +163,7 @@ function EventModal({
               </label>
               <input
                 type="number"
+                min={1}
                 value={players}
                 onChange={(e) => setPlayers(Number(e.target.value))}
                 className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
@@ -148,6 +175,7 @@ function EventModal({
               </label>
               <input
                 type="number"
+                min={0}
                 value={subs}
                 onChange={(e) => setSubs(Number(e.target.value))}
                 className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
@@ -162,6 +190,7 @@ function EventModal({
             <textarea
               rows={3}
               value={description}
+              maxLength={500}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
             />
@@ -171,14 +200,17 @@ function EventModal({
         <div className="flex gap-3 pt-2">
           <button
             onClick={onClose}
-            className="flex-1 rounded border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted hover:text-foreground"
+            disabled={saving}
+            className="flex-1 rounded border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted hover:text-foreground disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="flex-1 rounded bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white hover:bg-primary-soft"
+            disabled={saving}
+            className="flex-1 flex items-center justify-center gap-2 rounded bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white hover:bg-primary-soft disabled:opacity-50"
           >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Save Event
           </button>
         </div>
@@ -235,6 +267,7 @@ function DayModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Tech Events"
+              maxLength={80}
               className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
             />
           </div>
@@ -247,6 +280,7 @@ function DayModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Short description shown on the public site."
+              maxLength={500}
               className="w-full border border-white/10 bg-[#0f0a0a] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/60"
             />
           </div>
@@ -278,11 +312,22 @@ export function AdminEventsPage() {
   const [deletingEvent, setDeletingEvent] = useState<TechEvent | null>(null);
   const [editingDay, setEditingDay] = useState<Day | null>(null);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [rowError, setRowError] = useState<string | null>(null);
+  const [busyEventId, setBusyEventId] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [closingEvent, setClosingEvent] = useState<TechEvent | null>(null);
 
   useEffect(() => {
     getDaysAsync().then(setDays).catch(() => {});
     adminListRegistrations().then(setRegistrations).catch(() => {});
   }, []);
+
+  // Auto-dismiss success message
+  useEffect(() => {
+    if (!successMsg) return;
+    const t = setTimeout(() => setSuccessMsg(null), 3000);
+    return () => clearTimeout(t);
+  }, [successMsg]);
 
   async function refresh() {
     const newDays = await getDaysAsync();
@@ -291,15 +336,36 @@ export function AdminEventsPage() {
     setAddingDayId(null);
     setDeletingEvent(null);
     setEditingDay(null);
+    setClosingEvent(null);
   }
 
-  async function handleToggleOpen(eventId: string) {
+  async function handleToggleOpen(event: TechEvent) {
+    // If registration is currently open, confirm before closing
+    if (event.registrationOpen) {
+      setClosingEvent(event);
+      return;
+    }
+    // Otherwise open directly
+    await doToggle(event.id, "opened");
+  }
+
+  async function doToggle(eventId: string, action: "opened" | "closed") {
+    setBusyEventId(eventId);
+    setRowError(null);
     try {
       await adminToggleRegistration(eventId);
       await refresh();
+      setSuccessMsg(`Registration ${action} successfully.`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Toggle failed.");
+      setRowError(err instanceof Error ? err.message : "Toggle failed.");
+    } finally {
+      setBusyEventId(null);
     }
+  }
+
+  async function handleConfirmClose() {
+    if (!closingEvent) return;
+    await doToggle(closingEvent.id, "closed");
   }
 
   async function handleToggleDayStatus(dayId: string, currentStatus: string) {
@@ -309,7 +375,7 @@ export function AdminEventsPage() {
       });
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Update failed.");
+      setRowError(err instanceof Error ? err.message : "Update failed.");
     }
   }
 
@@ -318,8 +384,9 @@ export function AdminEventsPage() {
     try {
       await adminDeleteEvent(deletingEvent.id);
       await refresh();
+      setSuccessMsg(`"${deletingEvent.name}" deleted.`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed.");
+      setRowError(err instanceof Error ? err.message : "Delete failed.");
     }
   }
 
@@ -327,6 +394,42 @@ export function AdminEventsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Success banner */}
+      {successMsg && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300 animate-in fade-in duration-300"
+        >
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            {successMsg}
+          </span>
+          <button
+            type="button"
+            onClick={() => setSuccessMsg(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {rowError && (
+        <div role="alert" className="flex items-start justify-between gap-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <span>{rowError}</span>
+          <button
+            type="button"
+            onClick={() => setRowError(null)}
+            className="text-muted transition-colors hover:text-foreground"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Modal dialogs */}
       {(editingEvent || addingDayId) && (
         <EventModal
@@ -368,6 +471,27 @@ export function AdminEventsPage() {
           confirmLabel="Delete Event"
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeletingEvent(null)}
+        />
+      )}
+
+      {/* Confirm close registration dialog */}
+      {closingEvent && (
+        <ConfirmDialog
+          title="Close Registration"
+          description={
+            <>
+              <p>
+                Are you sure you want to close registration for{" "}
+                <strong className="text-foreground">{closingEvent.name}</strong>?
+              </p>
+              <p className="mt-2 text-xs text-muted">
+                Students will no longer be able to register for this event. You can re-open it later.
+              </p>
+            </>
+          }
+          confirmLabel="Close Registration"
+          onConfirm={handleConfirmClose}
+          onCancel={() => setClosingEvent(null)}
         />
       )}
 
@@ -451,6 +575,7 @@ export function AdminEventsPage() {
                   const regCount = registrations.filter(
                     (r) => r.eventId === event.id
                   ).length;
+                  const isBusy = busyEventId === event.id;
                   return (
                     <div
                       key={event.id}
@@ -467,7 +592,7 @@ export function AdminEventsPage() {
                                 {event.category}
                               </span>
                               <span
-                                className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${
+                                className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors ${
                                   event.registrationOpen
                                     ? "bg-emerald-500/10 text-emerald-400"
                                     : "bg-red-500/10 text-red-400"
@@ -505,25 +630,37 @@ export function AdminEventsPage() {
 
                       <div className="mt-5 flex flex-wrap items-center gap-2 pt-4 border-t border-white/[0.06]">
                         <button
-                          onClick={() => handleToggleOpen(event.id)}
-                          className={`flex-1 rounded px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors ${
+                          onClick={() => handleToggleOpen(event)}
+                          disabled={isBusy}
+                          className={`flex-1 flex items-center justify-center gap-2 rounded px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
                             event.registrationOpen
                               ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
                               : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
                           }`}
                         >
-                          {event.registrationOpen ? "Close Reg." : "Open Reg."}
+                          {isBusy ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Updating…
+                            </>
+                          ) : event.registrationOpen ? (
+                            "Close Reg."
+                          ) : (
+                            "Open Reg."
+                          )}
                         </button>
                         <button
                           onClick={() => setEditingEvent(event)}
-                          className="flex items-center justify-center rounded border border-white/10 px-3 py-2 text-muted hover:text-foreground hover:bg-white/[0.05]"
+                          disabled={isBusy}
+                          className="flex items-center justify-center rounded border border-white/10 px-3 py-2 text-muted hover:text-foreground hover:bg-white/[0.05] disabled:opacity-50"
                           title="Edit Event"
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => setDeletingEvent(event)}
-                          className="flex items-center justify-center rounded border border-red-500/20 px-3 py-2 text-red-400 hover:bg-red-500/10"
+                          disabled={isBusy}
+                          className="flex items-center justify-center rounded border border-red-500/20 px-3 py-2 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
                           title="Delete Event"
                         >
                           <Trash2 className="h-4 w-4" />

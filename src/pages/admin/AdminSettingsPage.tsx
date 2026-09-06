@@ -90,7 +90,7 @@ export function AdminSettingsPage() {
               Username
             </dt>
             <dd className="mt-1 font-mono text-foreground font-semibold">
-              {adminInfo?.username ?? "admin"}
+              {adminInfo?.username ?? "—"}
             </dd>
           </div>
           <div>
@@ -98,7 +98,7 @@ export function AdminSettingsPage() {
               Full Name
             </dt>
             <dd className="mt-1 text-foreground">
-              {adminInfo?.fullName ?? "TechTrove Admin"}
+              {adminInfo?.fullName ?? "—"}
             </dd>
           </div>
           <div>
@@ -114,7 +114,7 @@ export function AdminSettingsPage() {
               System Email
             </dt>
             <dd className="mt-1 text-foreground">
-              {adminInfo?.email ?? "admin@techtrove.internal"}
+              {adminInfo?.email ?? "—"}
             </dd>
           </div>
         </dl>

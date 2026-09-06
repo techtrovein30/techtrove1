@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { LogOut, Menu, X, User, ChevronRight } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { cn } from "../../lib/utils";
 import { Brand } from "../site/Brand";
+import { NotificationBell } from "../ui/NotificationBell";
 
 const links = [
   { to: "/", label: "Home" },
@@ -32,10 +33,58 @@ export function Navbar() {
   const [progress, setProgress] = useState(0);
   const location = useLocation();
   const { user, signOut } = useAuth();
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Close the mobile menu whenever the route changes. This resets state during
+  // render (React's recommended "adjust state when props change" pattern) so we
+  // don't call setState synchronously inside an effect (react-hooks rule).
+  const [prevPathname, setPrevPathname] = useState(location.pathname);
+  if (prevPathname !== location.pathname) {
+    setPrevPathname(location.pathname);
     setOpen(false);
-  }, [location.pathname]);
+  }
+
+  // A01: focus trap + Escape-to-close for the modal mobile nav dialog.
+  useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const getFocusables = () =>
+      Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => el.offsetParent !== null);
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = getFocusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    dialog.focus();
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [open]);
 
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
@@ -127,6 +176,7 @@ export function Navbar() {
           <div className="hidden items-center gap-3 lg:flex">
             {user ? (
               <>
+                <NotificationBell userId={user.id} />
                 <Link
                   to="/profile"
                   className="group relative flex items-center gap-2.5 rounded-sm border border-edge/60 bg-surface/40 px-3.5 py-2 backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:shadow-[0_0_20px_rgba(124,58,237,0.12)]"
@@ -192,9 +242,12 @@ export function Navbar() {
       {/* Mobile overlay */}
       {open && (
         <div
+          ref={dialogRef}
           className="nav-overlay fixed inset-0 z-[60] flex flex-col bg-background/98 backdrop-blur-xl lg:hidden"
           role="dialog"
           aria-modal="true"
+          aria-label="Navigation menu"
+          tabIndex={-1}
         >
           {/* Decorative background */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden">

@@ -5,7 +5,8 @@ import { ArrowLeft, ArrowRight, Lock } from "lucide-react";
 import { useAllEvents, useEvent } from "../lib/useEvents";
 import type { TechEvent, Day } from "../lib/eventStore";
 import { days as staticDays } from "../data/techtrove";
-import { formatFee, formatPerPerson } from "../lib/utils";
+import { formatFee } from "../lib/utils";
+import { computeTotalFee, isTechPassEvent } from "../lib/fees";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
 import { validateUploadFile, uploadPaymentProof } from "../lib/storage";
@@ -14,6 +15,15 @@ import { useAuth } from "../context/AuthContext";
 import { Field } from "../components/ui/Field";
 import { RegistrationStepper, StepShell } from "../components/registration/RegistrationStepper";
 import type { StepId } from "../components/registration/RegistrationStepper";
+
+import {
+  isSportEvent,
+  isIndividualEvent,
+  validateRegisterNumber,
+  validateEmail,
+  validatePhoneNumber,
+  validateUtrNumber,
+} from "../lib/validation";
 
 interface MemberDraft {
   name: string;
@@ -25,21 +35,28 @@ interface MemberDraft {
 }
 
 interface Draft {
-  eventId: string | null;
+  eventIds: string[];
   termsAccepted: boolean;
   captainName: string;
   teamName: string;
   members: MemberDraft[];
 }
 
-function makeEmptyMembers(required: number, maxSubs: number): MemberDraft[] {
+function makeEmptyMembers(
+  required: number,
+  maxSubs: number,
+  captainName = "",
+  captainEmail = "",
+  captainPhone = "",
+): MemberDraft[] {
+
   const players: MemberDraft[] = Array.from({ length: required }, (_, i) => ({
-    name: "",
+    name: i === 0 ? captainName : "",
     role: "player",
     position: i + 1,
-    email: "",
+    email: i === 0 ? captainEmail : "",
     regNumber: "",
-    phone: "",
+    phone: i === 0 ? captainPhone : "",
   }));
   const subs: MemberDraft[] = Array.from({ length: maxSubs }, (_, i) => ({
     name: "",
@@ -50,12 +67,6 @@ function makeEmptyMembers(required: number, maxSubs: number): MemberDraft[] {
     phone: "",
   }));
   return [...players, ...subs];
-}
-
-function computeTotalFee(event: TechEvent | undefined, members: MemberDraft[], teamType: ParticipantType): number {
-  if (teamType === "internal") return 0;
-  const filled = members.filter((m) => m.name.trim()).length;
-  return (event?.registrationFee ?? 0) * filled;
 }
 
 function buildMembersFromDraft(draftMembers: MemberDraft[], teamType: ParticipantType): RegistrationMember[] {
@@ -73,7 +84,7 @@ function buildMembersFromDraft(draftMembers: MemberDraft[], teamType: Participan
 }
 
 const initialDraft: Draft = {
-  eventId: null,
+  eventIds: [],
   termsAccepted: false,
   captainName: "",
   teamName: "",
@@ -132,47 +143,103 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
   // Resolve preselected event from DB data
   const preselectedEvent = preselectedId ? allEvents.find((e) => e.id === preselectedId) : undefined;
-
-  const stepIds: StepId[] = teamType === "internal" ? ["sport", "terms", "team", "members", "review"] : ["sport", "terms", "team", "members", "review", "payment"];
-
-  const [step, setStep] = useState<StepId>(preselectedId ? "terms" : "sport");
   const [draft, setDraft] = useState<Draft>(() => {
     if (!preselectedId) return initialDraft;
-    // We can't use preselectedEvent here synchronously on first render — start with eventId set,
-    // members will be fixed once the event loads (see the effect below).
-    return { ...initialDraft, eventId: preselectedId, members: [] };
+    return { ...initialDraft, eventIds: [preselectedId], members: [] };
   });
+  const selectedEvents = allEvents.filter(e => draft.eventIds.includes(e.id));
+  const event = selectedEvents.length > 0 ? selectedEvents[0] : undefined;
+  const activeEvent = event ?? preselectedEvent;
+  // const maxRequiredPlayers = selectedEvents.length > 0 ? Math.max(...selectedEvents.map(e => e.requiredPlayers ?? 1)) : (activeEvent?.requiredPlayers ?? 1);
+  // const maxSubsAllowed = selectedEvents.length > 0 ? Math.max(...selectedEvents.map(e => isSportEvent(e) ? (e.maxSubstitutes ?? 0) : 0)) : (isSportEvent(activeEvent) ? (activeEvent?.maxSubstitutes ?? 0) : 0);
+  const isIndividual = isIndividualEvent(activeEvent) || isTechPassEvent(activeEvent);
+
+  // Internal students never go through the payment step — their flow ends at review.
+  // External students have an additional payment step after review.
+  const stepIds: StepId[] = isIndividual
+    ? (teamType === "internal" ? ["sport", "terms", "members", "review"] : ["sport", "terms", "members", "review", "payment"])
+    : (teamType === "internal" ? ["sport", "terms", "team", "members", "review"] : ["sport", "terms", "team", "members", "review", "payment"]);
+
+  const [step, setStep] = useState<StepId>(preselectedId ? "terms" : "sport");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
 
-  // Once events load, populate members + selected day for pre-selected event if not already done
+  // Once events load, populate members + selected day for pre-selected event if not already done.
+  // setState is deferred into a microtask so no state is set synchronously inside
+  // the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
-    if (preselectedEvent && draft.eventId === preselectedEvent.id && draft.members.length === 0) {
-      setDraft((d) => ({
-        ...d,
-        members: makeEmptyMembers(preselectedEvent.requiredPlayers ?? 1, preselectedEvent.maxSubstitutes ?? 0),
-      }));
-      setSelectedDayId(preselectedEvent.dayId);
+    if (preselectedEvent && draft.eventIds[0] === preselectedEvent.id && draft.members.length === 0) {
+      void Promise.resolve().then(() => {
+        setDraft((d) => ({
+          ...d,
+          members: makeEmptyMembers(
+            isTechPassEvent(preselectedEvent) ? 1 : (preselectedEvent?.requiredPlayers ?? 1),
+            isSportEvent(preselectedEvent) && !isTechPassEvent(preselectedEvent) ? (preselectedEvent.maxSubstitutes ?? 0) : 0,
+            user?.fullName ?? "",
+            user?.email ?? "",
+            user?.phone ?? "",
+          ),
+          captainName: d.captainName || (user?.fullName ?? ""),
+        }));
+        setSelectedDayId(preselectedEvent.dayId);
+      });
     }
-  }, [preselectedEvent, draft.eventId, draft.members.length]);
-
-  const event = draft.eventId ? allEvents.find((e) => e.id === draft.eventId) : undefined;
+  }, [preselectedEvent, draft.eventIds[0], draft.members.length, user]);
 
   function selectEvent(ev: TechEvent) {
+    const isMultiSelect = ev.dayId === "day-2" || ev.dayId === "day-3";
+    let newEventIds = [...draft.eventIds];
+    
+    if (isMultiSelect) {
+      // Tech / Non-Tech multi-select.
+      // Prevent mixed registrations: if any day-1 sports are selected,
+      // clear them so a single registration is either all-tech/non-tech OR one sport.
+      newEventIds = newEventIds.filter(id => {
+        const existing = allEvents.find(e => e.id === id);
+        return existing && existing.dayId !== "day-1";
+      });
+      if (newEventIds.includes(ev.id)) {
+        newEventIds = newEventIds.filter(id => id !== ev.id);
+      } else {
+        newEventIds.push(ev.id);
+      }
+    } else {
+      // Day-1 sports: single-select, and clicking the already-selected sport
+      // unselects it (toggles off) so the user can pick nothing if they change
+      // their mind.
+      newEventIds = newEventIds.includes(ev.id) ? [] : [ev.id];
+    }
+    
+    const sEvs = allEvents.filter(e => newEventIds.includes(e.id));
+    const allTechPass = sEvs.length > 0 && sEvs.every(isTechPassEvent);
+    const maxReq = allTechPass ? 1 : (sEvs.length > 0 ? Math.max(...sEvs.map(e => e.requiredPlayers ?? 1)) : 1);
+    const mSubs = allTechPass ? 0 : (sEvs.length > 0 ? Math.max(...sEvs.map(e => isSportEvent(e) ? (e.maxSubstitutes ?? 0) : 0)) : 0);
+    
     setDraft((d) => ({
       ...d,
-      eventId: ev.id,
-      members: makeEmptyMembers(ev.requiredPlayers ?? 1, ev.maxSubstitutes ?? 0),
+      eventIds: newEventIds,
+      // When nothing is selected, clear members so no phantom player slots remain.
+      members: newEventIds.length === 0
+        ? []
+        : makeEmptyMembers(
+            maxReq,
+            mSubs,
+            user?.fullName ?? "",
+            user?.email ?? "",
+            user?.phone ?? ""
+          ),
+      captainName: d.captainName || (user?.fullName ?? ""),
+      teamName: isIndividualEvent(ev) || isTechPassEvent(ev) ? (user?.fullName ?? ev.name) : d.teamName,
     }));
     setSelectedDayId(ev.dayId);
     setErrors({});
   }
 
   function selectDay(dayId: string) {
+    // Switching the visible day tab must NOT clear already-selected events.
+    // Day-2/Day-3 selections (Tech/Non-Tech flat pass) accumulate across days,
+    // so the user can keep them while browsing into another day.
     setSelectedDayId(dayId);
-    // Switching days clears any previously chosen event so selection always
-    // belongs to the currently viewed day.
-    setDraft((d) => (d.eventId ? { ...d, eventId: null, members: [] } : d));
     setErrors({});
   }
 
@@ -183,29 +250,69 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
     }));
   }
 
+  // Safety sync: if member[0] name/email ended up empty (e.g. timing edge on
+  // preselected-event route), backfill from the authenticated user profile.
+  // setState is deferred into a microtask (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (!user) return;
+    if (draft.members.length === 0) return;
+    const captain = draft.members[0];
+    if (!captain.name && user.fullName) {
+      void Promise.resolve().then(() => {
+        setDraft((d) => ({
+          ...d,
+          members: d.members.map((m, i) =>
+            i === 0
+              ? {
+                  ...m,
+                  name: m.name || user.fullName,
+                  email: m.email || user.email || "",
+                  phone: m.phone || user.phone || "",
+                }
+              : m
+          ),
+        }));
+      });
+    }
+  }, [user, draft.members]);
+
   function goNext() {
     const i = stepIds.indexOf(step);
     setStep(stepIds[Math.min(i + 1, stepIds.length - 1)]);
+    // A stale validation alert from the previous step must not linger on the
+    // next one (or reappear when navigating back) — it is recomputed fresh on
+    // each Continue via validateAndNext().
+    setErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function goBack() {
     const i = stepIds.indexOf(step);
     setStep(stepIds[Math.max(i - 1, 0)]);
+    setErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  const [submitting, setSubmitting] = useState(false);
+
   async function handleRegistration(paymentDetails?: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }): Promise<void> {
     if (!event) throw new Error("Select an event first.");
+    const indiv = isIndividualEvent(event);
+    const firstMember = draft.members[0];
+    const captainName = draft.captainName.trim() || firstMember?.name.trim() || user?.fullName || "";
+    const teamName = indiv
+      ? (draft.teamName.trim() || captainName || event.name)
+      : draft.teamName.trim();
+
     const registration = await api.createRegistration({
-      eventId: event.id,
-      teamName: draft.teamName,
-      captainName: draft.captainName,
+      eventIds: draft.eventIds,
+      teamName,
+      captainName,
       members: buildMembersFromDraft(draft.members, teamType),
       termsAccepted: draft.termsAccepted,
       ...paymentDetails,
     });
-    navigate(`/register/success?code=${encodeURIComponent(registration.registrationCode)}`);
+    navigate(`/register/success?code=${encodeURIComponent(registration[0].registrationCode)}`);
   }
 
   let stepBody: ReactNode;
@@ -214,12 +321,13 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       stepBody = (
         <SportStep
           days={days}
-          selectedId={draft.eventId}
+          selectedIds={draft.eventIds}
           selectedDayId={selectedDayId}
           onSelectDay={selectDay}
           onSelect={(ev) => selectEvent(ev)}
           events={allEvents}
           loading={eventsLoading}
+          isInternal={teamType === "internal"}
         />
       );
       break;
@@ -227,6 +335,7 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
       stepBody = event && (
         <TermsStep
           event={event}
+          teamType={teamType}
           accepted={draft.termsAccepted}
           onAccept={(v) => setDraft((d) => ({ ...d, termsAccepted: v }))}
         />
@@ -250,64 +359,115 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
           errors={errors}
           teamType={teamType}
           onUpdateMember={updateMember}
+          captainUser={user}
         />
       );
       break;
     case "review":
-      stepBody = event && <ReviewStep event={event} draft={draft} teamType={teamType} />;
+      stepBody = event && <ReviewStep events={selectedEvents} event={event} draft={draft} teamType={teamType} />;
       break;
     case "payment":
-      stepBody = event && <PaymentStep event={event} draft={draft} teamType={teamType} onPay={handleRegistration} />;
+      stepBody = event && <PaymentStep events={selectedEvents} event={event} draft={draft} teamType={teamType} onPay={handleRegistration} />;
       break;
   }
 
   const isFirst = step === "sport";
+  // For internal students, 'review' is the final step; for external it is 'payment'.
+  const isLastReview = teamType === "internal" && step === "review";
+  // isLast is true when on the very last step — used only for external payment
   const isLast = step === stepIds[stepIds.length - 1];
-  
-  // When internal, the last step is "review", where the button should say "Confirm Registration"
+
   const nextLabel =
-    isLast && step === "review"
+    isLastReview
       ? "Confirm Registration"
       : step === "review"
-      ? "Proceed to payment"
+      ? "Proceed to Payment"
       : "Continue";
 
   function handleNextClick() {
-    if (isLast && step === "review") {
-      // Validate everything then register directly
-      validateAndNext();
-    } else {
-      validateAndNext();
-    }
+    validateAndNext();
   }
 
-  // Override validateAndNext to submit when it's the final internal step
   function validateAndNext(): void {
     const nextErrors: Record<string, string> = {};
 
-    if (step === "sport" && !draft.eventId) nextErrors.step = "Select an event to continue.";
+    if (step === "sport" && draft.eventIds.length === 0) nextErrors.step = "Select an event to continue.";
     if (step === "terms" && !draft.termsAccepted) nextErrors.step = "You must accept the Terms and Conditions.";
-    if (step === "team") {
+    if (step === "team" && !isIndividual) {
       if (!draft.teamName.trim()) nextErrors.teamName = "Team name is required.";
       if (!draft.captainName.trim()) nextErrors.captainName = "Captain name is required.";
     }
     if (step === "members" && event) {
-      const required = event.requiredPlayers ?? 0;
+      // Because day-2/day-3 (Tech/Non-Tech) events are a single-player flat
+      // pass, exactly ONE participant slot is created. Validation must demand
+      // that same count — NOT the event's raw requiredPlayers (which may be a
+      // team roster); otherwise the pass is unfairly rejected as incomplete.
+      const required = isTechPassEvent(event) ? 1 : (event.requiredPlayers ?? 1);
+      const isSport = isSportEvent(event);
+      // For the captain slot (position 1) the name is locked from the user
+      // profile and may not live in m.name — use user.fullName as fallback.
+      const captainName = user?.fullName?.trim() ?? "";
+
       draft.members.forEach((m, i) => {
-        if (m.role === "player" && !m.name.trim()) nextErrors[`member-${i}-name`] = `Player ${String(m.position).padStart(2, "0")} name is required.`;
-        if (m.name.trim() && !m.email.trim()) nextErrors[`member-${i}-email`] = `Email is required.`;
-        if (m.name.trim() && teamType === "internal" && !m.regNumber.trim()) nextErrors[`member-${i}-reg`] = `Registration number is required.`;
-        if (m.name.trim() && teamType === "external" && !m.phone.trim()) nextErrors[`member-${i}-phone`] = `Phone number is required.`;
+        if (!isSport && m.role === "substitute") return;
+
+        // Effective name: for captain slot use profile name as fallback
+        const effectiveName = (m.position === 1 && m.role === "player")
+          ? (m.name.trim() || captainName)
+          : m.name.trim();
+        // Effective email: for captain slot, email is always from their Google
+        // account stored in the draft (pre-filled from user.email)
+        const effectiveEmail = (m.position === 1 && m.role === "player")
+          ? (m.email.trim() || user?.email?.trim() || "")
+          : m.email.trim();
+
+        if (m.role === "player" && !effectiveName) {
+          const slotLabel = isIndividual ? "Participant" : `Player ${String(m.position).padStart(2, "0")}`;
+          nextErrors[`member-${i}-name`] = `${slotLabel} name is required.`;
+        }
+
+        if (effectiveName) {
+          const emailErr = validateEmail(effectiveEmail, teamType);
+          if (emailErr) nextErrors[`member-${i}-email`] = emailErr;
+
+          if (teamType === "internal") {
+            const regErr = validateRegisterNumber(m.regNumber, "internal");
+            if (regErr) nextErrors[`member-${i}-reg`] = regErr;
+
+            if (m.phone && m.phone.trim()) {
+              const phoneErr = validatePhoneNumber(m.phone, false);
+              if (phoneErr) nextErrors[`member-${i}-phone`] = phoneErr;
+            }
+          } else {
+            const phoneErr = validatePhoneNumber(m.phone, true);
+            if (phoneErr) nextErrors[`member-${i}-phone`] = phoneErr;
+          }
+        }
       });
-      const filledPlayers = draft.members.filter((m) => m.role === "player" && m.name.trim()).length;
-      if (filledPlayers < required) nextErrors.step = `Fill in all ${required} required player slots.`;
+
+      const filledPlayers = draft.members.filter((m) => {
+        if (m.role !== "player") return false;
+        const effectiveName = (m.position === 1)
+          ? (m.name.trim() || captainName)
+          : m.name.trim();
+        return !!effectiveName;
+      }).length;
+      if (filledPlayers < required) {
+        nextErrors.step = isIndividual ? "Please enter your participant details." : `Fill in all ${required} required player slots.`;
+      }
     }
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length === 0) {
-      if (isLast && step === "review") {
-        // Internal user completing registration directly
-        handleRegistration().catch((e) => setErrors({ step: e.message }));
+      if (isLastReview) {
+        // Internal student — submit immediately, no payment step
+        setSubmitting(true);
+        handleRegistration()
+          .catch((e) => setErrors({ step: e.message }))
+          .finally(() => setSubmitting(false));
+      } else if (isLast) {
+        // External student on payment step — handled inside PaymentStep component
+        goNext();
       } else {
         goNext();
       }
@@ -322,12 +482,15 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
         {stepBody}
 
         {"step" in errors && errors.step && (
-          <p role="alert" className="border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <p role="alert" className="border border-red-500/40 bg-red-950/40 px-5 py-4 text-sm text-red-200">
             {errors.step}
           </p>
         )}
 
-        {!isLast && (
+        {/* Always render the navigation row except on the external-only payment step
+            (PaymentStep has its own submit button). The old `!isLast` guard was
+            wrongly hiding the Confirm button for internal students on the review step. */}
+        {step !== "payment" && (
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
@@ -339,11 +502,13 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
             </button>
             <button
               type="button"
+              id="registration-next-btn"
               onClick={handleNextClick}
-              disabled={isLast && step === "review" && Object.keys(errors).length > 0 && "step" in errors}
+              disabled={submitting}
               className="clip-angle inline-flex items-center justify-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
             >
-              {nextLabel} <ArrowRight className="h-4 w-4" aria-hidden />
+              {submitting ? "Submitting\u2026" : nextLabel}
+              {!submitting && <ArrowRight className="h-4 w-4" aria-hidden />}
             </button>
           </div>
         )}
@@ -358,32 +523,35 @@ function RegistrationFlow({ preselectedId }: { preselectedId: string | null }) {
 
 function SportStep({
   days,
-  selectedId,
+  selectedIds,
   selectedDayId,
   onSelectDay,
   onSelect,
   events,
   loading,
+  isInternal,
 }: {
   days: Day[];
-  selectedId: string | null;
+  selectedIds: string[];
   selectedDayId: string | null;
   onSelectDay: (id: string) => void;
   onSelect: (ev: TechEvent) => void;
   events: TechEvent[];
   loading: boolean;
+  isInternal: boolean;
 }) {
   // Day shells for the tabs always exist via static data, so the day selector
   // renders immediately even before the async events fetch completes.
   const dayTabs = days.length > 0 ? days : staticDays;
 
-  // Determine which day to display. If the selected event belongs to a day,
-  // restore that day even if the user navigated back to this step. Otherwise
-  // default to the first available day so events are visible immediately.
-  const chosenDayId =
-    (selectedId && events.find((e) => e.id === selectedId)?.dayId) || selectedDayId;
+  // Determine which day to display.
+  // The user's explicit tab choice (selectedDayId) always wins. Only when no
+  // day tab has been chosen do we fall back to the first selected event's day
+  // (so returning to this step after navigating away shows the relevant day).
+  const firstSelectedDay =
+    selectedIds.length > 0 && events.find((e) => e.id === selectedIds[0])?.dayId;
   const defaultDayId = dayTabs.find((d) => d.events.some((e) => e.registrationOpen))?.id ?? dayTabs[0]?.id;
-  const activeDayId = chosenDayId || defaultDayId;
+  const activeDayId = selectedDayId || (!selectedIds.length ? defaultDayId : firstSelectedDay) || defaultDayId;
 
   const activeDay = activeDayId ? dayTabs.find((d) => d.id === activeDayId) : undefined;
   const dayEvents = events.filter((e) => e.dayId === activeDayId);
@@ -436,6 +604,41 @@ function SportStep({
         })}
       </div>
 
+      {!isInternal && (
+        <div className="mt-6 border border-edge-strong bg-surface/40 p-4 text-sm text-foreground">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary-soft">How payment works</p>
+          <ul className="mt-2.5 space-y-1.5 text-xs leading-relaxed text-muted">
+            <li>
+              <strong className="text-foreground">Day 2 &amp; Day 3 (Tech / Non-Tech):</strong> a single flat{" "}
+              <strong className="text-primary-soft">Rs 75</strong> pass covers every event you tick across both days.
+            </li>
+            <li>
+              <strong className="text-foreground">Day 1 Sports:</strong> pay per sport —{" "}
+              Rs 75 for Carrom / Chess, Rs 600 for team sports. Each selected sport is billed separately.
+            </li>
+          </ul>
+        </div>
+      )}
+
+      {selectedIds.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 border border-primary/40 bg-primary/10 px-4 py-3 text-xs text-foreground">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary-soft">Selected:</span>
+          {events.filter((e) => selectedIds.includes(e.id)).map((e) => (
+            <span key={e.id} className="inline-flex items-center gap-1 border border-edge-strong bg-background px-2 py-1">
+              {e.name}
+              <button
+                type="button"
+                aria-label={`Remove ${e.name}`}
+                onClick={() => onSelect(e)}
+                className="text-muted hover:text-red-300"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           {[1,2,3,4].map((i) => <div key={i} className="animate-pulse h-16 bg-white/10" />)}
@@ -445,7 +648,11 @@ function SportStep({
       ) : (
         <div role="radiogroup" aria-label={`Available events on ${activeDay!.name}`} className="mt-6 grid gap-3 sm:grid-cols-2">
           {openDayEvents.map((ev) => {
-            const active = ev.id === selectedId;
+            const active = selectedIds.includes(ev.id);
+            const isIndiv = isIndividualEvent(ev) || isTechPassEvent(ev);
+            const isSport = isSportEvent(ev);
+            // Internal students always register for free — never show monetary amounts
+            const feeLabel = isInternal ? "Free" : isTechPassEvent(ev) ? `Rs ${ev.registrationFee ?? 0} flat` : formatFee(ev.registrationFee);
             return (
               <button
                 key={ev.id}
@@ -463,7 +670,9 @@ function SportStep({
                 <span className="min-w-0 flex-1">
                   <span className="display block text-lg text-foreground">{ev.name}</span>
                   <span className="mt-0.5 block text-xs text-muted">
-                    {ev.requiredPlayers} player{ev.requiredPlayers === 1 ? "" : "s"} · {ev.maxSubstitutes} substitute{ev.maxSubstitutes === 1 ? "" : "s"} · {formatPerPerson(ev.registrationFee)}
+                    {isIndiv
+                      ? `Individual Event · ${feeLabel}`
+                      : `${ev.requiredPlayers} player${ev.requiredPlayers === 1 ? "" : "s"}${isSport && ev.maxSubstitutes ? ` · ${ev.maxSubstitutes} substitute${ev.maxSubstitutes === 1 ? "" : "s"}` : ""} · ${feeLabel}`}
                   </span>
                 </span>
                 {active && <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary-soft">Selected</span>}
@@ -478,16 +687,19 @@ function SportStep({
 
 function TermsStep({
   event,
+  teamType,
   accepted,
   onAccept,
 }: {
   event: TechEvent;
+  teamType: ParticipantType;
   accepted: boolean;
   onAccept: (v: boolean) => void;
 }) {
+  const isInternal = teamType === "internal";
   return (
     <StepShell
-      title={`Terms and conditions`}
+      title="Terms and conditions"
       lead={`Read the rules for ${event.name}. By proceeding you accept these terms on behalf of your team.`}
     >
       <ol className="divide-y divide-edge border-y border-edge">
@@ -508,11 +720,25 @@ function TermsStep({
           onChange={(e) => onAccept(e.target.checked)}
           className="mt-0.5 h-4 w-4 shrink-0 accent-[#7c3aed]"
         />
-        <span className="text-sm leading-relaxed text-foreground">
-          I agree to the Terms and Conditions, including that the registration fee of{" "}
-          <strong className="font-semibold">{formatPerPerson(event.registrationFee)}</strong>
-          (charged for each player and substitute entered) is non-refundable.
-        </span>
+        {isInternal ? (
+          // Internal students register for free — never mention a fee
+          <span className="text-sm leading-relaxed text-foreground">
+            I agree to the Terms and Conditions for {event.name}. I understand that my
+            registration as a SIMATS student is{" "}
+            <strong className="font-semibold text-emerald-400">free of charge</strong>.
+          </span>
+        ) : (
+          <span className="text-sm leading-relaxed text-foreground">
+            I agree to the Terms and Conditions, including that the registration fee of{" "}
+            <strong className="font-semibold">
+              {isTechPassEvent(event) ? `Rs ${event.registrationFee ?? 0} flat` : formatFee(event.registrationFee)}
+            </strong>
+            {" "}
+            {isTechPassEvent(event)
+              ? "covers all selected Technical / Non-Technical events and is non-refundable."
+              : "is a flat fee per team/event and is non-refundable."}
+          </span>
+        )}
       </label>
     </StepShell>
   );
@@ -568,45 +794,56 @@ function MembersStep({
   errors,
   teamType,
   onUpdateMember,
+  captainUser,
 }: {
   event?: TechEvent;
   draft: Draft;
   errors: Record<string, string>;
   teamType: ParticipantType;
   onUpdateMember: (index: number, patch: Partial<MemberDraft>) => void;
+  captainUser?: { fullName: string; email: string; phone?: string } | null;
 }) {
-  const required = event?.requiredPlayers ?? 0;
-  const maxSubs = event?.maxSubstitutes ?? 0;
+  const required = event?.requiredPlayers ?? 1;
+  const isSport = isSportEvent(event);
+  const isIndividual = isIndividualEvent(event) || isTechPassEvent(event);
+  const maxSubs = isSport ? (event?.maxSubstitutes ?? 0) : 0;
 
   const players = draft.members.filter((m) => m.role === "player");
   const subs = draft.members.filter((m) => m.role === "substitute");
 
   return (
     <StepShell
-      title="Team members"
-      lead={`${required} players are mandatory${maxSubs > 0 ? `, plus up to ${maxSubs} optional substitutes` : ""} for ${event?.name ?? "this event"}. All members are ${teamType === "internal" ? "SIMATS students" : "external participants"} since you are registering as ${teamType === "internal" ? "a SIMATS student" : "an external participant"}.`}
+      title={isIndividual ? "Participant details" : "Team members"}
+      lead={
+        isIndividual
+          ? `Enter your details to register for ${event?.name ?? "this event"}.`
+          : `${required} players are mandatory${maxSubs > 0 ? `, plus up to ${maxSubs} optional substitutes` : ""} for ${event?.name ?? "this event"}. All members are ${teamType === "internal" ? "SIMATS students" : "external participants"}.`
+      }
     >
       <fieldset>
-        <legend className="eyebrow mb-4">Players · required</legend>
+        {!isIndividual && <legend className="eyebrow mb-4">Players · required</legend>}
         <div className="space-y-6">
           {players.map((m) => {
             const globalIdx = draft.members.indexOf(m);
+            const isCaptainSlot = m.position === 1;
             return (
               <MemberCard
                 key={globalIdx}
                 member={m}
                 index={globalIdx}
-                label={`Player ${String(m.position).padStart(2, "0")}`}
+                label={isIndividual ? "Participant Details" : `Player ${String(m.position).padStart(2, "0")}`}
                 teamType={teamType}
                 errors={errors}
                 onUpdate={(patch) => onUpdateMember(globalIdx, patch)}
+                isCaptainSlot={isCaptainSlot}
+                captainUser={isCaptainSlot ? captainUser : undefined}
               />
             );
           })}
         </div>
       </fieldset>
 
-      {maxSubs > 0 && subs.length > 0 && (
+      {isSport && maxSubs > 0 && subs.length > 0 && (
         <fieldset className="mt-9">
           <legend className="eyebrow mb-4">Substitutes · optional</legend>
           <div className="space-y-6">
@@ -638,6 +875,8 @@ function MemberCard({
   teamType,
   errors,
   onUpdate,
+  isCaptainSlot = false,
+  captainUser,
 }: {
   member: MemberDraft;
   index: number;
@@ -645,11 +884,13 @@ function MemberCard({
   teamType: ParticipantType;
   errors: Record<string, string>;
   onUpdate: (patch: Partial<MemberDraft>) => void;
+  isCaptainSlot?: boolean;
+  captainUser?: { fullName: string; email: string; phone?: string } | null;
 }) {
   const isInternal = teamType === "internal";
 
   return (
-    <div className="border border-edge bg-surface/40 p-5 transition-colors hover:border-primary/30">
+    <div className="border border-primary/30 bg-surface/30 p-5 shadow-[0_0_30px_-12px_rgba(124,58,237,0.4)] transition-all hover:border-primary/50">
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <span className="display text-lg text-foreground">{label}</span>
         <span
@@ -662,50 +903,133 @@ function MemberCard({
         >
           {isInternal ? "SIMATS Student" : "External"}
         </span>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Full name"
-          required
-          value={member.name}
-          onChange={(e) => onUpdate({ name: e.target.value })}
-          error={errors[`member-${index}-name`]}
-          autoComplete="off"
-          hint="This name will be reflected on the certificate."
-        />
-        <Field
-          label="Email"
-          required
-          type="email"
-          value={member.email}
-          onChange={(e) => onUpdate({ email: e.target.value })}
-          error={errors[`member-${index}-email`]}
-          autoComplete="off"
-        />
-        {isInternal ? (
-          <Field
-            label="Registration number"
-            required
-            value={member.regNumber}
-            onChange={(e) => onUpdate({ regNumber: e.target.value })}
-            error={errors[`member-${index}-reg`]}
-            placeholder="e.g. 230701XXX"
-            autoComplete="off"
-          />
-        ) : (
-          <Field
-            label="Phone number"
-            required
-            type="tel"
-            value={member.phone}
-            onChange={(e) => onUpdate({ phone: e.target.value })}
-            error={errors[`member-${index}-phone`]}
-            placeholder="e.g. 9876543210"
-            autoComplete="off"
-          />
+        {isCaptainSlot && (
+          <span className="border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-400">
+            Team Captain · You
+          </span>
         )}
       </div>
+
+      {/* Captain slot: name locked from profile, only ask email + phone */}
+      {isCaptainSlot && captainUser ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Locked name display */}
+          <div className="sm:col-span-2">
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+              Full name
+            </p>
+            <div className="flex items-center gap-3 border border-edge bg-background/60 px-4 py-3">
+              <span className="flex-1 text-sm text-foreground">{captainUser.fullName}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-soft/70">
+                From your profile
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-muted">This name will be reflected on the certificate.</p>
+          </div>
+          {/* Locked email display */}
+          <div>
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+              Email
+            </p>
+            <div className="flex items-center gap-3 border border-edge bg-background/60 px-4 py-3">
+              <span className="flex-1 break-all text-sm text-foreground">{captainUser.email}</span>
+              <span className="flex flex-col items-end gap-0.5 text-[10px] font-semibold uppercase leading-tight tracking-[0.14em] text-primary-soft/70">
+                <span>Google</span>
+                <span>Account</span>
+              </span>
+            </div>
+          </div>
+          {isInternal ? (
+            <>
+              <Field
+                label="Registration number"
+                required
+                value={member.regNumber}
+                onChange={(e) => onUpdate({ regNumber: e.target.value })}
+                error={errors[`member-${index}-reg`]}
+                placeholder="e.g. 19xxxxxxxx"
+                autoComplete="off"
+              />
+              <Field
+                label="Phone number"
+                type="tel"
+                value={member.phone}
+                onChange={(e) => onUpdate({ phone: e.target.value })}
+                error={errors[`member-${index}-phone`]}
+                placeholder="e.g. 9876543210"
+                autoComplete="tel"
+              />
+            </>
+          ) : (
+            <Field
+              label="Phone number"
+              required
+              type="tel"
+              value={member.phone}
+              onChange={(e) => onUpdate({ phone: e.target.value })}
+              error={errors[`member-${index}-phone`]}
+              placeholder="e.g. 9876543210"
+              autoComplete="tel"
+            />
+          )}
+        </div>
+      ) : (
+        /* Normal member slot: all fields editable */
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Full name"
+            required
+            value={member.name}
+            onChange={(e) => onUpdate({ name: e.target.value })}
+            error={errors[`member-${index}-name`]}
+            autoComplete="off"
+            hint="This name will be reflected on the certificate."
+          />
+          <Field
+            label="Email"
+            required
+            type="email"
+            value={member.email}
+            onChange={(e) => onUpdate({ email: e.target.value })}
+            error={errors[`member-${index}-email`]}
+            placeholder={isInternal ? "e.g. student@saveetha.com" : "e.g. alex@example.com"}
+            autoComplete="off"
+          />
+          {isInternal ? (
+            <>
+              <Field
+                label="Registration number"
+                required
+                value={member.regNumber}
+                onChange={(e) => onUpdate({ regNumber: e.target.value })}
+                error={errors[`member-${index}-reg`]}
+                placeholder="e.g. 19xxxxxxxx"
+                autoComplete="off"
+              />
+              <Field
+                label="Phone number"
+                type="tel"
+                value={member.phone}
+                onChange={(e) => onUpdate({ phone: e.target.value })}
+                error={errors[`member-${index}-phone`]}
+                placeholder="e.g. 9876543210"
+                autoComplete="off"
+              />
+            </>
+          ) : (
+            <Field
+              label="Phone number"
+              required
+              type="tel"
+              value={member.phone}
+              onChange={(e) => onUpdate({ phone: e.target.value })}
+              error={errors[`member-${index}-phone`]}
+              placeholder="e.g. 9876543210"
+              autoComplete="off"
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -719,48 +1043,96 @@ function ReviewRow({ term, children }: { term: string; children: ReactNode }) {
   );
 }
 
-function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft; teamType: ParticipantType }) {
+function ReviewStep({ events, event, draft, teamType }: { events: TechEvent[]; event: TechEvent; draft: Draft; teamType: ParticipantType }) {
+  const isInternal = teamType === "internal";
+  const isIndividual = isIndividualEvent(event);
+  const isSport = isSportEvent(event);
   const filledMembers = draft.members.filter((m) => m.name.trim());
   const filledPlayers = filledMembers.filter((m) => m.role === "player").length;
   const filledSubs = filledMembers.filter((m) => m.role === "substitute").length;
-  const totalFee = computeTotalFee(event, draft.members, teamType);
+  const totalFee = computeTotalFee(events, draft.members, teamType);
+  const isTech = isTechPassEvent(event);
 
   return (
-    <StepShell title="Review your entry" lead="Check everything carefully. Changes after payment cannot be made.">
+    <StepShell
+      title="Review your entry"
+      lead={
+        isInternal
+          ? "Check everything carefully before confirming. Your registration is free."
+          : "Check everything carefully. Changes after payment cannot be made."
+      }
+    >
+      {/* Free registration banner — shown only to internal students */}
+      {isInternal && (
+        <div className="flex items-center gap-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          <span className="shrink-0 text-lg" aria-hidden>✓</span>
+          <span>
+            <strong>Free registration</strong> — As a SIMATS student, no payment is required.
+            Click <em>Confirm Registration</em> below to finalise your slot.
+          </span>
+        </div>
+      )}
+
       <dl>
-        <ReviewRow term="Sport">{event.name}</ReviewRow>
+        <ReviewRow term="Event">{event.name}</ReviewRow>
         <ReviewRow term="Category">{event.category}</ReviewRow>
-        <ReviewRow term="Team name">{draft.teamName}</ReviewRow>
-        <ReviewRow term="Captain">{draft.captainName}</ReviewRow>
-        <ReviewRow term="Team type">
+        {!isIndividual && <ReviewRow term="Team name">{draft.teamName}</ReviewRow>}
+        <ReviewRow term={isIndividual ? "Participant" : "Captain"}>{draft.captainName || filledMembers[0]?.name || "-"}</ReviewRow>
+        <ReviewRow term="Participant type">
           <span
             className={
               "inline-flex border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] " +
-              (teamType === "internal"
+              (isInternal
                 ? "border-primary/50 bg-primary/10 text-primary-soft"
                 : "border-edge-strong bg-surface text-muted")
             }
           >
-            {teamType === "internal" ? "SIMATS Students" : "External Participants"}
+            {isInternal ? "SIMATS Student" : "External Participant"}
           </span>
         </ReviewRow>
-        <ReviewRow term="Fee per person">{teamType === "internal" ? "Free" : formatPerPerson(event.registrationFee)}</ReviewRow>
-        <ReviewRow term="Team members">
-          {filledPlayers} player{filledPlayers === 1 ? "" : "s"} · {filledSubs} substitute{filledSubs === 1 ? "" : "s"}
-        </ReviewRow>
-        <ReviewRow term="Total registration fee">{formatFee(totalFee)}</ReviewRow>
+        {/* Hide all fee rows for internal students */}
+        {!isInternal && (
+          <>
+            {isTech ? (
+              <ReviewRow term="Fee">
+                {formatFee(events[0]?.registrationFee ?? event.registrationFee)}
+                {events.length > 1 ? " — flat pass covers all selected Tech/Non-Tech events" : ""}
+              </ReviewRow>
+            ) : (
+              <ReviewRow term="Fee (flat)">{formatFee(event.registrationFee)}</ReviewRow>
+            )}
+            {!isIndividual && (
+              <ReviewRow term="Team members">
+                {filledPlayers} player{filledPlayers === 1 ? "" : "s"}
+                {isSport && filledSubs > 0 ? ` · ${filledSubs} substitute${filledSubs === 1 ? "" : "s"}` : ""}
+              </ReviewRow>
+            )}
+            {events.length > 1 && (
+              <ReviewRow term="Selected events">
+                {events.map((e) => e.name).join(", ")}
+              </ReviewRow>
+            )}
+            <ReviewRow term="Total registration fee">{formatFee(totalFee)}</ReviewRow>
+          </>
+        )}
+        {isInternal && !isIndividual && (
+          <ReviewRow term="Team members">
+            {filledPlayers} player{filledPlayers === 1 ? "" : "s"}
+            {isSport && filledSubs > 0 ? ` · ${filledSubs} substitute${filledSubs === 1 ? "" : "s"}` : ""}
+          </ReviewRow>
+        )}
         <ReviewRow term="Terms accepted">{draft.termsAccepted ? "Yes" : "No"}</ReviewRow>
       </dl>
 
       <div className="mt-6 border-t border-edge pt-6">
-        <span className="eyebrow block text-muted mb-4">Team members ({filledMembers.length})</span>
+        <span className="eyebrow block text-muted mb-4">{isIndividual ? "Participant details" : `Team members (${filledMembers.length})`}</span>
         <div className="space-y-3">
           {filledMembers.map((m, i) => (
             <div key={i} className="border border-edge bg-surface/40 p-4">
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <span className="text-sm font-semibold text-foreground">{m.name}</span>
                 <span className="text-[10px] uppercase tracking-wider text-muted">
-                  {m.role} · #{m.position}
+                  {isIndividual ? "Participant" : `${m.role} · #${m.position}`}
                 </span>
               </div>
               <div className="grid gap-1 text-xs text-muted sm:grid-cols-3">
@@ -768,7 +1140,7 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
                 {teamType === "internal" && m.regNumber && (
                   <span className="font-mono text-primary-soft">{m.regNumber}</span>
                 )}
-                {teamType === "external" && m.phone && <span>{m.phone}</span>}
+                {m.phone && <span>{m.phone}</span>}
               </div>
             </div>
           ))}
@@ -783,14 +1155,16 @@ function ReviewStep({ event, draft, teamType }: { event: TechEvent; draft: Draft
 }
 
 function PaymentStep({
+  events,
   event,
   draft,
-  teamType = "external",
+  teamType,
   onPay,
 }: {
+  events: TechEvent[];
   event: TechEvent;
   draft: Draft;
-  teamType?: ParticipantType;
+  teamType: ParticipantType;
   onPay: (details: { utrNumber: string; paymentScreenshotPath?: string; paymentScreenshotUrl?: string }) => Promise<void>;
 }) {
   const { user } = useAuth();
@@ -800,7 +1174,8 @@ function PaymentStep({
   const [utrNumber, setUtrNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
-  const totalFee = computeTotalFee(event, draft.members, teamType);
+  const totalFee = computeTotalFee(events, draft.members, teamType);
+  const isTech = isTechPassEvent(event);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0];
@@ -821,8 +1196,9 @@ function PaymentStep({
   }
 
   async function pay() {
-    if (!utrNumber.trim()) {
-      setError("Please enter the UTR / Transaction number.");
+    const utrError = validateUtrNumber(utrNumber);
+    if (utrError) {
+      setError(utrError);
       return;
     }
     if (!file) {
@@ -837,8 +1213,11 @@ function PaymentStep({
     setBusy(true);
     setError(null);
     try {
-      // Generate a unique registration id segment for the upload path
-      const regFileId = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      // Generate a unique registration id segment for the upload path (crypto,
+      // not Math.random — C03).
+      const rand = new Uint32Array(4);
+      crypto.getRandomValues(rand);
+      const regFileId = `reg_${Date.now()}_${Array.from(rand, (n) => n.toString(36)).join("")}`;
       
       // Upload directly to private 'uploads/payment-proofs/{user_id}/{regFileId}.{ext}'
       const storagePath = await uploadPaymentProof(user.id, regFileId, file);
@@ -861,12 +1240,31 @@ function PaymentStep({
       <div className="border border-edge-strong bg-background p-6">
         <dl className="space-y-3 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-muted">{event.name} · fee per person</dt>
-            <dd>{formatPerPerson(event.registrationFee)}</dd>
+            <dt className="text-muted">
+              {isTech
+                ? events.length > 1
+                  ? `${events.length} Tech/Non-Tech events (flat pass)`
+                  : `${event.name} (flat pass)`
+                : `${event.name} · flat fee`}
+            </dt>
+            <dd>{isTech ? formatFee(events[0]?.registrationFee ?? event.registrationFee) : formatFee(event.registrationFee)}</dd>
           </div>
+          {events.length > 1 && !isTech && (
+            <div className="flex flex-col gap-1">
+              {events.map((e) => (
+                <div key={e.id} className="flex justify-between gap-4">
+                  <dt className="text-muted">{e.name}</dt>
+                  <dd>{formatFee(e.registrationFee)}</dd>
+                </div>
+              ))}
+            </div>
+          )}
+          {isTech && events.length > 1 && (
+            <p className="text-[11px] text-muted">One flat payment covers all selected Technical / Non-Technical events.</p>
+          )}
           <div className="flex justify-between gap-4">
             <dt className="text-muted">Team</dt>
-            <dd>{draft.teamName}</dd>
+            <dd>{draft.teamName || draft.captainName || "-"}</dd>
           </div>
           <div className="flex justify-between gap-4 border-t border-edge pt-3">
             <dt className="text-xs font-semibold uppercase tracking-[0.16em]">Amount payable</dt>
@@ -875,15 +1273,45 @@ function PaymentStep({
         </dl>
       </div>
 
+      <div className="mt-6 flex flex-col items-start gap-5 border border-edge bg-surface/40 p-6 sm:flex-row sm:items-center">
+        <div className="shrink-0 border border-edge bg-white p-3">
+          <img
+            src="/images/payment-qr.png"
+            alt="QR code to scan and pay your registration fee"
+            width={176}
+            height={176}
+            className="block h-40 w-40"
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-soft">
+            Scan to pay
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-foreground">
+            Open any UPI app, scan this QR, and pay the{" "}
+            <span className="font-semibold text-primary-soft">{formatFee(totalFee)}</span> shown above.
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Enter the transaction's 12-digit UTR number and upload the screenshot below.
+            Your slot is confirmed only after the payment is verified.
+          </p>
+        </div>
+      </div>
+
       <div className="mt-8 space-y-5">
-        <Field
-          label="UTR / Transaction Number"
-          required
-          value={utrNumber}
-          onChange={(e) => setUtrNumber(e.target.value)}
-          placeholder="e.g. 123456789012"
-          hint="Enter the 12-digit UPI transaction ID."
-        />
+        <div>
+          <Field
+            label="TRANSACTION / UTR NUMBER"
+            required
+            value={utrNumber}
+            onChange={(e) => setUtrNumber(e.target.value)}
+            placeholder="e.g. 123456789012"
+            hint="GPay → Transaction ID | PhonePe → UTR Number | FamPay → Transaction ID"
+          />
+          <p className="mt-2 text-xs text-muted">
+            If you paid through Google Pay (GPay), enter your Transaction ID. If you paid through PhonePe, enter your UTR number. If you paid through FamPay, enter your Transaction ID.
+          </p>
+        </div>
 
         <div>
           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">

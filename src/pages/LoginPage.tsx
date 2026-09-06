@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import type { ParticipantType } from "../lib/api";
 import { Field } from "../components/ui/Field";
+import { validateRegisterNumber, validateEmail, validatePhoneNumber } from "../lib/validation";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -42,13 +43,18 @@ export function LoginPage() {
   const { user, loading, signInWithGoogle, googlePendingProfile, completeGoogleProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const next = searchParams.get("next") ?? "/register";
+  // L17: only accept same-origin relative `next` targets.
+  const rawNext = searchParams.get("next") ?? "/register";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/register";
 
-  useEffect(() => {
-    if (googlePendingProfile && !form.fullName) {
-      setForm((f) => ({ ...f, fullName: googlePendingProfile.fullName }));
-    }
-  }, [googlePendingProfile]);
+  // Backfill the full name from the Google profile once it arrives. This
+  // adjusts state during render (React's recommended pattern) rather than
+  // calling setState synchronously inside an effect.
+  const [autoFilledEmail, setAutoFilledEmail] = useState<string | null>(null);
+  if (googlePendingProfile && !form.fullName && autoFilledEmail !== googlePendingProfile.email) {
+    setAutoFilledEmail(googlePendingProfile.email);
+    setForm((f) => ({ ...f, fullName: googlePendingProfile.fullName }));
+  }
 
   // After OAuth (or any sign-in), the browser lands back on /login with an
   // active session. Only move the user onward once they have a completed
@@ -60,8 +66,13 @@ export function LoginPage() {
     }
   }, [loading, user, googlePendingProfile, next, navigate]);
 
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value;
+    if (key === "phone") {
+      value = value.replace(/\D/g, "").slice(0, 10);
+    }
+    setForm((f) => ({ ...f, [key]: value }));
+  };
 
   async function handleGoogleSignIn() {
     setError(null);
@@ -82,17 +93,23 @@ export function LoginPage() {
       if (!form.fullName.trim()) {
         throw new Error("Full name is required.");
       }
+      if (googlePendingProfile?.email) {
+        const emailErr = validateEmail(googlePendingProfile.email, participantType);
+        if (emailErr) throw new Error(emailErr);
+      }
       if (participantType === "internal") {
-        if (!form.regNumber.trim() || !form.phone.trim()) {
-          throw new Error("Registration number and phone number are required for SIMATS students.");
+        const regErr = validateRegisterNumber(form.regNumber, "internal");
+        if (regErr) throw new Error(regErr);
+        if (form.phone && form.phone.trim()) {
+          const phoneErr = validatePhoneNumber(form.phone, false);
+          if (phoneErr) throw new Error(phoneErr);
         }
       } else {
-        if (!form.college.trim() || !form.phone.trim()) {
-          throw new Error("College and phone number are required for external participants.");
+        if (!form.college.trim()) {
+          throw new Error("College name is required for external participants.");
         }
-      }
-      if (form.phone && !/^\d{10}$/.test(form.phone.trim())) {
-        throw new Error("Phone number must be exactly 10 digits.");
+        const phoneErr = validatePhoneNumber(form.phone, true);
+        if (phoneErr) throw new Error(phoneErr);
       }
       await completeGoogleProfile({
         participantType,
@@ -160,12 +177,28 @@ export function LoginPage() {
               Fill in a few more details to finish setting up your account.
             </p>
 
-            <div role="tablist" aria-label="Participant type" className="mt-8 grid grid-cols-2 gap-px border border-edge bg-edge">
+            <div
+              role="tablist"
+              aria-label="Participant type"
+              className="mt-8 grid grid-cols-2 gap-px border border-edge bg-edge"
+              onKeyDown={(e) => {
+                const order = ["internal", "external"] as ParticipantType[];
+                const idx = order.indexOf(participantType);
+                if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  const dir = e.key === "ArrowRight" ? 1 : -1;
+                  setParticipantType(order[(idx + dir + order.length) % order.length]);
+                }
+              }}
+            >
               {(["internal", "external"] as ParticipantType[]).map((type) => (
                 <button
                   key={type}
                   role="tab"
+                  id={`tab-${type}`}
                   aria-selected={participantType === type}
+                  aria-controls="participant-type-panel"
+                  tabIndex={participantType === type ? 0 : -1}
                   onClick={() => setParticipantType(type)}
                   className={
                     "clip-angle px-4 py-3.5 text-xs font-semibold uppercase tracking-[0.18em] transition-colors " +
@@ -178,11 +211,17 @@ export function LoginPage() {
                 </button>
               ))}
             </div>
-            <p className="mt-3 text-xs text-muted">
-              {participantType === "internal"
-                ? "For SIMATS students. You need your Saveetha registration number."
-                : "For participants from other colleges."}
-            </p>
+            <div
+              id="participant-type-panel"
+              role="tabpanel"
+              aria-labelledby={`tab-${participantType}`}
+            >
+              <p className="mt-3 text-xs text-muted">
+                {participantType === "internal"
+                  ? "For SIMATS students. You need your Saveetha registration number."
+                  : "For participants from other colleges."}
+              </p>
+            </div>
 
             <form onSubmit={handleProfileComplete} noValidate className="mt-6 space-y-5">
               <Field
@@ -209,7 +248,7 @@ export function LoginPage() {
                     value={form.regNumber}
                     onChange={set("regNumber")}
                     autoComplete="off"
-                    placeholder="e.g. 230701XXX"
+                    placeholder="e.g. 19xxxxxxxx"
                   />
                   <Field
                     label="Phone number"
@@ -218,6 +257,7 @@ export function LoginPage() {
                     value={form.phone}
                     onChange={set("phone")}
                     autoComplete="tel"
+                    maxLength={10}
                   />
                 </>
               ) : (
@@ -236,6 +276,7 @@ export function LoginPage() {
                     value={form.phone}
                     onChange={set("phone")}
                     autoComplete="tel"
+                    maxLength={10}
                   />
                 </>
               )}
