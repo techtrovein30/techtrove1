@@ -1,0 +1,331 @@
+/**
+ * db.ts
+ * -----
+ * Shared table-name helpers + cross-table lookups for the split
+ * internal/external participant & registration schema.
+ */
+
+import { supabase } from "./supabase";
+import type { ParticipantType } from "./api";
+
+// ─── Table names ────────────────────────────────────────────────────────────
+
+export const REGISTRATION_TABLE_FOR: Record<ParticipantType, string> = {
+  internal: "registrations_internal",
+  external: "registrations_external",
+};
+
+export const ALL_REGISTRATION_TABLES = [
+  "registrations_internal",
+  "registrations_external",
+] as const;
+
+// ─── Participant rows ───────────────────────────────────────────────────────
+
+export interface ParticipantRow {
+  id: string;
+  username: string;
+  full_name: string;
+  email: string;
+  participant_type: "internal" | "external";
+  reg_number: string | null;
+  college: string | null;
+  phone: string | null;
+  id_card_path?: string | null;
+  role: "user" | "admin" | null;
+  created_at: string;
+}
+
+/** Look a participant up by id. Returns null if absent. */
+export async function getParticipantById(
+  id: string,
+): Promise<ParticipantRow | null> {
+  const [internal, external] = await Promise.all([
+    supabase
+      .from("internal_participants")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle(),
+
+    supabase
+      .from("external_participants")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle(),
+  ]);
+
+  if (internal.error) {
+    console.error("getParticipantById internal error:", internal.error);
+    throw new Error(internal.error.message);
+  }
+
+  if (external.error) {
+    console.error("getParticipantById external error:", external.error);
+    throw new Error(external.error.message);
+  }
+
+  // A user should exist in exactly one participant table.
+  if (internal.data && external.data) {
+    console.error(
+      "Data integrity error: participant exists in both participant tables:",
+      id,
+    );
+    throw new Error("Participant exists in both participant tables.");
+  }
+
+  return (
+    (internal.data as unknown as ParticipantRow | null) ??
+    (external.data as unknown as ParticipantRow | null) ??
+    null
+  );
+}
+
+/** Look a participant up by email. Returns null if absent. */
+export async function getParticipantByEmail(
+  email: string,
+): Promise<ParticipantRow | null> {
+  const normalized = email.trim().toLowerCase();
+
+  const [internal, external] = await Promise.all([
+    supabase
+      .from("internal_participants")
+      .select("*")
+      .eq("email", normalized)
+      .maybeSingle(),
+
+    supabase
+      .from("external_participants")
+      .select("*")
+      .eq("email", normalized)
+      .maybeSingle(),
+  ]);
+
+  if (internal.error) {
+    console.error("getParticipantByEmail internal error:", internal.error);
+    throw new Error(internal.error.message);
+  }
+
+  if (external.error) {
+    console.error("getParticipantByEmail external error:", external.error);
+    throw new Error(external.error.message);
+  }
+
+  // Email should belong to exactly one participant.
+  if (internal.data && external.data) {
+    console.error(
+      "Data integrity error: email exists in both participant tables:",
+      normalized,
+    );
+    throw new Error("Participant email exists in both participant tables.");
+  }
+
+  return (
+    (internal.data as unknown as ParticipantRow | null) ??
+    (external.data as unknown as ParticipantRow | null) ??
+    null
+  );
+}
+
+/** All participants (used by the admin panel). */
+export async function getAllParticipants(): Promise<ParticipantRow[]> {
+  const [internal, external] = await Promise.all([
+    supabase
+      .from("internal_participants")
+      .select("*")
+      .order("created_at", { ascending: false }),
+
+    supabase
+      .from("external_participants")
+      .select("*")
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (internal.error) {
+    console.error("getAllParticipants internal error:", internal.error);
+    throw new Error(internal.error.message);
+  }
+
+  if (external.error) {
+    console.error("getAllParticipants external error:", external.error);
+    throw new Error(external.error.message);
+  }
+
+  return [
+    ...((internal.data ?? []) as unknown as ParticipantRow[]),
+    ...((external.data ?? []) as unknown as ParticipantRow[]),
+  ].sort((a, b) =>
+    a.created_at > b.created_at ? -1 : 1,
+  );
+}
+
+export const ALL_PARTICIPANT_TABLES = [
+  "internal_participants",
+  "external_participants",
+] as const;
+
+/** Find which split participant table holds a participant id. Returns null if absent. */
+export async function findParticipantTableById(
+  userId: string,
+): Promise<string | null> {
+  for (const table of ALL_PARTICIPANT_TABLES) {
+    const { data } = await supabase
+      .from(table)
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+    if (data) return table;
+  }
+  return null;
+}
+
+// ─── Registration rows ──────────────────────────────────────────────────────
+
+export interface RegistrationRow {
+  id: string;
+  registration_code: string;
+  user_id: string;
+  event_id: string;
+  team_name: string;
+  captain_name: string;
+  fee: number;
+  payment_status: "pending" | "recorded";
+  terms_accepted: boolean;
+  members: unknown;
+  created_at: string;
+  utr_number?: string;
+  payment_proof_path?: string;       // used by registrations_internal (and registrations_external)
+  payment_screenshot_path?: string;  // used by registrations_external only
+  payment_screenshot_url?: string;   // used by registrations_external only
+  payment_review_note?: string;
+}
+
+/** Find which table holds a registration id. Returns null if absent. */
+export async function findRegistrationTableById(
+  regId: string,
+): Promise<string | null> {
+  for (const table of ALL_REGISTRATION_TABLES) {
+    const { data } = await supabase
+      .from(table)
+      .select("id")
+      .eq("id", regId)
+      .maybeSingle();
+    if (data) return table;
+  }
+  return null;
+}
+
+/** Fetch a registration by id across both tables. Returns null if absent. */
+export async function getRegistrationById(regId: string): Promise<RegistrationRow | null> {
+  for (const table of ALL_REGISTRATION_TABLES) {
+    const { data } = await supabase
+      .from(table)
+      .select("*")
+      .eq("id", regId)
+      .maybeSingle();
+    if (data) return data as unknown as RegistrationRow;
+  }
+  return null;
+}
+
+/** All registrations from both tables, newest first (admin panel). */
+export async function getAllRegistrations(): Promise<RegistrationRow[]> {
+  const [internal, external] = await Promise.all([
+    supabase
+      .from("registrations_internal")
+      .select("*")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("registrations_external")
+      .select("*")
+      .order("created_at", { ascending: false }),
+  ]);
+  
+  if (internal.error) console.error("getAllRegistrations internal error:", internal.error);
+  if (external.error) console.error("getAllRegistrations external error:", external.error);
+
+  return [
+    ...((internal.data ?? []) as unknown as RegistrationRow[]),
+    ...((external.data ?? []) as unknown as RegistrationRow[]),
+  ].sort((a, b) => (a.created_at > b.created_at ? -1 : 1));
+}
+
+/** Registrations for one user across both tables, newest first. */
+export async function getRegistrationsByUser(userId: string): Promise<RegistrationRow[]> {
+  const [internal, external] = await Promise.all([
+    supabase
+      .from("registrations_internal")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("registrations_external")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false }),
+  ]);
+  return [
+    ...((internal.data ?? []) as unknown as RegistrationRow[]),
+    ...((external.data ?? []) as unknown as RegistrationRow[]),
+  ].sort((a, b) => (a.created_at > b.created_at ? -1 : 1));
+}
+
+/** Look a registration up by registration code across both tables. */
+export async function getRegistrationByCode(code: string): Promise<RegistrationRow | null> {
+  for (const table of ALL_REGISTRATION_TABLES) {
+    const { data } = await supabase
+      .from(table)
+      .select("*")
+      .eq("registration_code", code)
+      .maybeSingle();
+    if (data) return data as unknown as RegistrationRow;
+  }
+  return null;
+}
+
+export async function getRegistrationCountsByUser(): Promise<Record<string, number>> {
+  const [registrations, participants] = await Promise.all([
+    getAllRegistrations(),
+    getAllParticipants()
+  ]);
+
+  const idByEmail = new Map<string, string>();
+  const idByRegNo = new Map<string, string>();
+  
+  for (const p of participants) {
+    if (p.email) idByEmail.set(p.email.toLowerCase(), p.id);
+    if (p.reg_number) idByRegNo.set(p.reg_number.toLowerCase(), p.id);
+  }
+
+  const counts: Record<string, number> = {};
+  // A flat pass (one registration_code covering several events) is ONE
+  // registration — count each distinct code once per user instead of one per
+  // event row, so counts stay aligned with the actual team entries.
+  const countedEntries = new Set<string>();
+
+  for (const reg of registrations) {
+    const uniqueUserIdsInReg = new Set<string>();
+    if (reg.user_id) uniqueUserIdsInReg.add(reg.user_id);
+    
+    if (Array.isArray(reg.members)) {
+      for (const m of reg.members as any[]) {
+        if (m.email) {
+          const uid = idByEmail.get(String(m.email).toLowerCase());
+          if (uid) uniqueUserIdsInReg.add(uid);
+        }
+        if (m.regNumber) {
+          const uid = idByRegNo.get(String(m.regNumber).toLowerCase());
+          if (uid) uniqueUserIdsInReg.add(uid);
+        }
+      }
+    }
+    
+    for (const uid of uniqueUserIdsInReg) {
+      const entryKey = `${uid}:${reg.registration_code}`;
+      if (countedEntries.has(entryKey)) continue;
+      countedEntries.add(entryKey);
+      counts[uid] = (counts[uid] ?? 0) + 1;
+    }
+  }
+  
+  return counts;
+}

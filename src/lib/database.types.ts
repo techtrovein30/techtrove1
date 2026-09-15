@@ -1,0 +1,336 @@
+/**
+ * database.types.ts
+ * ------------------
+ * Manually maintained TypeScript types that mirror the Supabase
+ * Postgres schema. If you add/change columns, update this file too.
+ *
+ * You can also auto-generate this with the Supabase CLI:
+ *   npx supabase gen types typescript --project-id odozwlmavgrazgpnjmze > src/lib/database.types.ts
+ */
+
+export interface Database {
+  public: {
+    Tables: {
+      admin_allowlist: {
+        Row: {
+          email: string;
+          created_at: string;
+        };
+        Insert: {
+          email: string;
+          created_at?: string;
+        };
+        Update: {
+          email?: string;
+          created_at?: string;
+        };
+      };
+      internal_participants: {
+        Row: {
+          id: string;
+          username: string;
+          full_name: string;
+          email: string;
+          participant_type: "internal" | "external";
+          reg_number: string | null;
+          college: string | null;
+          phone: string | null;
+          id_card_path: string | null;
+          role: "user" | "admin";
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          username: string;
+          full_name: string;
+          email: string;
+          participant_type?: "internal" | "external";
+          reg_number?: string | null;
+          college?: string | null;
+          phone?: string | null;
+          id_card_path?: string | null;
+          role?: "user" | "admin";
+          created_at?: string;
+        };
+        Update: {
+          username?: string;
+          full_name?: string;
+          email?: string;
+          participant_type?: "internal" | "external";
+          reg_number?: string | null;
+          college?: string | null;
+          phone?: string | null;
+          id_card_path?: string | null;
+          role?: "user" | "admin";
+        };
+      };
+      external_participants: {
+        Row: {
+          id: string;
+          username: string;
+          full_name: string;
+          email: string;
+          participant_type: "internal" | "external";
+          reg_number: string | null;
+          college: string | null;
+          phone: string | null;
+          id_card_path: string | null;
+          role: "user" | "admin";
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          username: string;
+          full_name: string;
+          email: string;
+          participant_type?: "internal" | "external";
+          reg_number?: string | null;
+          college?: string | null;
+          phone?: string | null;
+          id_card_path?: string | null;
+          role?: "user" | "admin";
+          created_at?: string;
+        };
+        Update: {
+          username?: string;
+          full_name?: string;
+          email?: string;
+          participant_type?: "internal" | "external";
+          reg_number?: string | null;
+          college?: string | null;
+          phone?: string | null;
+          id_card_path?: string | null;
+          role?: "user" | "admin";
+        };
+      };
+      registrations_internal: {
+        Row: {
+          id: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          team_name: string;
+          captain_name: string;
+          fee: number;
+          payment_status: "pending" | "recorded";
+          terms_accepted: boolean;
+          members: RegistrationMember[];
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          team_name: string;
+          captain_name: string;
+          fee?: number;
+          payment_status?: "pending" | "recorded";
+          terms_accepted?: boolean;
+          members?: RegistrationMember[];
+          created_at?: string;
+        };
+        Update: {
+          team_name?: string;
+          captain_name?: string;
+          fee?: number;
+          payment_status?: "pending" | "recorded";
+          terms_accepted?: boolean;
+          members?: RegistrationMember[];
+        };
+      };
+      registrations_external: {
+        Row: {
+          id: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          team_name: string;
+          captain_name: string;
+          fee: number;
+          payment_status: "pending" | "recorded";
+          terms_accepted: boolean;
+          members: RegistrationMember[];
+          created_at: string;
+          utr_number?: string | null;
+          payment_screenshot_path?: string | null;
+          payment_screenshot_url?: string | null;
+        };
+        Insert: {
+          id?: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          team_name: string;
+          captain_name: string;
+          fee?: number;
+          payment_status?: "pending" | "recorded";
+          terms_accepted?: boolean;
+          members?: RegistrationMember[];
+          created_at?: string;
+          utr_number?: string | null;
+          payment_screenshot_path?: string | null;
+          payment_screenshot_url?: string | null;
+        };
+        Update: {
+          team_name?: string;
+          captain_name?: string;
+          fee?: number;
+          payment_status?: "pending" | "recorded";
+          terms_accepted?: boolean;
+          members?: RegistrationMember[];
+          utr_number?: string | null;
+          payment_screenshot_path?: string | null;
+          payment_screenshot_url?: string | null;
+        };
+      };
+      events: {
+        Row: {
+          id: string;
+          day_id: string;
+          name: string;
+          category: string | null;
+          description: string | null;
+          venue: string | null;
+          time: string | null;
+          duration: string | null;
+          coordinator: string | null;
+          registration_fee: number;
+          registration_type: string | null;
+          eligibility: string | null;
+          required_players: number;
+          max_substitutes: number;
+          registration_open: boolean;
+          rules: string[] | null;
+          prizes: string[] | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          day_id: string;
+          name: string;
+          category?: string | null;
+          description?: string | null;
+          venue?: string | null;
+          time?: string | null;
+          duration?: string | null;
+          coordinator?: string | null;
+          registration_fee?: number;
+          registration_type?: string | null;
+          eligibility?: string | null;
+          required_players?: number;
+          max_substitutes?: number;
+          registration_open?: boolean;
+          rules?: string[] | null;
+          prizes?: string[] | null;
+          created_at?: string;
+        };
+        Update: {
+          day_id?: string;
+          name?: string;
+          category?: string | null;
+          description?: string | null;
+          venue?: string | null;
+          time?: string | null;
+          duration?: string | null;
+          coordinator?: string | null;
+          registration_fee?: number;
+          registration_type?: string | null;
+          eligibility?: string | null;
+          required_players?: number;
+          max_substitutes?: number;
+          registration_open?: boolean;
+          rules?: string[] | null;
+          prizes?: string[] | null;
+        };
+      };
+      registration_members: {
+        Row: {
+          id: string;
+          registration_id: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          event_name: string | null;
+          team_name: string;
+          captain_name: string;
+          participant_type: "internal" | "external";
+          payment_status: string;
+          member_name: string;
+          member_role: string;
+          position: number;
+          email: string;
+          reg_number: string | null;
+          phone: string | null;
+          college: string | null;
+          attended: boolean;
+          certificate_id: string | null;
+          certificate_url: string | null;
+          certificate_issued_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          registration_id: string;
+          registration_code: string;
+          user_id: string;
+          event_id: string;
+          event_name?: string | null;
+          team_name: string;
+          captain_name: string;
+          participant_type: "internal" | "external";
+          payment_status?: string;
+          member_name: string;
+          member_role?: string;
+          position?: number;
+          email: string;
+          reg_number?: string | null;
+          phone?: string | null;
+          college?: string | null;
+          attended?: boolean;
+          certificate_id?: string | null;
+          certificate_url?: string | null;
+          certificate_issued_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          member_name?: string;
+          member_role?: string;
+          email?: string;
+          reg_number?: string | null;
+          phone?: string | null;
+          college?: string | null;
+          attended?: boolean;
+          certificate_id?: string | null;
+          certificate_url?: string | null;
+          certificate_issued_at?: string | null;
+        };
+      };
+    };
+    Views: Record<string, never>;
+    Functions: {
+      ensure_admin_access: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      is_admin: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+    };
+    Enums: Record<string, never>;
+  };
+}
+
+/** Used by the registrations.members JSON column */
+export interface RegistrationMember {
+  name: string;
+  role: "player" | "substitute";
+  position: number;
+  participantType: "internal" | "external";
+  email: string;
+  regNumber?: string;
+  phone?: string;
+}

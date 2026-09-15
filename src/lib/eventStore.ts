@@ -1,0 +1,440 @@
+/**
+ * eventStore.ts
+ * -------------
+ * Supabase-backed event store for TechTrove 3.0.
+ *
+ * On first admin panel load, static event data from techtrove.ts is
+ * upserted into the Supabase `events` table. Subsequent reads come from
+ * Supabase, allowing the admin panel to add/edit/delete events dynamically
+ * and have changes persist for all users in real time.
+ *
+ * Public pages import from this module instead of techtrove.ts directly.
+ * The static techtrove.ts data is never modified — it serves as seed/fallback.
+ *
+ * IMPORTANT: All async functions must be awaited by callers.
+ * Sync wrappers are provided only where the call site is not async-ready
+ * (e.g. synchronous route-level data reads) and fall back to static data.
+ */
+
+import { supabase } from "./supabase";
+import { requireAdmin } from "./adminGuard";
+import { days as staticDays } from "../data/techtrove";
+import type { Day, TechEvent } from "../data/techtrove";
+import { eventRulesMap } from "../data/eventRules";
+
+// Re-export types so consumers can import from one place
+export type { Day, TechEvent };
+
+/** Wrap DB/server errors into generic user-facing messages (H05). */
+function friendlyError(err: unknown, fallback: string): Error {
+  const detail = err instanceof Error ? err.message : String(err);
+  console.error(`[eventStore] ${fallback}:`, detail);
+  return new Error(fallback);
+}
+
+// Day labels/names/descriptions/statuses are stored in the Supabase `days` table.
+// This replaces the old localStorage implementation.
+
+type DayMeta = Record<string, { label?: string; name?: string; date?: string; description?: string; status?: Day["status"] }>;
+
+// ─── Type mapping helpers ──────────────────────────────────────────────────
+
+interface EventRow {
+  id: string;
+  day_id: string;
+  name: string;
+  category?: string | null;
+  description?: string | null;
+  venue?: string | null;
+  time?: string | null;
+  duration?: string | null;
+  coordinator?: string | null;
+  registration_fee?: number | null;
+  registration_type?: string | null;
+  eligibility?: string | null;
+  required_players?: number | null;
+  max_substitutes?: number | null;
+  registration_open?: boolean | null;
+  rules?: string[] | null;
+  prizes?: string[] | null;
+}
+
+const eventImageMap: Record<string, string> = {
+  // Sports
+  "Football": "/images/events/football.webp",
+  "Football (7s)": "/images/events/football.webp",
+  "Cricket": "/images/events/cricket.webp",
+  "Chess": "/images/events/chess.webp",
+  "Volleyball": "/images/events/volleyball.webp",
+  "Kabaddi": "/images/events/kabaddi.webp",
+  "Carrom": "/images/events/carrom.webp",
+  "Throwball": "/images/events/throwball.webp",
+  "Kho-Kho": "/images/events/kho-kho.webp",
+
+  // Girls' category variants reuse the same sport artwork.
+  "Chess (Girls)": "/images/events/chess.webp",
+  "Carrom (Girls)": "/images/events/carrom.webp",
+  "Throwball (Girls)": "/images/events/throwball.webp",
+  "Kho-Kho (Girls)": "/images/events/kho-kho.webp",
+
+  // Day 2 (Technical and Non-Technical) - Unique Unsplash placeholders for remaining events
+  "Hackathon": "/images/events/hackathon.webp",
+  "Debugging": "/images/events/debugging.webp",
+  "Paper Presentation": "/images/events/paper-presentation.webp",
+  "Logo Making": "/images/events/logomaking.webp",
+  "Solo/Group Dance": "/images/events/dance.webp",
+  "TuneTopia": "https://picsum.photos/seed/tunetopia/800/500",
+  "Adaptune": "/images/events/adaptune.webp",
+  "Singing (Solo/Group)": "https://picsum.photos/seed/singing/800/500",
+  "Mobile Gaming (BGMI/FreeFire)": "/images/events/gaming.webp",
+  "Ramp Walk": "/images/events/ramp-walk.webp",
+  "Quiz": "/images/events/quiz.webp",
+  "Tech Maze": "https://picsum.photos/seed/techmaze/800/500",
+  "Treasure Hunt": "https://picsum.photos/seed/treasurehunt/800/500",
+  "Connexion": "https://picsum.photos/seed/connexion/800/500",
+};
+
+function rowToEvent(r: EventRow): TechEvent {
+  // Category variants (e.g. "Kho-Kho (Girls)") reuse the base event's rules —
+  // strip the trailing "(...)" suffix to find them.
+  const baseRuleName = r.name?.replace(/\s*\([^)]*\)\s*$/, "") ?? r.name;
+  const hardcodedRules = eventRulesMap[r.name] ?? eventRulesMap[baseRuleName];
+  const rules = hardcodedRules ?? (r.rules ?? undefined);
+
+  // All Tech / Non-Tech events (day-2) are always individual with 1 player
+  // regardless of DB config — only sports events (day-1) can have team rosters.
+  const isNonSport = r.day_id !== "day-1";
+  return {
+    id: r.id,
+    dayId: r.day_id,
+    name: r.name,
+    category: r.category ?? undefined,
+    description: r.description ?? undefined,
+    image: eventImageMap[r.name] ?? undefined,
+    venue: r.venue ?? undefined,
+    time: r.time ?? undefined,
+    duration: r.duration ?? undefined,
+    coordinator: r.coordinator ?? undefined,
+    registrationFee: r.registration_fee ?? 0,
+    registrationType: isNonSport ? "individual" : ((r.registration_type as TechEvent["registrationType"]) ?? "team"),
+    eligibility: r.eligibility ? r.eligibility.split(", ") : undefined,
+    requiredPlayers: isNonSport ? 1 : (r.required_players ?? 1),
+    maxSubstitutes: isNonSport ? 0 : (r.max_substitutes ?? 0),
+    registrationOpen: r.registration_open ?? true,
+    rules,
+    prizes: r.prizes ?? undefined,
+  } as TechEvent;
+}
+
+export function eventToRow(event: TechEvent): EventRow {
+  return {
+    id: event.id,
+    day_id: event.dayId,
+    name: event.name,
+    category: event.category ?? null,
+    description: event.description ?? null,
+    venue: event.venue ?? null,
+    time: event.time ?? null,
+    duration: event.duration ?? null,
+    coordinator: event.coordinator ?? null,
+    registration_fee: event.registrationFee ?? 0,
+    registration_type: event.registrationType ?? "team",
+    eligibility: event.eligibility ? event.eligibility.join(", ") : null,
+    required_players: event.requiredPlayers ?? 1,
+    max_substitutes: event.maxSubstitutes ?? 0,
+    registration_open: event.registrationOpen ?? true,
+    rules: event.rules ?? null,
+    prizes: event.prizes ?? null,
+  };
+}
+
+/** Group flat event rows back into the Day[] structure, merging admin overrides */
+function groupIntoDays(rows: EventRow[], dayMeta: DayMeta): Day[] {
+  const staticDayMap = new Map(staticDays.map((d) => [d.id, d]));
+  const dayEventMap = new Map<string, TechEvent[]>();
+
+  for (const row of rows) {
+    const targetDayId = row.day_id === "day-3" ? "day-2" : row.day_id;
+    const arr = dayEventMap.get(targetDayId) ?? [];
+    const event = rowToEvent(row);
+    event.dayId = targetDayId;
+    arr.push(event);
+    dayEventMap.set(targetDayId, arr);
+  }
+
+  // Build days in the same order as the static data
+  const days: Day[] = [];
+  for (const staticDay of staticDays) {
+    const events = dayEventMap.get(staticDay.id) ?? [];
+    const meta = dayMeta[staticDay.id];
+    days.push({
+      ...staticDay,
+      ...(meta ?? {}),
+      events,
+    });
+  }
+  // Also include any day IDs not in staticDays (dynamically created)
+  for (const [dayId, events] of dayEventMap) {
+    if (!staticDayMap.has(dayId)) {
+      const meta = dayMeta[dayId];
+      days.push({
+        id: dayId,
+        label: meta?.label ?? dayId,
+        name: meta?.name ?? dayId,
+        date: meta?.date ?? "",
+        description: meta?.description ?? "",
+        status: meta?.status ?? "active",
+        events,
+      });
+    }
+  }
+
+  return days;
+}
+
+// ─── In-memory cache (for synchronous callers) ─────────────────────────────
+
+let _cachedDays: Day[] | null = null;
+
+async function fetchAndCacheDays(): Promise<Day[]> {
+  const [eventsResult, daysResult] = await Promise.all([
+    supabase.from("events").select("*"),
+    supabase.from("days").select("*")
+  ]);
+
+  if (eventsResult.error) {
+    // Supabase unreachable or events table missing — return whatever is cached (could be stale)
+    console.warn("eventStore: Supabase fetch failed:", eventsResult.error?.message);
+    return _cachedDays ?? staticDays.map((d) => ({ ...d, events: [] }));
+  }
+  
+  if (daysResult.error) {
+    console.warn("eventStore: Days table fetch failed (might not exist yet):", daysResult.error?.message);
+  }
+  
+  const dayMeta: DayMeta = {};
+  for (const day of daysResult.data || []) {
+    dayMeta[day.id] = {
+      label: day.label,
+      name: day.name,
+      description: day.description,
+      status: day.status as Day["status"]
+    };
+  }
+
+  // data may be an empty array if the DB table is empty — that is fine;
+  // we do NOT fall back to the hardcoded static events.
+  _cachedDays = groupIntoDays((eventsResult.data ?? []) as EventRow[], dayMeta);
+  return _cachedDays;
+}
+
+// ─── Seeding ───────────────────────────────────────────────────────────────
+
+/**
+ * Upserts static event data into the Supabase `events` table.
+ * Called once on admin panel startup. Safe to call multiple times.
+ */
+export async function seedEventsIfNeeded(): Promise<void> {
+  // Only authenticated admins may seed/write the events table (H04).
+  await requireAdmin();
+  const { count } = await supabase
+    .from("events")
+    .select("*", { count: "exact", head: true });
+
+  if (count && count > 0) {
+    // The table is already populated. Reconcile the static seed events so
+    // newly added entries (e.g. girls' category events) are open for
+    // registration without touching anything created through the admin panel.
+    const { data: existingRows } = await supabase.from("events").select("id");
+    const existingIds = new Set((existingRows ?? []).map((r) => r.id));
+    const missingEvents = staticDays
+      .flatMap((d) => d.events)
+      .filter((e) => !existingIds.has(e.id));
+    if (missingEvents.length > 0) {
+      const { error } = await supabase
+        .from("events")
+        .upsert(missingEvents.map(eventToRow), { onConflict: "id" });
+      if (error) {
+        console.error("Failed to seed new events:", error.message);
+      }
+    }
+  } else {
+    // Empty table — seed the full static event list.
+    const allEvents = staticDays.flatMap((d) => d.events);
+    if (allEvents.length > 0) {
+      const rows = allEvents.map(eventToRow);
+      const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
+      if (error) {
+        console.error("Failed to seed events:", error.message);
+      }
+    }
+  }
+
+  await fetchAndCacheDays();
+}
+
+// ─── Public read API ───────────────────────────────────────────────────────
+
+/** Async version — always returns fresh data from Supabase */
+export async function getDaysAsync(): Promise<Day[]> {
+  return fetchAndCacheDays();
+}
+
+/**
+ * Sync version — returns the DB-loaded cache.
+ * Returns empty events arrays until the first async fetch completes.
+ * Prefer useEvents() hook in React components.
+ */
+export function getDays(): Day[] {
+  if (_cachedDays) return _cachedDays;
+  // Kick off background fetch; return day shells with no events for now
+  fetchAndCacheDays();
+  return staticDays.map((d) => ({ ...d, events: [] }));
+}
+
+/** Sync version — returns DB-cached events (empty until first fetch). Prefer useAllEvents() hook. */
+export function getAllEvents(): TechEvent[] {
+  return getDays().flatMap((d) => d.events);
+}
+
+/** Sync version — returns DB-cached event (may be undefined until first fetch). Prefer useEvent() hook. */
+export function getEvent(id: string | undefined): TechEvent | undefined {
+  if (!id) return undefined;
+  return getAllEvents().find((e) => e.id === id);
+}
+
+export function getDay(id: string): Day | undefined {
+  return getDays().find((d) => d.id === id);
+}
+
+// ─── Admin write API ───────────────────────────────────────────────────────
+
+export async function adminUpdateEvent(
+  eventId: string,
+  patch: Partial<TechEvent>
+): Promise<TechEvent> {
+  await requireAdmin();
+  const updateRow: Partial<EventRow> = {};
+  if (patch.name !== undefined) updateRow.name = patch.name;
+  if (patch.category !== undefined) updateRow.category = patch.category ?? null;
+  if (patch.description !== undefined) updateRow.description = patch.description ?? null;
+  if (patch.venue !== undefined) updateRow.venue = patch.venue ?? null;
+  if (patch.time !== undefined) updateRow.time = patch.time ?? null;
+  if (patch.duration !== undefined) updateRow.duration = patch.duration ?? null;
+  if (patch.coordinator !== undefined) updateRow.coordinator = patch.coordinator ?? null;
+  if (patch.registrationFee !== undefined) updateRow.registration_fee = patch.registrationFee;
+  if (patch.registrationType !== undefined) updateRow.registration_type = patch.registrationType;
+  if (patch.eligibility !== undefined) updateRow.eligibility = patch.eligibility ? patch.eligibility.join(", ") : null;
+  if (patch.requiredPlayers !== undefined) updateRow.required_players = patch.requiredPlayers;
+  if (patch.maxSubstitutes !== undefined) updateRow.max_substitutes = patch.maxSubstitutes;
+  if (patch.registrationOpen !== undefined) updateRow.registration_open = patch.registrationOpen;
+  if (patch.rules !== undefined) updateRow.rules = patch.rules ?? null;
+  if (patch.prizes !== undefined) updateRow.prizes = patch.prizes ?? null;
+
+  const { data, error } = await supabase
+    .from("events")
+    .update(updateRow)
+    .eq("id", eventId)
+    .select()
+    .single();
+
+  if (error || !data) throw friendlyError(error, "Could not update the event.");
+  await fetchAndCacheDays();
+  return rowToEvent(data as EventRow);
+}
+
+export async function adminToggleRegistration(eventId: string): Promise<TechEvent> {
+  await requireAdmin();
+  // Fetch current state first
+  const { data: current, error: fetchError } = await supabase
+    .from("events")
+    .select("registration_open")
+    .eq("id", eventId)
+    .single();
+
+  if (fetchError || !current) throw friendlyError(fetchError, "Event not found.");
+
+  const { data, error } = await supabase
+    .from("events")
+    .update({ registration_open: !current.registration_open })
+    .eq("id", eventId)
+    .select()
+    .single();
+
+  if (error || !data) throw friendlyError(error, "Could not update the event.");
+  await fetchAndCacheDays();
+  return rowToEvent(data as EventRow);
+}
+
+function makeEventId(): string {
+  // Cryptographically random event id (C03) — not Math.random().
+  const rand = new Uint32Array(3);
+  crypto.getRandomValues(rand);
+  return `evt-${Array.from(rand, (n) => n.toString(36).toUpperCase()).join("").slice(0, 6)}`;
+}
+
+export async function adminAddEvent(
+  dayId: string,
+  event: Omit<TechEvent, "id" | "dayId">
+): Promise<TechEvent> {
+  await requireAdmin();
+  const newEvent: TechEvent = {
+    ...event,
+    id: makeEventId(),
+    dayId,
+  } as TechEvent;
+
+  const { data, error } = await supabase
+    .from("events")
+    .insert(eventToRow(newEvent))
+    .select()
+    .single();
+
+  if (error || !data) throw friendlyError(error, "Failed to add the event.");
+  await fetchAndCacheDays();
+  return rowToEvent(data as EventRow);
+}
+
+export async function adminDeleteEvent(eventId: string): Promise<void> {
+  await requireAdmin();
+  // Guard: check if registrations exist in either table to prevent catastrophic cascade deletion
+  const [internalCheck, externalCheck] = await Promise.all([
+    supabase.from("registrations_internal").select("id", { count: "exact", head: true }).eq("event_id", eventId),
+    supabase.from("registrations_external").select("id", { count: "exact", head: true }).eq("event_id", eventId),
+  ]);
+
+  const totalRegs = (internalCheck.count ?? 0) + (externalCheck.count ?? 0);
+  if (totalRegs > 0) {
+    throw new Error(
+      `Cannot delete this event: ${totalRegs} active registration(s) exist. Please close registrations instead to preserve records.`
+    );
+  }
+
+  const { error } = await supabase.from("events").delete().eq("id", eventId);
+  if (error) throw friendlyError(error, "Could not delete the event.");
+  await fetchAndCacheDays();
+}
+
+export async function adminUpdateDay(
+  dayId: string,
+  patch: Partial<Omit<Day, "id" | "events">>
+): Promise<Day> {
+  await requireAdmin();
+  const { data: current } = await supabase.from("days").select("*").eq("id", dayId).single();
+  const updateData = {
+    id: dayId,
+    label: patch.label ?? current?.label ?? dayId,
+    name: patch.name ?? current?.name ?? dayId,
+    description: patch.description ?? current?.description ?? "",
+    status: patch.status ?? current?.status ?? "active"
+  };
+
+  const { error } = await supabase.from("days").upsert(updateData);
+  if (error) throw friendlyError(error, "Could not update the day.");
+
+  // Refresh and return the day
+  const days = await fetchAndCacheDays();
+  const day = days.find((d) => d.id === dayId);
+  if (!day) throw new Error("Day not found.");
+  return day;
+}
