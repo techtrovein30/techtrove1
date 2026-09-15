@@ -2,6 +2,26 @@ node_modules
 dist
 *.local
 .DS_Store
+# Secrets — never commit these
 .env
+.env.*
+!.env.example
+# One-off admin/DB helper queries (paste into the Supabase SQL editor, never commit)
+query_update_own_*.txt
+query_update_*.txt
+all_db_queries.sql
+# Local scratch & tooling
+*.docx
+*.pdf
+scratch/
+test-browser.js
+update_*.py
+update_register.py
+change_colors.cjs
+replace_text.cjs
+fix_ts_errors.py
+fix_typecheck.py
+registerpage_conflict.txt
+*.log
 .agents/
 .opencode/
