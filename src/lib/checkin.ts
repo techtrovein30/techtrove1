@@ -11,6 +11,23 @@
 import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
 import { useCallback, useEffect, useState } from "react";
+import { validateEmail } from "./validation";
+
+/**
+ * Sanitizes free-text search input before it is embedded into a PostgREST
+ * `.or()` filter string. PostgREST treats `,` `(` `)` as filter grammar and
+ * `%`/`_` as LIKE wildcards, so those are stripped: the term is reduced to a
+ * bare word/phrase whitelist (letters, digits, space, `.` `-` `&`) and can
+ * never alter the shape of the generated query (filter injection).
+ */
+function sanitizeCheckinSearch(input: string): string {
+  return input
+    .toUpperCase()
+    .replace(/[^A-Z0-9 .\-&]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 64);
+}
 
 export interface CheckinMember {
   id: string;
@@ -50,8 +67,9 @@ export async function adminListCheckinMembers(opts?: {
   if (opts?.eventId) {
     query = query.eq("event_id", opts.eventId);
   }
-  if (opts?.search?.trim()) {
-    const term = `%${opts.search.trim().toUpperCase()}%`;
+  const safeTerm = sanitizeCheckinSearch(opts?.search ?? "");
+  if (safeTerm) {
+    const term = `%${safeTerm}%`;
     query = query.or(
       `member_name.ilike.${term},team_name.ilike.${term},captain_name.ilike.${term},registration_code.ilike.${term}`
     );
@@ -90,10 +108,22 @@ export async function adminTogglePlayerCheckin(
   attended: boolean
 ): Promise<void> {
   await requireAdmin();
+
+  // Validate that the input is a real email before it touches a filter.
+  const emailErr = validateEmail(email, "external");
+  if (emailErr) throw new Error(emailErr);
+
+  // Reject LIKE wildcards so the value can never expand into extra rows, and
+  // match case-insensitively (stored emails may be mixed case).
+  const clean = email.trim().toLowerCase();
+  if (clean.includes("%") || clean.includes("_")) {
+    throw new Error("Invalid email address.");
+  }
+
   const { error } = await supabase
     .from("registration_members")
     .update({ attended })
-    .ilike("email", email.trim());
+    .ilike("email", clean);
   if (error) throw new Error(error?.message || "Could not update player check-in.");
 }
 

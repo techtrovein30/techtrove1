@@ -112,13 +112,26 @@ function makeId(prefix: string): string {
   return `${prefix}-${ts}-${id}`;
 }
 
+/**
+ * Reduce a user-supplied identifier to only the characters valid in a
+ * username/reg-number and cap its length. PostgREST `.or()` strings treat
+ * `,` `(` `)` as filter grammar and `%`/`_` as LIKE wildcards, so stripping
+ * those before interpolation closes the filter-injection surface (M01/M02).
+ */
+function safeQueryIdentifier(input: string): string {
+  return (input.match(/[a-z0-9]/gi) ?? []).join("").slice(0, 64);
+}
+
 /** Find the email for a username or reg-number across both participant tables. */
 export async function resolveEmailByIdentifier(identifier: string): Promise<string | null> {
-  const username = identifier.toLowerCase();
-  const regNo = identifier.toUpperCase();
+  const username = safeQueryIdentifier(identifier.toLowerCase());
+  const regNo = safeQueryIdentifier(identifier.toUpperCase());
+  if (!username && !regNo) return null;
+
   for (const table of ["internal_participants", "external_participants"] as const) {
     // Exact matches only (eq), never ilike — prevents %/_ wildcard
-    // enumeration (M01/M02).
+    // enumeration (M01/M02). Both tokens are sanitized above so the .or()
+    // string can never carry filter grammar.
     const { data, error } = await supabase
       .from(table)
       .select("email")
@@ -394,6 +407,35 @@ export async function updateOwnFullName(fullName: string): Promise<void> {
   if (error) {
     console.error("[participant] update_own_full_name RPC failed:", error);
     throw new Error("Could not update your name. Please try again.");
+  }
+}
+
+/**
+ * Update the signed-in participant's own college name.
+ *
+ * Used to backfill accounts created before college became mandatory for
+ * external participants, and to let them correct a typo. Participants have no
+ * direct UPDATE grant on the participant tables (RLS), so this goes through the
+ * `update_own_college` SECURITY DEFINER RPC which also syncs the denormalized
+ * `registration_members.college` used for check-in.
+ *
+ * Requires the SQL in `query_update_own_college.txt` to be run once in the
+ * Supabase SQL Editor — until then this fails loudly instead of faking success.
+ */
+export async function updateOwnCollege(college: string): Promise<void> {
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  if (!authUser) throw new Error("You need to sign in first.");
+
+  const value = college.trim();
+  if (!value) throw new Error("College name is required.");
+
+  const { error } = await supabase.rpc("update_own_college", {
+    p_college: value,
+  });
+
+  if (error) {
+    console.error("[participant] update_own_college RPC failed:", error);
+    throw new Error("Could not update your college. Please try again.");
   }
 }
 
