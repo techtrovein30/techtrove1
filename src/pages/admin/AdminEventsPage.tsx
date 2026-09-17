@@ -351,6 +351,24 @@ function DayModal({
   );
 }
 
+type CategoryFilter = "all" | "Technical" | "Non-Technical" | "Sports";
+
+const CATEGORY_OPTIONS: { value: CategoryFilter; label: string }[] = [
+  { value: "all", label: "All Events" },
+  { value: "Technical", label: "Technical" },
+  { value: "Non-Technical", label: "Non-Technical" },
+  { value: "Sports", label: "Sports" },
+];
+
+function matchesCategory(event: TechEvent, filter: CategoryFilter): boolean {
+  if (filter === "all") return true;
+  const cat = (event.category ?? "").toLowerCase();
+  if (filter === "Sports") return cat.startsWith("sport");
+  if (filter === "Technical") return cat === "technical";
+  if (filter === "Non-Technical") return cat === "non-technical";
+  return true;
+}
+
 export function AdminEventsPage() {
   const [days, setDays] = useState<Day[]>([]);
   const [editingEvent, setEditingEvent] = useState<TechEvent | null>(null);
@@ -362,6 +380,7 @@ export function AdminEventsPage() {
   const [busyEventId, setBusyEventId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [closingEvent, setClosingEvent] = useState<TechEvent | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
 
   useEffect(() => {
     getDaysAsync().then(setDays).catch(() => {});
@@ -435,6 +454,15 @@ export function AdminEventsPage() {
       setRowError(err instanceof Error ? err.message : "Delete failed.");
     }
   }
+
+  const filteredDays = useMemo(
+    () =>
+      days.map((day) => ({
+        ...day,
+        events: day.events.filter((e) => matchesCategory(e, categoryFilter)),
+      })),
+    [days, categoryFilter]
+  );
 
   const allEvents = useMemo(() => days.flatMap((d) => d.events), [days]);
 
@@ -546,14 +574,35 @@ export function AdminEventsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Event Management</h1>
           <p className="mt-1 text-sm text-muted">
-            {allEvents.length} events across {days.length} days
+            {categoryFilter === "all"
+              ? `${allEvents.length} events across ${days.length} days`
+              : `${filteredDays.flatMap((d) => d.events).length} ${categoryFilter} events`}
           </p>
         </div>
       </div>
 
+      {/* Category filter */}
+      <div className="flex flex-wrap gap-2">
+        {CATEGORY_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setCategoryFilter(opt.value)}
+            className={
+              "rounded border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors " +
+              (categoryFilter === opt.value
+                ? "border-primary/70 bg-primary/15 text-primary-soft"
+                : "border-white/10 text-muted hover:border-white/25 hover:text-foreground")
+            }
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {/* Days & Events List */}
       <div className="space-y-8">
-        {days.map((day) => (
+        {filteredDays.map((day) => (
           <div
             key={day.id}
             className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#161616]"
