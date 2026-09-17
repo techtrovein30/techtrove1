@@ -4,11 +4,13 @@ import type { TechEvent } from "../../data/techtrove";
 import { formatFee, pad } from "../../lib/utils";
 
 import { isSportEvent, isIndividualEvent, isSoloTeamEvent } from "../../lib/validation";
+import { isTechPassEvent } from "../../lib/fees";
 
 export function EventCard({ event, index }: { event: TechEvent; index: number }) {
   const isSport = isSportEvent(event);
   const isIndividual = isIndividualEvent(event);
   const isSoloTeam = isSoloTeamEvent(event);
+  const isPass = isTechPassEvent(event);
 
   return (
     <Link
@@ -52,9 +54,11 @@ export function EventCard({ event, index }: { event: TechEvent; index: number })
         <div className="mt-auto flex items-end justify-between border-t border-edge pt-4">
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] text-muted">
-              {isSoloTeam ? "Fee / participant" : "Fee"}
+              {isPass ? "All Day 2 events" : isSoloTeam ? "Fee / participant" : "Fee"}
             </p>
-            <p className="display mt-1 text-xl text-foreground">{formatFee(event.registrationFee)}</p>
+            <p className="display mt-1 text-xl text-foreground">
+              {isPass ? `Rs ${event.registrationFee ?? 0} flat` : formatFee(event.registrationFee)}
+            </p>
           </div>
           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-soft">
             View details

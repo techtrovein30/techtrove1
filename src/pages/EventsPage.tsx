@@ -69,6 +69,19 @@ export function EventsPage() {
           <span className="eyebrow">{activeDay.label}</span>
         </header>
 
+        {activeDay.id === "day-2" && (
+          <div className="mt-6 rounded-xl border border-primary/40 bg-primary/10 px-5 py-4">
+            <p className="eyebrow text-primary-soft">One flat pass · Rs 75</p>
+            <p className="mt-1 text-sm leading-relaxed text-foreground">
+              A single{" "}
+              <strong className="font-semibold text-primary-soft">Rs 75</strong>{" "}
+              pass covers{" "}
+              <strong className="font-semibold text-foreground">every Technical and Non-Technical event on Day 2</strong> —
+              tick as many as you like, pay once. SIMATS students register free.
+            </p>
+          </div>
+        )}
+
         <div className="mt-8 pb-16 md:pb-24">
           {activeDay.status === "active" && activeDay.events.length > 0 ? (
             activeDay.id === "day-2" ? (

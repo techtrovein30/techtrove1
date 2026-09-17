@@ -1197,14 +1197,16 @@ function SportStep({
   const dayEvents = events.filter((e) => e.dayId === activeDayId);
   const openDayEvents = dayEvents.filter((e) => e.registrationOpen);
 
+  const leadText = activeDay
+    ? activeDay.id === "day-2"
+      ? `You are viewing ${activeDay.label} · ${activeDay.name}. Tick as many events as you want — one registration covers them all${isInternal ? ", free as a SIMATS student" : " on a single flat Rs 75 pass"}.`
+      : `You are viewing ${activeDay.label} · ${activeDay.name}. Pick the sport your team is entering. You can register additional teams separately.`
+    : "Choose an event to register for.";
+
   return (
     <StepShell
       title={activeDay ? `Select your ${activeDay.name.toLowerCase()} event` : "Select your event"}
-      lead={
-        activeDay
-          ? `You are viewing ${activeDay.label} · ${activeDay.name}. Pick the event your team is entering. You can register additional teams separately.`
-          : "Choose an event to register for."
-      }
+      lead={leadText}
     >
       <div role="tablist" aria-label="Select symposium day" className="grid grid-cols-2 gap-3">
         {dayTabs.map((day) => {
@@ -1324,6 +1326,16 @@ function SportStep({
 
         return activeDayId === "day-2" ? (
           <div className="mt-6 space-y-8">
+            <div className="rounded-xl border border-primary/40 bg-primary/10 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary-soft">
+                {isInternal ? "One registration, many events" : "Rs 75 flat pass"}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                {isInternal
+                  ? "Tick as many Technical and Non-Technical events as you like — they all come on a single registration, free for SIMATS students."
+                  : "Tick as many Technical and Non-Technical events as you like — a single flat Rs 75 pass covers every event you tick for the whole of Day 2."}
+              </p>
+            </div>
             <div>
               <h3 className="text-xs font-bold uppercase tracking-widest text-primary-soft mb-3">Technical Events</h3>
               <div role="radiogroup" aria-label="Technical events" className="grid gap-3 sm:grid-cols-2">

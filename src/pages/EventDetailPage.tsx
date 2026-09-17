@@ -5,6 +5,7 @@ import { formatFee } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 
 import { isSportEvent, isIndividualEvent, isSoloTeamEvent, safeEventImage } from "../lib/validation";
+import { isTechPassEvent } from "../lib/fees";
 
 export function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -14,6 +15,7 @@ export function EventDetailPage() {
   const isSport = isSportEvent(event);
   const isIndividual = isIndividualEvent(event);
   const isSoloTeam = isSoloTeamEvent(event);
+  const isPass = isTechPassEvent(event);
   const heroImage = safeEventImage(event?.image);
 
   if (loading) {
@@ -112,8 +114,13 @@ export function EventDetailPage() {
                   <Ticket className="h-3.5 w-3.5" aria-hidden /> Fee / person
                 </dt>
                 <dd className="display mt-3 text-3xl">
-                  {user?.participantType === "internal" ? "Free" : formatFee(event.registrationFee)}
+                  {user?.participantType === "internal"
+                    ? "Free"
+                    : isPass
+                      ? `Rs ${event.registrationFee ?? 0} flat`
+                      : formatFee(event.registrationFee)}
                 </dd>
+                {isPass && <p className="mt-1 text-[10px] text-muted">covers all Day 2 events</p>}
               </div>
               <div className="bg-surface p-5">
                 <dt className="eyebrow flex items-center gap-2">
@@ -167,12 +174,18 @@ export function EventDetailPage() {
             <div className="clip-angle diag-stripes border border-edge bg-surface p-6 sm:p-8">
               <p className="eyebrow">Registration</p>
               <p className="display mt-3 text-4xl text-foreground">
-                {user?.participantType === "internal" ? "Free" : formatFee(event.registrationFee)}
+                {user?.participantType === "internal"
+                  ? "Free"
+                  : isPass
+                    ? `Rs ${event.registrationFee ?? 0} flat`
+                    : formatFee(event.registrationFee)}
               </p>
               <p className="mt-1 text-xs text-muted">
-                {isSoloTeam
-                  ? "per participant · ₹75 solo / ₹150 team · non-refundable"
-                  : `per person · ${isSport ? "charged for each player & substitute" : "charged per participant"} · non-refundable`}
+                {isPass
+                  ? "one flat pass · covers every Technical and Non-Technical event on Day 2 · non-refundable"
+                  : isSoloTeam
+                    ? "per participant · ₹75 solo / ₹150 team · non-refundable"
+                    : `per person · ${isSport ? "charged for each player & substitute" : "charged per participant"} · non-refundable`}
               </p>
 
               <dl className="mt-6 space-y-3 border-t border-edge pt-6 text-sm">
