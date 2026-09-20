@@ -53,6 +53,38 @@ export interface CheckinMember {
   certificateIssuedAt: string | null;
 }
 
+/**
+ * PostgREST returns snake_case column names (member_name, event_id…), while
+ * the rest of the app uses camelCase. Map a raw registration_members row to
+ * the shared CheckinMember shape (otherwise every multi-word field would be
+ * undefined and the whole check-in card would fall back to blanks).
+ */
+function toCheckinMember(r: Record<string, unknown>): CheckinMember {
+  return {
+    id: r.id as string,
+    registrationId: r.registration_id as string,
+    registrationCode: r.registration_code as string,
+    userId: r.user_id as string,
+    eventId: r.event_id as string,
+    eventName: r.event_name as string | null,
+    teamName: r.team_name as string,
+    captainName: r.captain_name as string,
+    participantType: r.participant_type as "internal" | "external",
+    paymentStatus: r.payment_status as string,
+    memberName: r.member_name as string,
+    memberRole: r.member_role as string,
+    position: r.position as number,
+    email: r.email as string,
+    regNumber: r.reg_number as string | null,
+    phone: r.phone as string | null,
+    college: r.college as string | null,
+    attended: r.attended as boolean,
+    certificateId: r.certificate_id as string | null,
+    certificateUrl: r.certificate_url as string | null,
+    certificateIssuedAt: r.certificate_issued_at as string | null,
+  };
+}
+
 /** All registered members, newest first, with optional event / search filters. */
 export async function adminListCheckinMembers(opts?: {
   eventId?: string;
@@ -77,7 +109,7 @@ export async function adminListCheckinMembers(opts?: {
 
   const { data, error } = await query;
   if (error) throw new Error(error.message || "Could not load check-in list.");
-  return (data ?? []) as unknown as CheckinMember[];
+  return (data ?? []).map(toCheckinMember);
 }
 
 /** Toggle check-in for a single member. Returns the updated member. */
@@ -95,7 +127,7 @@ export async function adminToggleCheckin(
   if (error || !data) {
     throw new Error(error?.message || "Could not update check-in.");
   }
-  return data as unknown as CheckinMember;
+  return toCheckinMember(data as Record<string, unknown>);
 }
 
 /**
