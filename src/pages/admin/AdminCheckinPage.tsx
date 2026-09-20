@@ -31,6 +31,10 @@ export function AdminCheckinPage() {
 
   const total = players.length;
 
+  const eventNamesById = new Map(events.map((ev) => [ev.id, ev.name]));
+  const eventNameFor = (member: CheckinMember) =>
+    member.eventName ?? eventNamesById.get(member.eventId) ?? "";
+
   async function toggle(player: (typeof players)[number]) {
     setBusy(player.key);
     try {
@@ -167,7 +171,7 @@ export function AdminCheckinPage() {
             const isSub = player.members.every((x) => x.memberRole === "substitute");
             const playerEventNames = Array.from(
               new Set(
-                player.members.map((x) => x.eventName ?? "").filter(Boolean)
+                player.members.map((x) => eventNameFor(x)).filter(Boolean)
               )
             );
             return (
@@ -266,7 +270,7 @@ export function AdminCheckinPage() {
                             </span>
                           </p>
                           <p className="truncate text-[11px] text-muted">
-                            {member.eventName}
+                            {eventNameFor(member)}
                             <span className="mx-1.5 opacity-50">·</span>
                             {member.teamName}
                             <span className="mx-1.5 opacity-50">·</span>
