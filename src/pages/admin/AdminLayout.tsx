@@ -142,6 +142,9 @@ export function AdminLayout() {
             SYSTEM ACTIVE
           </div>
           <p className="mt-1 text-[10px] text-muted">Event Command Center</p>
+          <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-muted/70">
+            build {__APP_VERSION__}
+          </p>
         </div>
       </div>
 

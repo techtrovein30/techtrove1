@@ -1,6 +1,17 @@
+import { execSync } from "node:child_process";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+
+/** Short git commit hash stamped into the admin panel so admins can tell
+ *  whether the deployed bundle is current vs. a stale browser cache. */
+function gitShortHash(): string {
+  try {
+    return execSync("git rev-parse --short HEAD").toString().trim();
+  } catch {
+    return "dev";
+  }
+}
 
 // R5 (M13): Content Security Policy meta tag, injected ONLY into the
 // production build (apply: 'build') so the Vite dev server's inline
@@ -35,6 +46,7 @@ function injectCsp(): Plugin {
 }
 
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(gitShortHash()) },
   plugins: [react(), tailwindcss(), injectCsp()],
   build: {
     rollupOptions: {

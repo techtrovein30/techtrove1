@@ -22,20 +22,29 @@ export function AdminCheckinPage() {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [eventId, setEventId] = useState<string>("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "internal" | "external">("all");
   const [busy, setBusy] = useState<string | null>(null);
 
-  const { players, attendedCount, loading, refresh } = useCheckinMembers(
+  const { players, loading, refresh } = useCheckinMembers(
     eventId || undefined,
     search
   );
 
-  const total = players.length;
+  const typedPlayers =
+    typeFilter === "all"
+      ? players
+      : players.filter((p) =>
+          p.members.some((m) => m.participantType === typeFilter)
+        );
+
+  const total = typedPlayers.length;
+  const attendedCount = typedPlayers.filter((p) => p.attended).length;
 
   const eventNamesById = new Map(events.map((ev) => [ev.id, ev.name]));
   const eventNameFor = (member: CheckinMember) =>
     member.eventName ?? eventNamesById.get(member.eventId) ?? "";
 
-  async function toggle(player: (typeof players)[number]) {
+  async function toggle(player: (typeof typedPlayers)[number]) {
     setBusy(player.key);
     try {
       await adminTogglePlayerCheckin(player.email, !player.attended);
@@ -145,6 +154,23 @@ export function AdminCheckinPage() {
             </option>
           ))}
         </select>
+        <div className="flex rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
+          {(["all", "internal", "external"] as const).map((ty) => (
+            <button
+              key={ty}
+              type="button"
+              onClick={() => setTypeFilter(ty)}
+              className={cn(
+                "px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.13em] transition-colors",
+                typeFilter === ty
+                  ? "bg-primary text-white"
+                  : "text-muted hover:text-foreground"
+              )}
+            >
+              {ty === "all" ? "All" : ty}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Loading / empty states */}
@@ -153,7 +179,7 @@ export function AdminCheckinPage() {
           <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
           Loading attendees…
         </div>
-      ) : players.length === 0 ? (
+      ) : typedPlayers.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-white/[0.07] bg-[#161616] p-12 text-center">
           <UserCheck className="h-10 w-10 text-muted" aria-hidden />
           <p className="mt-4 text-sm font-medium text-foreground">No attendees found</p>
@@ -165,7 +191,7 @@ export function AdminCheckinPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {players.map((player) => {
+          {typedPlayers.map((player) => {
             const m = player.members[0];
             const isCaptain = player.members.some((x) => x.position === 1);
             const isSub = player.members.every((x) => x.memberRole === "substitute");
@@ -236,7 +262,7 @@ export function AdminCheckinPage() {
                     ) : (
                       <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
                     )}
-                    {player.attended ? "Checked In" : "Check In"}
+                    {player.attended ? "Uncheck" : "Check In"}
                   </button>
                 </div>
 
@@ -291,7 +317,7 @@ export function AdminCheckinPage() {
                         {busy === member.id ? (
                           <Loader2 className="mx-auto h-3 w-3 animate-spin" aria-hidden />
                         ) : member.attended ? (
-                          "Checked In"
+                          "Uncheck"
                         ) : (
                           "Check In"
                         )}
