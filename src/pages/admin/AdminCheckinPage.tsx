@@ -23,12 +23,16 @@ export function AdminCheckinPage() {
   const [search, setSearch] = useState("");
   const [eventId, setEventId] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<"all" | "internal" | "external">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "checked" | "pending">("all");
   const [busy, setBusy] = useState<string | null>(null);
 
   const { players, loading, refresh } = useCheckinMembers(
     eventId || undefined,
     search
   );
+
+  const statusFor = (player: (typeof players)[number]) =>
+    player.attended ? "checked" : "pending";
 
   const typedPlayers =
     typeFilter === "all"
@@ -37,14 +41,19 @@ export function AdminCheckinPage() {
           p.members.some((m) => m.participantType === typeFilter)
         );
 
-  const total = typedPlayers.length;
-  const attendedCount = typedPlayers.filter((p) => p.attended).length;
+  const filteredPlayers =
+    statusFilter === "all"
+      ? typedPlayers
+      : typedPlayers.filter((p) => statusFor(p) === statusFilter);
+
+  const total = filteredPlayers.length;
+  const attendedCount = filteredPlayers.filter((p) => p.attended).length;
 
   const eventNamesById = new Map(events.map((ev) => [ev.id, ev.name]));
   const eventNameFor = (member: CheckinMember) =>
     member.eventName ?? eventNamesById.get(member.eventId) ?? "";
 
-  async function toggle(player: (typeof typedPlayers)[number]) {
+  async function toggle(player: (typeof filteredPlayers)[number]) {
     setBusy(player.key);
     try {
       await adminTogglePlayerCheckin(player.email, !player.attended);
@@ -171,6 +180,29 @@ export function AdminCheckinPage() {
             </button>
           ))}
         </div>
+        <div className="flex rounded-lg border border-emerald-500/20 bg-white/[0.03] overflow-hidden">
+          {(
+            [
+              ["all", "All"],
+              ["checked", "Checked In"],
+              ["pending", "Not Checked In"],
+            ] as const
+          ).map(([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setStatusFilter(val)}
+              className={cn(
+                "px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.13em] transition-colors",
+                statusFilter === val
+                  ? "bg-emerald-500/90 text-white"
+                  : "text-muted hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Loading / empty states */}
@@ -179,7 +211,7 @@ export function AdminCheckinPage() {
           <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
           Loading attendees…
         </div>
-      ) : typedPlayers.length === 0 ? (
+      ) : filteredPlayers.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-white/[0.07] bg-[#161616] p-12 text-center">
           <UserCheck className="h-10 w-10 text-muted" aria-hidden />
           <p className="mt-4 text-sm font-medium text-foreground">No attendees found</p>
@@ -191,7 +223,7 @@ export function AdminCheckinPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {typedPlayers.map((player) => {
+          {filteredPlayers.map((player) => {
             const m = player.members[0];
             const isCaptain = player.members.some((x) => x.position === 1);
             const isSub = player.members.every((x) => x.memberRole === "substitute");
