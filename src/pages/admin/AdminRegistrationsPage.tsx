@@ -37,6 +37,23 @@ import { useToast } from "../../components/ui/toastContext";
 
 type StatusFilter = "all" | "pending" | "recorded";
 type TypeFilter = "all" | "internal" | "external";
+type CategoryFilter = "all" | "Technical" | "Non-Technical" | "Sports";
+
+const CATEGORY_OPTIONS: { value: CategoryFilter; label: string }[] = [
+  { value: "all", label: "All Categories" },
+  { value: "Technical", label: "Technical" },
+  { value: "Non-Technical", label: "Non-Technical" },
+  { value: "Sports", label: "Sports" },
+];
+
+function eventMatchesCategory(category: string | undefined, filter: CategoryFilter): boolean {
+  if (filter === "all") return true;
+  const cat = (category ?? "").toLowerCase();
+  if (filter === "Sports") return cat.startsWith("sport");
+  if (filter === "Technical") return cat === "technical";
+  if (filter === "Non-Technical") return cat === "non-technical";
+  return true;
+}
 
 /** Participant type for a registration, derived from its first member (the captain). */
 function regType(reg: Registration): "internal" | "external" {
@@ -423,6 +440,7 @@ export function AdminRegistrationsPage() {
   const [eventFilter, setEventFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Registration | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
@@ -431,7 +449,7 @@ export function AdminRegistrationsPage() {
   // L13: reset to page 1 whenever a filter or the query changes. Resets state
   // during render (React's recommended pattern) instead of in an effect.
   const [filterKey, setFilterKey] = useState("");
-  const currentFilterKey = `${query}:${eventFilter}:${statusFilter}:${typeFilter}`;
+  const currentFilterKey = `${query}:${eventFilter}:${statusFilter}:${typeFilter}:${categoryFilter}`;
   if (currentFilterKey !== filterKey) {
     setFilterKey(currentFilterKey);
     setPage(1);
@@ -443,6 +461,10 @@ export function AdminRegistrationsPage() {
       if (eventFilter !== "all" && r.eventId !== eventFilter) return false;
       if (statusFilter !== "all" && r.paymentStatus !== statusFilter) return false;
       if (typeFilter !== "all" && regType(r) !== typeFilter) return false;
+      if (categoryFilter !== "all") {
+        const ev = events.find((e) => e.id === r.eventId);
+        if (!ev || !eventMatchesCategory(ev.category, categoryFilter)) return false;
+      }
       if (!q) return true;
 
       const evName = events.find((e) => e.id === r.eventId)?.name.toLowerCase() ?? "";
@@ -454,7 +476,7 @@ export function AdminRegistrationsPage() {
         r.members.some((m) => m.name.toLowerCase().includes(q))
       );
     });
-  }, [registrations, query, eventFilter, statusFilter, typeFilter, events]);
+  }, [registrations, query, eventFilter, statusFilter, typeFilter, categoryFilter, events]);
 
   // Group registrations into flat-pass batches keyed by registration_code.
   // Each batch is ONE payment that may cover multiple events, so we collapse
@@ -686,6 +708,22 @@ export function AdminRegistrationsPage() {
             </button>
           ))}
         </div>
+
+        {/* Tech / Non-Tech / Sports category filter */}
+        <select
+          value={categoryFilter}
+          onChange={(e) => {
+            setCategoryFilter(e.target.value as CategoryFilter);
+            setPage(1);
+          }}
+          className="border border-white/[0.08] bg-[#161616] px-3 py-2.5 text-xs text-foreground outline-none"
+        >
+          {CATEGORY_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Bulk action bar */}

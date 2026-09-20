@@ -335,14 +335,14 @@ export function AdminPaymentsPage() {
           </div>
           <p className="mt-3 text-3xl font-bold text-emerald-400 z-10 relative">
             {(() => {
-              const extCount = registrations.filter(isExternal).length;
-              return extCount > 0
-                ? `${Math.round((summary.recordedCount / extCount) * 100)}%`
+              const totalBatches = summary.recordedCount + summary.pendingCount;
+              return totalBatches > 0
+                ? `${Math.round((summary.recordedCount / totalBatches) * 100)}%`
                 : "0%";
             })()}
           </p>
           <p className="mt-1 text-xs text-emerald-400/70 z-10 relative">
-            {summary.recordedCount} of {registrations.filter(isExternal).length} external entries
+            {summary.recordedCount} of {summary.recordedCount + summary.pendingCount} external entries
           </p>
         </div>
       </div>

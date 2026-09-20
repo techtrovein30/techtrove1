@@ -165,6 +165,11 @@ export function AdminCheckinPage() {
             const m = player.members[0];
             const isCaptain = player.members.some((x) => x.position === 1);
             const isSub = player.members.every((x) => x.memberRole === "substitute");
+            const playerEventNames = Array.from(
+              new Set(
+                player.members.map((x) => x.eventName ?? "").filter(Boolean)
+              )
+            );
             return (
               <div
                 key={player.key}
@@ -188,13 +193,26 @@ export function AdminCheckinPage() {
                         </span>
                       )}
                     </div>
-                    <p className="mt-0.5 truncate text-[11px] text-muted">
+                    {playerEventNames.length > 0 && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <CalendarDays
+                          className="h-3 w-3 shrink-0 text-muted"
+                          aria-hidden
+                        />
+                        {playerEventNames.map((name) => (
+                          <span
+                            key={name}
+                            className="shrink-0 border border-primary/30 bg-primary/[0.06] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-primary-soft"
+                          >
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="mt-1 truncate text-[11px] text-muted">
                       {m.participantType === "internal" ? "SIMATS" : "External"}
                       {m.college ? ` · ${m.college}` : ""}
                       {m.regNumber ? ` · ${m.regNumber}` : ""}
-                      {player.members.length > 1
-                        ? ` · ${player.members.length} event${player.members.length === 1 ? "" : "s"}`
-                        : ""}
                     </p>
                   </div>
                   <button
