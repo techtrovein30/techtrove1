@@ -6,6 +6,7 @@ import {
   CreditCard,
   LogOut,
   Menu,
+  RefreshCcw,
   ShieldCheck,
   Users,
   ClipboardList,
@@ -24,6 +25,7 @@ const navItems = [
   { to: "/wasd4381/registrations", label: "Registrations", icon: ClipboardList },
   { to: "/wasd4381/teams", label: "Teams", icon: UsersRound },
   { to: "/wasd4381/payments", label: "Payments", icon: CreditCard },
+  { to: "/wasd4381/reuploads", label: "Re-uploads", icon: RefreshCcw },
   { to: "/wasd4381/events", label: "Events", icon: CalendarDays },
 ];
 
