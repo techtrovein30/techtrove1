@@ -13,9 +13,10 @@ import {
   Pencil,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { api, updateOwnFullName } from "../lib/api";
+import { api, updateOwnFullName, updateOwnCollege } from "../lib/api";
 import type { Registration } from "../lib/api";
 import { validateUploadFile } from "../lib/storage";
+import { validateUtrNumber } from "../lib/validation";
 import { useAllEvents } from "../lib/useEvents";
 import type { Day, TechEvent } from "../lib/eventStore";
 import { formatFee } from "../lib/utils";
@@ -110,9 +111,18 @@ function RegistrationCard({
 }) {
   const [copied, setCopied] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [prevBatchId, setPrevBatchId] = useState(registrations[0]?.id);
+  const [utr, setUtr] = useState(registrations[0]?.utrNumber ?? "");
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadDone, setUploadDone] = useState(false);
+
+  // Keep the UTR field in sync when the card shows a different batch
+  // (identified by its primary registration id) without a side effect.
+  if (prevBatchId !== registrations[0]?.id) {
+    setPrevBatchId(registrations[0]?.id);
+    setUtr(registrations[0]?.utrNumber ?? "");
+  }
 
   const eventById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
   const dayById = useMemo(() => new Map(days.map((d) => [d.id, d])), [days]);
@@ -131,6 +141,7 @@ function RegistrationCard({
   const paymentState = batchPaymentState(registrations);
   const totalFee = registrations.reduce((sum, r) => sum + (r.fee ?? 0), 0);
   const needsReupload = paymentState.needsReupload;
+  const utrError = validateUtrNumber(utr);
 
   function copyCode() {
     navigator.clipboard.writeText(first.registrationCode).then(() => {
@@ -156,12 +167,12 @@ function RegistrationCard({
   }
 
   async function handleReupload() {
-    if (!selectedFile || !first) return;
+    if (!selectedFile || !first || utrError) return;
     setUploadBusy(true);
     setUploadError(null);
     setUploadDone(false);
     try {
-      await api.reuploadPaymentScreenshot(first.id, selectedFile);
+      await api.reuploadPaymentScreenshot(first.id, selectedFile, utr.trim());
       setUploadDone(true);
       setSelectedFile(null);
       onChanged?.();
@@ -299,6 +310,26 @@ function RegistrationCard({
                   ? "Upload a new screenshot to replace the rejected one."
                   : "Screenshot submitted · awaiting admin approval."}
               </p>
+              <label className="mt-3 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+                Transaction / UTR Number
+              </label>
+              <input
+                type="text"
+                value={utr}
+                onChange={(e) => setUtr(e.target.value)}
+                placeholder="e.g. 123456789012"
+                maxLength={16}
+                className="mt-1 block w-full border border-edge bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-primary-soft focus:outline-none"
+              />
+              {utrError && (
+                <p role="alert" className="mt-1 text-[11px] text-red-300">
+                  {utrError}
+                </p>
+              )}
+              <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                Correct your UTR / transaction ID here (12–16 alphanumeric characters) — it is sent
+                along with the new screenshot for verification.
+              </p>
               <input
                 type="file"
                 accept="image/jpeg, image/png, image/webp"
@@ -311,7 +342,7 @@ function RegistrationCard({
               <button
                 type="button"
                 onClick={handleReupload}
-                disabled={uploadBusy || !selectedFile}
+                disabled={uploadBusy || !selectedFile || !!utrError}
                 className="clip-angle mt-3 inline-flex items-center gap-2 bg-primary px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
               >
                 {uploadBusy ? (
@@ -463,6 +494,9 @@ export function ProfilePage() {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [savingName, setSavingName] = useState(false);
+  const [editingCollege, setEditingCollege] = useState(false);
+  const [collegeDraft, setCollegeDraft] = useState("");
+  const [savingCollege, setSavingCollege] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -569,13 +603,38 @@ export function ProfilePage() {
     }
   }
 
+  function startEditCollege() {
+    setCollegeDraft(currentUser.college ?? "");
+    setEditingCollege(true);
+  }
+
+  async function saveCollege() {
+    const college = collegeDraft.trim();
+    if (!college) {
+      toast.error("College name can't be empty.");
+      return;
+    }
+    if (college === (currentUser.college ?? "")) {
+      setEditingCollege(false);
+      return;
+    }
+    setSavingCollege(true);
+    try {
+      await updateOwnCollege(college);
+      await refreshUser();
+      setEditingCollege(false);
+      toast.success("College updated.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update your college.");
+    } finally {
+      setSavingCollege(false);
+    }
+  }
+
   const detailCards = [
     { label: "Email", value: user.email, accent: false },
     ...(user.participantType === "internal" && user.regNumber
       ? [{ label: "Registration Number", value: user.regNumber, accent: true }]
-      : []),
-    ...(user.participantType === "external" && user.college
-      ? [{ label: "College", value: user.college, accent: false }]
       : []),
     ...(user.phone
       ? [{ label: "Phone", value: user.phone, accent: false }]
@@ -680,6 +739,72 @@ export function ProfilePage() {
         <hr className="rule-line mt-4 w-32" />
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {user.participantType === "external" && (
+            <div className="glass-panel p-5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="eyebrow text-muted">College</span>
+                {!editingCollege && (
+                  <button
+                    type="button"
+                    onClick={startEditCollege}
+                    title="Edit college"
+                    aria-label="Edit college"
+                    className="flex h-7 w-7 items-center justify-center border border-edge-strong text-muted transition-colors hover:border-primary/50 hover:text-primary-soft"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {editingCollege ? (
+                <div className="mt-2 space-y-2">
+                  <input
+                    value={collegeDraft}
+                    onChange={(e) => setCollegeDraft(e.target.value)}
+                    maxLength={160}
+                    autoFocus
+                    aria-label="College name"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void saveCollege();
+                      if (e.key === "Escape") setEditingCollege(false);
+                    }}
+                    className="w-full border border-edge bg-surface px-3 py-2 text-sm text-foreground focus:border-primary-soft focus:outline-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveCollege()}
+                      disabled={savingCollege}
+                      className="inline-flex items-center gap-1.5 bg-primary px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
+                    >
+                      {savingCollege ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingCollege(false)}
+                      disabled={savingCollege}
+                      className="border border-edge-strong px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted transition-colors hover:text-foreground disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p
+                  className={
+                    "mt-2 text-sm font-semibold break-all " +
+                    (user.college ? "text-foreground" : "text-muted")
+                  }
+                >
+                  {user.college || "Not set — click edit to add your college"}
+                </p>
+              )}
+            </div>
+          )}
           {detailCards.map((card) => (
             <DetailCard key={card.label} {...card} />
           ))}

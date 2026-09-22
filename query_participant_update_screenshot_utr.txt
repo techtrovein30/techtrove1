@@ -1,0 +1,114 @@
+-- ============================================================================
+-- participant_update_screenshot (extended to accept UTR) + unique UTR trigger
+-- ----------------------------------------------------------------------------
+-- Two changes:
+--
+-- 1. Replaces the 2-arg RPC used during "Request Re-upload". It now also lets
+--    a signed-in participant correct their UTR / transaction ID at the same
+--    time they upload a new payment screenshot, and rejects a UTR that is
+--    already attached to a DIFFERENT registration_code.
+--
+-- 2. Adds a DB trigger that hard-blocks the same UTR being attached to more
+--    than one registration_code. A flat pass is exempt because all of its rows
+--    share one registration_code (the N rows of a flat pass may repeat the UTR).
+--
+-- WHY THIS IS NEEDED: participants have no direct UPDATE grant on the
+-- registration tables (RLS). The RPC is SECURITY DEFINER so it can make the
+-- narrowly-scoped update on the caller's behalf. fee / payment_status /
+-- event_id are still protected; only the screenshot path, the UTR and the
+-- rejection note are touched. The trigger guards every write path, including
+-- the registration INSERT, even if a future code-path forgets to check first.
+--
+-- RUN THIS ONCE in the Supabase SQL Editor (Dashboard -> SQL Editor -> New query).
+-- Safe to re-run. The old 2-arg signature is dropped first so the new 3-arg
+-- signature is the only one available to the app.
+-- ============================================================================
+
+drop function if exists public.participant_update_screenshot(uuid, text);
+
+create or replace function public.participant_update_screenshot(
+  p_registration_id uuid,
+  p_screenshot_path text,
+  p_utr_number text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid   uuid := auth.uid();
+  v_utr   text := nullif(btrim(p_utr_number), '');
+  v_code  text;
+  v_dup   text;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  select registration_code
+    into v_code
+    from public.registrations_external
+   where id = p_registration_id;
+  if v_code is null then
+    raise exception 'Registration not found';
+  end if;
+
+  if v_utr is not null then
+    select registration_code
+      into v_dup
+      from public.registrations_external
+     where utr_number = v_utr
+       and registration_code <> v_code
+     limit 1;
+    if v_dup is not null then
+      raise exception 'This UTR / transaction ID has already been used for another registration.';
+    end if;
+  end if;
+
+  update public.registrations_external
+     set payment_screenshot_path = p_screenshot_path,
+         payment_screenshot_url  = p_screenshot_path,
+         utr_number              = coalesce(v_utr, utr_number),
+         payment_review_note     = null,
+         payment_status          = 'pending',
+         updated_at              = now()
+   where id = p_registration_id
+     and user_id = v_uid;
+
+  if not found then
+    raise exception 'Registration not found';
+  end if;
+end;
+$$;
+
+grant execute on function public.participant_update_screenshot(uuid, text, text) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Unique UTR enforcement across registration codes.
+-- ----------------------------------------------------------------------------
+create or replace function public.check_registration_utr_unique()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.utr_number is not null and exists (
+    select 1
+      from public.registrations_external
+     where utr_number = new.utr_number
+       and registration_code <> new.registration_code
+  ) then
+    raise exception 'This UTR / transaction ID has already been used for another registration.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_registrations_external_utr_unique
+  on public.registrations_external;
+
+create trigger trg_registrations_external_utr_unique
+before insert or update of utr_number on public.registrations_external
+for each row execute function public.check_registration_utr_unique();

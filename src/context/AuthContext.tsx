@@ -244,6 +244,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const emailErr = validateEmail(email, "external");
           if (emailErr) throw new Error(emailErr);
 
+          if (!input.college?.trim()) {
+            throw new Error("College name is required for external participants.");
+          }
+
           const phoneErr = validatePhoneNumber(input.phone, true);
           if (phoneErr) throw new Error(phoneErr);
         }
