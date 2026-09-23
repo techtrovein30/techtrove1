@@ -101,19 +101,6 @@ export function RegisterSuccessPage() {
               </button>
             )}
           </div>
-          {/* Show confirmation status badge for internal vs pending for external */}
-          {registration && (
-            <span
-              className={
-                "mt-2 border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] " +
-                (isInternal
-                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
-                  : "border-amber-500/50 bg-amber-500/10 text-amber-300")
-              }
-            >
-              {isInternal ? "✓ Confirmed — No payment required" : "Payment verification pending"}
-            </span>
-          )}
         </div>
       )}
 
@@ -195,21 +182,8 @@ export function RegisterSuccessPage() {
               <div className="flex items-center justify-between pt-4">
                 <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Status</dt>
                 <dd>
-                  <span
-                    className={
-                      "border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] " +
-                      (isInternal
-                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
-                        : registration.paymentStatus === "recorded"
-                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
-                        : "border-amber-500/50 bg-amber-500/10 text-amber-300")
-                    }
-                  >
-                    {isInternal
-                      ? "Confirmed"
-                      : registration.paymentStatus === "recorded"
-                      ? "Paid"
-                      : "Pending"}
+                  <span className="border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
+                    Confirmed
                   </span>
                 </dd>
               </div>
