@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2, RefreshCcw } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
@@ -37,9 +38,17 @@ interface BatchGroup {
 
 export function AdminPaymentsPage() {
   const { registrations, setRegistrations, refresh } = useAdminRegistrations();
-
   const { events } = useAllEvents();
-  const [query, setQuery] = useState("");
+
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q !== null) {
+      setQuery(q);
+    }
+  }, [searchParams]);
   const [eventFilter, setEventFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [selectedProof, setSelectedProof] = useState<Registration | null>(null);

@@ -192,6 +192,22 @@ export async function adminResolveOAuthAccess(): Promise<AdminView | null> {
 
 // ─── Statistics ────────────────────────────────────────────────────────────
 
+export interface RepeatedUtrRegistration {
+  registrationCode: string;
+  teamName: string;
+  captainName: string;
+  eventId: string;
+  totalFee: number;
+  paymentStatus: PaymentStatus;
+  createdAt: string;
+}
+
+export interface RepeatedUtrGroup {
+  utrNumber: string;
+  occurrences: number;
+  registrations: RepeatedUtrRegistration[];
+}
+
 export interface AdminStats {
   totalUsers: number;
   internalUsers: number;
@@ -207,6 +223,7 @@ export interface AdminStats {
   totalMembers: number;
   perEvent: Record<string, number>;
   recentRegistrations: Registration[];
+  repeatedUtrs: RepeatedUtrGroup[];
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
@@ -248,6 +265,76 @@ export async function getAdminStats(): Promise<AdminStats> {
     registrationCodes.add(r.registration_code);
   }
 
+  // ── Repeated UTR detection ───────────────────────────────────────────────
+  // Group external registration rows by registration_code first (flat passes
+  // share code + UTR legitimately). Then group distinct codes by utr_number.
+  // Flag any UTR attached to 2 or more distinct registration codes.
+  const codeToBatch = new Map<string, {
+    registrationCode: string;
+    teamName: string;
+    captainName: string;
+    eventId: string;
+    totalFee: number;
+    paymentStatus: PaymentStatus;
+    utrNumber?: string;
+    createdAt: string;
+  }>();
+
+  for (const r of registrations) {
+    if (isInternalRow(r)) continue;
+    const existing = codeToBatch.get(r.registration_code);
+    if (!existing) {
+      codeToBatch.set(r.registration_code, {
+        registrationCode: r.registration_code,
+        teamName: r.team_name,
+        captainName: r.captain_name,
+        eventId: r.event_id,
+        totalFee: r.fee ?? 0,
+        paymentStatus: r.payment_status as PaymentStatus,
+        utrNumber: r.utr_number?.trim() || undefined,
+        createdAt: r.created_at,
+      });
+    } else {
+      existing.totalFee += r.fee ?? 0;
+      if (!existing.utrNumber && r.utr_number?.trim()) {
+        existing.utrNumber = r.utr_number.trim();
+      }
+    }
+  }
+
+  const utrGroups = new Map<string, { displayUtr: string; batches: RepeatedUtrRegistration[] }>();
+  for (const batch of codeToBatch.values()) {
+    if (!batch.utrNumber) continue;
+    const key = batch.utrNumber.toLowerCase();
+    const group = utrGroups.get(key);
+    const item: RepeatedUtrRegistration = {
+      registrationCode: batch.registrationCode,
+      teamName: batch.teamName,
+      captainName: batch.captainName,
+      eventId: batch.eventId,
+      totalFee: batch.totalFee,
+      paymentStatus: batch.paymentStatus,
+      createdAt: batch.createdAt,
+    };
+    if (!group) {
+      utrGroups.set(key, { displayUtr: batch.utrNumber, batches: [item] });
+    } else {
+      group.batches.push(item);
+    }
+  }
+
+  const repeatedUtrs: RepeatedUtrGroup[] = [];
+  for (const { displayUtr, batches } of utrGroups.values()) {
+    if (batches.length > 1) {
+      repeatedUtrs.push({
+        utrNumber: displayUtr,
+        occurrences: batches.length,
+        registrations: batches,
+      });
+    }
+  }
+  repeatedUtrs.sort((a, b) => b.occurrences - a.occurrences);
+
   const recentRegistrations = registrations.slice(0, 8).map(rowToRegistration);
 
   const { count: totalMembers } = await supabase
@@ -271,6 +358,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     totalMembers: totalMembers ?? 0,
     perEvent,
     recentRegistrations,
+    repeatedUtrs,
   };
 }
 
