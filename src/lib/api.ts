@@ -346,8 +346,10 @@ export const api = {
    * only the narrow RPC is used so fee/payment_status/event_id are protected.
    *
    * Requires the SQL in `query_participant_update_screenshot_utr.txt` to be
-   * run once in the Supabase SQL Editor — until then the old 2-arg RPC is
-   * used and the UTR cannot be updated.
+   * run once in the Supabase SQL Editor. If re-upload reports "could not be
+   * linked", re-run the (updated) script — the RPC used to set `updated_at` on
+   * `registrations_external`, which has no such column and therefore aborted
+   * every call.
    */
   async reuploadPaymentScreenshot(
     registrationId: string,
@@ -402,7 +404,8 @@ export const api = {
           delErr,
         );
       });
-      const rpcMessage = (rpcError.message ?? "").toLowerCase();
+      const rawMessage = (rpcError.message ?? "").trim();
+      const rpcMessage = rawMessage.toLowerCase();
       if (
         rpcMessage.includes("already been used") ||
         rpcMessage.includes("duplicate")
@@ -411,9 +414,14 @@ export const api = {
           "This UTR / transaction ID has already been used for another registration. Please check the number and try again.",
         );
       }
+      // Surface the underlying reason instead of hiding it behind a generic
+      // "contact support" message — a missing column or a stale RPC signature
+      // is far easier to fix when the participant/admin can see it.
+      const reason = rawMessage ? ` (${rawMessage.slice(0, 200)})` : "";
       throw new Error(
-        "Your screenshot was uploaded but could not be linked to your registration. " +
-          "Please try again or contact support.",
+        "Your screenshot was uploaded but could not be linked to your registration." +
+          reason +
+          " Please try again or contact support.",
       );
     }
 

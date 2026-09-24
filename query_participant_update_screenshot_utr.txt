@@ -25,6 +25,16 @@
 -- RUN THIS ONCE in the Supabase SQL Editor (Dashboard -> SQL Editor -> New query).
 -- Safe to re-run. All previous signatures (uuid and text, 2-arg and 3-arg) are
 -- dropped first so there is no function overloading ambiguity.
+--
+-- The link happens for EVERY row that shares the registration_code (one flat
+-- pass = one code covering several events), so the screenshot, UTR and cleared
+-- review note land on the whole batch, not just the first row. This matches the
+-- admin "Request Re-upload" flow, which already clears the whole batch by
+-- registration_code. It does NOT touch updated_at — registrations_external has
+-- no such column (only created_at); setting it aborts the whole UPDATE with
+-- `column "updated_at" of relation "registrations_external" does not exist`,
+-- which used to break re-upload ("Your screenshot was uploaded but could not be
+-- linked to your registration").
 -- ============================================================================
 
 -- Clean up any prior overloads so PostgREST resolves the function cleanly
@@ -53,10 +63,13 @@ begin
     raise exception 'Not authenticated';
   end if;
 
+  -- Verify ownership up-front so the batch-wide UPDATE below can never touch
+  -- another participant's rows.
   select registration_code
     into v_code
     from public.registrations_external
-   where id = p_registration_id;
+   where id = p_registration_id
+     and user_id = v_uid;
   if v_code is null then
     raise exception 'Registration not found';
   end if;
@@ -73,14 +86,14 @@ begin
     end if;
   end if;
 
-  -- Update all rows under this registration code so that multi-event flat passes stay consistent
+  -- Update all rows under this registration code so that multi-event flat
+  -- passes stay consistent. No updated_at: the table has no such column.
   update public.registrations_external
      set payment_screenshot_path = p_screenshot_path,
          payment_screenshot_url  = p_screenshot_path,
          utr_number              = coalesce(v_utr, utr_number),
          payment_review_note     = null,
-         payment_status          = 'pending',
-         updated_at              = now()
+         payment_status          = 'pending'
    where (id = p_registration_id or registration_code = v_code)
      and user_id = v_uid;
 

@@ -155,6 +155,7 @@ export interface Database {
           utr_number?: string | null;
           payment_screenshot_path?: string | null;
           payment_screenshot_url?: string | null;
+          payment_review_note?: string | null;
         };
         Insert: {
           id?: string;
@@ -171,6 +172,7 @@ export interface Database {
           utr_number?: string | null;
           payment_screenshot_path?: string | null;
           payment_screenshot_url?: string | null;
+          payment_review_note?: string | null;
         };
         Update: {
           team_name?: string;
@@ -182,6 +184,7 @@ export interface Database {
           utr_number?: string | null;
           payment_screenshot_path?: string | null;
           payment_screenshot_url?: string | null;
+          payment_review_note?: string | null;
         };
       };
       events: {
