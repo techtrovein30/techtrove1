@@ -1,0 +1,163 @@
+-- ============================================================================
+-- payment_ledger + admin_delete_audit
+-- ----------------------------------------------------------------------------
+-- One-time, idempotent (safe to re-run) setup for two admin panels features:
+--
+--   1. IMMUTABLE PAYMENT LEDGER
+--      Every time a payment transitions pending -> recorded on
+--      registrations_external, a permanent row is appended to payment_ledger.
+--      The dashboard's "Revenue Collected" / "Recorded Payments" read from this
+--      ledger (sum of amount / number of rows) instead of live registration
+--      rows, so deleting or editing a registration later can NEVER rewrite past
+--      revenue (fixes the 19k -> 18k problem).
+--
+--      One flat pass = one registration_code = exactly one ledger row
+--      (unique registration_code). The trigger recomputes the batch total
+--      (sum of fee across the code's recorded rows) every time, so partial
+--      flat-pass updates converge to the correct amount.
+--
+--   2. ADMIN DELETE AUDIT
+--      Every DELETE on internal/external participants and registrations is
+--      snapshotted into admin_delete_audit (the whole old row + who deleted it
+--      + when), feeding the "Deleted History" page in the admin panel.
+--
+-- RUN THIS ONCE in the Supabase SQL Editor (Dashboard -> SQL Editor -> New query).
+-- If you previously created payment_ledger with a DIFFERENT schema, run this
+-- line first (it drops only that helper table, not registrations), then re-run
+-- the whole file:   drop table if exists public.payment_ledger;
+--
+-- Does NOT touch existing RLS on participant/registration tables. It only
+-- creates the two new tables (admin-only read), plus triggers on the existing
+-- tables (triggers are separate from RLS).
+-- ============================================================================
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 1. payment_ledger
+-- ────────────────────────────────────────────────────────────────────────────
+create table if not exists public.payment_ledger (
+  id                bigint generated always as identity primary key,
+  registration_code text not null unique,
+  amount            numeric not null default 0,
+  team_name         text,
+  utr               text,
+  recorded_by       uuid,
+  recorded_at       timestamptz not null default now()
+);
+
+alter table public.payment_ledger enable row level security;
+
+drop policy if exists "Admins read payment ledger" on public.payment_ledger;
+create policy "Admins read payment ledger"
+  on public.payment_ledger for select
+  using (public.is_admin());
+
+grant select on table public.payment_ledger to authenticated;
+
+create or replace function public.ledger_on_record()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_amount numeric;
+begin
+  if new.payment_status = 'recorded'
+     and (tg_op = 'INSERT' or old.payment_status <> 'recorded') then
+    -- Total money received for THIS registration_code (one flat pass = one
+    -- code), computed from the code's currently-recorded rows.
+    select coalesce(sum(fee), 0)
+      into v_amount
+      from public.registrations_external
+     where registration_code = new.registration_code
+       and payment_status = 'recorded';
+
+    insert into public.payment_ledger (registration_code, amount, team_name, utr, recorded_by)
+    values (new.registration_code, v_amount, new.team_name, new.utr_number, auth.uid())
+    on conflict (registration_code)
+    do update set amount    = excluded.amount,
+                  team_name = excluded.team_name,
+                  utr       = excluded.utr;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_ledger_on_record on public.registrations_external;
+create trigger trg_ledger_on_record
+  after insert or update of payment_status on public.registrations_external
+  for each row execute function public.ledger_on_record();
+
+-- Backfill: seed the ledger with payments already recorded TODAY so the
+-- dashboard's Revenue Collected starts at the current balance instead of zero.
+-- Safe to re-run; amounts refresh from the current recorded rows.
+insert into public.payment_ledger (registration_code, amount, team_name, utr)
+select registration_code,
+       sum(fee),
+       min(team_name),
+       min(utr_number)
+  from public.registrations_external
+ where payment_status = 'recorded'
+ group by registration_code
+on conflict (registration_code)
+do update set amount    = excluded.amount,
+              team_name = excluded.team_name,
+              utr       = excluded.utr;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 2. admin_delete_audit
+-- ────────────────────────────────────────────────────────────────────────────
+create table if not exists public.admin_delete_audit (
+  id          bigint generated always as identity primary key,
+  table_name  text not null,
+  row_id      text not null,
+  snapshot    jsonb not null,
+  deleted_by  uuid,
+  deleted_at  timestamptz not null default now()
+);
+
+alter table public.admin_delete_audit enable row level security;
+
+drop policy if exists "Admins read delete audit" on public.admin_delete_audit;
+create policy "Admins read delete audit"
+  on public.admin_delete_audit for select
+  using (public.is_admin());
+
+grant select on table public.admin_delete_audit to authenticated;
+
+create or replace function public.audit_delete()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.admin_delete_audit (table_name, row_id, snapshot, deleted_by)
+  values (tg_table_name, old.id, to_jsonb(old), auth.uid());
+  return old;
+end;
+$$;
+
+drop trigger if exists trg_audit_del_int_p on public.internal_participants;
+create trigger trg_audit_del_int_p
+  before delete on public.internal_participants
+  for each row execute function public.audit_delete();
+
+drop trigger if exists trg_audit_del_ext_p on public.external_participants;
+create trigger trg_audit_del_ext_p
+  before delete on public.external_participants
+  for each row execute function public.audit_delete();
+
+drop trigger if exists trg_audit_del_int_r on public.registrations_internal;
+create trigger trg_audit_del_int_r
+  before delete on public.registrations_internal
+  for each row execute function public.audit_delete();
+
+drop trigger if exists trg_audit_del_ext_r on public.registrations_external;
+create trigger trg_audit_del_ext_r
+  before delete on public.registrations_external
+  for each row execute function public.audit_delete();
+
+-- Optional sanity check:
+-- select table_name, count(*) from public.admin_delete_audit group by 1 order by 2 desc;
+-- select count(*), coalesce(sum(amount), 0) from public.payment_ledger;

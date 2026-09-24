@@ -235,8 +235,6 @@ export async function getAdminStats(): Promise<AdminStats> {
   const perEvent: Record<string, number> = {};
   const registrationCodes = new Set<string>();
   let pending = 0;
-  let recorded = 0;
-  let revenue = 0;
 
   // Payment stats only concern EXTERNAL students. Internal (SIMATS) entries
   // are free and auto-confirmed — they must never count toward pending
@@ -247,17 +245,32 @@ export async function getAdminStats(): Promise<AdminStats> {
     return members[0]?.participantType === "internal";
   };
 
+  // Pending payments are still a LIVE count (external codes not yet recorded).
   const seenCodes = new Set<string>();
   for (const r of registrations) {
     if (isInternalRow(r)) continue;
     if (seenCodes.has(r.registration_code)) continue;
     seenCodes.add(r.registration_code);
-    if (r.payment_status === "recorded") {
-      recorded++;
-      revenue += r.fee ?? 0;
-    } else {
-      pending++;
-    }
+    if (r.payment_status !== "recorded") pending++;
+  }
+
+  // ⟨Revenue Collected⟩ and ⟨Recorded Payments⟩ come from the IMMUTABLE
+  // payment_ledger, not from live registration rows. Each payment is appended
+  // once when it is marked recorded (see query_payment_ledger_and_audit.txt),
+  // so deleting or editing a registration later can never rewrite past revenue.
+  const { data: ledgerRows, error: ledgerError } = await supabase
+    .from("payment_ledger")
+    .select("amount");
+  if (ledgerError) {
+    throw friendlyError(
+      ledgerError,
+      "Could not read the payment ledger. Run query_payment_ledger_and_audit.txt once in the Supabase SQL Editor.",
+    );
+  }
+  const recorded = ledgerRows?.length ?? 0;
+  let revenue = 0;
+  for (const entry of ledgerRows ?? []) {
+    revenue += Number(entry.amount ?? 0) || 0;
   }
 
   for (const r of registrations) {
@@ -678,6 +691,100 @@ export async function adminDeleteRegistration(regId: string): Promise<void> {
   if (!table) throw new Error("Registration not found.");
   const { error } = await supabase.from(table).delete().eq("id", regId);
   if (error) throw friendlyError(error, "Could not delete the registration.");
+}
+
+// ─── Deletion history (admin_delete_audit) ─────────────────────────────────
+
+/** A single entry in the admin_delete_audit table, mapped for display. */
+export interface DeleteAuditEntry {
+  id: number;
+  tableName: string;
+  kind: "student" | "registration";
+  /** Human label: participant full name or team name. */
+  label: string;
+  /** Short display details (email / reg no / code / event / fee…). */
+  detail: string[];
+  /** The exact serialized row as it was just before deletion. */
+  snapshot: Record<string, unknown>;
+  /** Email of the admin who deleted it (resolved), if known. */
+  deletedBy?: string;
+  deletedAt: string;
+}
+
+const PARTICIPANT_TABLES = new Set([
+  "internal_participants",
+  "external_participants",
+]);
+const REGISTRATION_TABLES = new Set([
+  "registrations_internal",
+  "registrations_external",
+]);
+
+/**
+ * Lists the most recent deleted participants and registrations (live from the
+ * admin_delete_audit table populated by the audit_delete() triggers in
+ * query_payment_ledger_and_audit.txt). Newest first.
+ */
+export async function adminListDeleteHistory(limit = 300): Promise<DeleteAuditEntry[]> {
+  await requireAdmin();
+
+  const { data, error } = await supabase
+    .from("admin_delete_audit")
+    .select("*")
+    .order("deleted_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw friendlyError(error, "Could not load deletion history.");
+
+  // Resolve deleted_by (auth uid) → admin email for readable display.
+  const admins = (await getAllParticipants()).filter(
+    (u) => u.role === "admin" && !!u.email,
+  );
+  const emailById = new Map(admins.map((u) => [u.id, u.email]));
+
+  const entries: DeleteAuditEntry[] = [];
+  for (const row of data ?? []) {
+    const tableName = String((row as Record<string, unknown>).table_name ?? "");
+    const snap = ((row as Record<string, unknown>).snapshot ?? {}) as Record<string, unknown>;
+    const isStudent = PARTICIPANT_TABLES.has(tableName);
+    if (!isStudent && !REGISTRATION_TABLES.has(tableName)) continue;
+
+    let label: string;
+    let detail: string[];
+    if (isStudent) {
+      label = String(snap.full_name ?? snap.username ?? "Unknown student");
+      detail = [
+        snap.email ? String(snap.email) : "",
+        snap.reg_number ? String(snap.reg_number) : "",
+        snap.college ? String(snap.college) : "",
+      ].filter(Boolean);
+    } else {
+      label = String(snap.team_name ?? snap.captain_name ?? "Unknown team");
+      detail = [
+        snap.registration_code ? String(snap.registration_code) : "",
+        snap.event_id ? String(snap.event_id) : "",
+        snap.fee ? `fee ${Number(snap.fee)}` : "",
+        snap.utr_number ? `UTR ${String(snap.utr_number)}` : "",
+      ].filter(Boolean);
+    }
+
+    const deletedByUid = (row as Record<string, unknown>).deleted_by
+      ? String((row as Record<string, unknown>).deleted_by)
+      : undefined;
+
+    entries.push({
+      id: Number((row as Record<string, unknown>).id),
+      tableName,
+      kind: isStudent ? "student" : "registration",
+      label,
+      detail,
+      snapshot: snap,
+      deletedBy: deletedByUid ? emailById.get(deletedByUid) : undefined,
+      deletedAt: String((row as Record<string, unknown>).deleted_at ?? ""),
+    });
+  }
+
+  return entries;
 }
 
 // ─── Admin account settings ────────────────────────────────────────────────

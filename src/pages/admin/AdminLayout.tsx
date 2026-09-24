@@ -4,6 +4,7 @@ import {
   BarChart3,
   CalendarDays,
   CreditCard,
+  History,
   LogOut,
   Menu,
   RefreshCcw,
@@ -26,6 +27,7 @@ const navItems = [
   { to: "/wasd4381/teams", label: "Teams", icon: UsersRound },
   { to: "/wasd4381/payments", label: "Payments", icon: CreditCard },
   { to: "/wasd4381/reuploads", label: "Re-uploads", icon: RefreshCcw },
+  { to: "/wasd4381/history", label: "Deleted History", icon: History },
   { to: "/wasd4381/events", label: "Events", icon: CalendarDays },
 ];
 

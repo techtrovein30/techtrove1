@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2, RefreshCcw } from "lucide-react";
 import type { Registration } from "../../lib/api";
@@ -41,14 +41,14 @@ export function AdminPaymentsPage() {
   const { events } = useAllEvents();
 
   const [searchParams] = useSearchParams();
+  const qParam = searchParams.get("q");
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
-
-  useEffect(() => {
-    const q = searchParams.get("q");
-    if (q !== null) {
-      setQuery(q);
-    }
-  }, [searchParams]);
+  // Keep the ?q= URL param in the search box without an effect (render-adjust).
+  const [prevQ, setPrevQ] = useState<string | null>(qParam);
+  if (qParam !== prevQ) {
+    setPrevQ(qParam);
+    if (qParam !== null) setQuery(qParam);
+  }
   const [eventFilter, setEventFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [selectedProof, setSelectedProof] = useState<Registration | null>(null);
