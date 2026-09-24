@@ -235,6 +235,8 @@ export async function getAdminStats(): Promise<AdminStats> {
   const perEvent: Record<string, number> = {};
   const registrationCodes = new Set<string>();
   let pending = 0;
+  let recorded = 0;
+  let revenue = 0;
 
   // Payment stats only concern EXTERNAL students. Internal (SIMATS) entries
   // are free and auto-confirmed — they must never count toward pending
@@ -245,32 +247,22 @@ export async function getAdminStats(): Promise<AdminStats> {
     return members[0]?.participantType === "internal";
   };
 
-  // Pending payments are still a LIVE count (external codes not yet recorded).
+  // ⟨Revenue Collected⟩ / ⟨Recorded Payments⟩ are computed LIVE from the
+  // currently-recorded external codes, identical to the Payments page — so
+  // deleting or un-recording a registration reflects reality immediately
+  // (19k collected + 6k pending = ~25k, no double counting). Deletion history
+  // remains available on the Deleted History page for audit purposes.
   const seenCodes = new Set<string>();
   for (const r of registrations) {
     if (isInternalRow(r)) continue;
     if (seenCodes.has(r.registration_code)) continue;
     seenCodes.add(r.registration_code);
-    if (r.payment_status !== "recorded") pending++;
-  }
-
-  // ⟨Revenue Collected⟩ and ⟨Recorded Payments⟩ come from the IMMUTABLE
-  // payment_ledger, not from live registration rows. Each payment is appended
-  // once when it is marked recorded (see query_payment_ledger_and_audit.txt),
-  // so deleting or editing a registration later can never rewrite past revenue.
-  const { data: ledgerRows, error: ledgerError } = await supabase
-    .from("payment_ledger")
-    .select("amount");
-  if (ledgerError) {
-    throw friendlyError(
-      ledgerError,
-      "Could not read the payment ledger. Run query_payment_ledger_and_audit.txt once in the Supabase SQL Editor.",
-    );
-  }
-  const recorded = ledgerRows?.length ?? 0;
-  let revenue = 0;
-  for (const entry of ledgerRows ?? []) {
-    revenue += Number(entry.amount ?? 0) || 0;
+    if (r.payment_status === "recorded") {
+      recorded++;
+      revenue += r.fee ?? 0;
+    } else {
+      pending++;
+    }
   }
 
   for (const r of registrations) {

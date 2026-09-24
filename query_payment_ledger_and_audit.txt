@@ -22,6 +22,11 @@
 --      + when), feeding the "Deleted History" page in the admin panel.
 --
 -- RUN THIS ONCE in the Supabase SQL Editor (Dashboard -> SQL Editor -> New query).
+-- NOTE (since 2026-09-24): the dashboard now computes Revenue Collected live from
+-- currently-recorded registrations (matches the Payments page, no double counting).
+-- The payment_ledger section below is therefore OPTIONAL — you can run only the
+-- admin_delete_audit section. Re-running the whole file is still safe/idempotent.
+--
 -- If you previously created payment_ledger with a DIFFERENT schema, run this
 -- line first (it drops only that helper table, not registrations), then re-run
 -- the whole file:   drop table if exists public.payment_ledger;
