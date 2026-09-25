@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Download,
   Mail,
   PauseCircle,
   PlayCircle,
@@ -18,10 +19,12 @@ import {
   adminListEmailQueue,
   type EmailQueueCounts,
   type EmailQueueRow,
+  type EmailQueueStatus,
 } from "../../lib/emailQueue";
 import { supabase } from "../../lib/supabase";
 import { cn } from "../../lib/utils";
 import { formatFee } from "../../lib/utils";
+import { toCsv, downloadCsv } from "../../lib/csv";
 
 const PAGE_SIZE = 25;
 
@@ -53,6 +56,7 @@ export function AdminEmailQueuePage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<EmailQueueStatus | "all">("all");
   const [page, setPage] = useState(1);
   const [kickMsg, setKickMsg] = useState<string | null>(null);
 
@@ -154,25 +158,57 @@ export function AdminEmailQueuePage() {
   }
 
   const filtered = useMemo(() => {
+    const byStatus =
+      statusFilter === "all" ? rows : rows.filter((r) => r.status === statusFilter);
     const q = query.toLowerCase().trim();
-    if (!q) return rows;
-    return rows.filter(
+    if (!q) return byStatus;
+    return byStatus.filter(
       (r) =>
         r.registrationCode.toLowerCase().includes(q) ||
         (r.recipientEmail ?? "").toLowerCase().includes(q) ||
         (r.teamName ?? "").toLowerCase().includes(q) ||
         r.eventNames.some((e) => e.toLowerCase().includes(q)),
     );
-  }, [rows, query]);
+  }, [rows, query, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const [filterKey, setFilterKey] = useState("");
-  const currentKey = query;
+  const currentKey = `${query}:${statusFilter}`;
   if (currentKey !== filterKey) {
     setFilterKey(currentKey);
     setPage(1);
+  }
+
+  function exportSentCsv() {
+    const sent = rows.filter((r) => r.status === "sent");
+    const headers = [
+      "Registration Code",
+      "Recipient Email",
+      "Recipient Name",
+      "Team",
+      "Captain",
+      "Event Names",
+      "Fee",
+      "Sent At",
+      "Provider Message ID",
+    ];
+    const data = sent.map((r) => [
+      r.registrationCode,
+      r.recipientEmail ?? "",
+      r.recipientName ?? "",
+      r.teamName ?? "",
+      r.captainName ?? "",
+      r.eventNames.join(" | "),
+      r.totalFee,
+      r.sentAt ? new Date(r.sentAt).toISOString() : "",
+      r.providerMessageId ?? "",
+    ]);
+    downloadCsv(
+      `email-sent-${new Date().toISOString().slice(0, 10)}.csv`,
+      toCsv(headers, data),
+    );
   }
 
   const summary = [
@@ -283,6 +319,44 @@ export function AdminEmailQueuePage() {
             </p>
           </div>
         ))}
+      </div>
+
+      {/* Status tabs + export */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1">
+          {(["all", "pending", "sending", "sent", "failed"] as (EmailQueueStatus | "all")[]).map(
+            (s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatusFilter(s)}
+                className={cn(
+                  "rounded border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                  statusFilter === s
+                    ? "border-primary/50 bg-primary/15 text-primary-soft"
+                    : "border-white/[0.08] text-muted hover:text-foreground",
+                )}
+              >
+                {s === "all"
+                  ? "All"
+                  : STATUS_META[s as EmailQueueStatus].label}
+                <span className="ml-1.5 font-mono text-[10px] opacity-70">
+                  {s === "all"
+                    ? Object.values(counts ?? {}).reduce((a, b) => a + b, 0)
+                    : counts?.[s as EmailQueueStatus] ?? 0}
+                </span>
+              </button>
+            ),
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={exportSentCsv}
+          disabled={!counts || counts.sent === 0}
+          className="flex items-center gap-1.5 rounded border border-white/[0.08] bg-[#161616] px-3 py-2 text-xs font-semibold text-muted transition-colors hover:text-foreground disabled:opacity-40"
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden /> Export sent (CSV)
+        </button>
       </div>
 
       {/* Search */}

@@ -83,18 +83,30 @@ function toRow(r: Record<string, unknown>): EmailQueueRow {
   };
 }
 
-/** Latest queue rows, newest first. Read-only admin view. */
-export async function adminListEmailQueue(limit = 300): Promise<EmailQueueRow[]> {
+/** Latest queue rows, newest first. Read-only admin view. Fetches ALL rows
+ *  (paged under the PostgREST 1000-row cap) so older sent entries never
+ *  vanish from the admin history. Optionally filter by status. */
+export async function adminListEmailQueue(
+  status?: EmailQueueStatus,
+): Promise<EmailQueueRow[]> {
   await requireAdmin();
 
-  const { data, error } = await supabase
-    .from("email_outbox")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const rows: EmailQueueRow[] = [];
+  const pageSize = 900;
+  for (let offset = 0; ; offset += pageSize) {
+    let query = supabase
+      .from("email_outbox")
+      .select("*")
+      .range(offset, offset + pageSize - 1)
+      .order("created_at", { ascending: false });
+    if (status) query = query.eq("status", status);
 
-  if (error) throw friendlyError(error, "Could not load the email queue.");
-  return (data ?? []).map((r) => toRow(r as Record<string, unknown>));
+    const { data, error } = await query;
+    if (error) throw friendlyError(error, "Could not load the email queue.");
+    rows.push(...(data ?? []).map((r) => toRow(r as Record<string, unknown>)));
+    if ((data?.length ?? 0) < pageSize) break;
+  }
+  return rows;
 }
 
 /** Counts by status (pending/sending/sent/failed). */
