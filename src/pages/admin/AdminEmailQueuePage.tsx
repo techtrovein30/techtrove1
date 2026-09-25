@@ -145,8 +145,11 @@ export function AdminEmailQueuePage() {
         setKickMsg(
           `Batch result: attempted ${r.batchAttempted ?? 0}, sent ${r.sent ?? 0}, ` +
             `failed ${r.failed ?? 0}, skipped ${r.skipped ?? 0}. ` +
-            `Today: ${r.sentToday ?? 0}/${r.dailyLimit ?? 200}. ` +
-            `Pending now: ${r.counts?.pending ?? "?"}.`,
+            `Today: ${r.sentToday ?? 0}/${r.dailyLimit ?? 500}. ` +
+            `Pending now: ${r.counts?.pending ?? "?"}.` +
+            (r.adminCopySent
+              ? " An admin copy is in your inbox."
+              : ""),
         );
       }
       await fetchAll();

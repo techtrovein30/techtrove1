@@ -175,6 +175,7 @@ export interface EmailBatchKickResult {
   failed?: number;
   skipped?: number;
   quotaStopped?: boolean;
+  adminCopySent?: boolean;
   sentToday?: number;
   dailyLimit?: number;
   remainingAfter?: number;
