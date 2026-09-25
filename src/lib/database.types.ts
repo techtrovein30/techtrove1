@@ -311,6 +311,80 @@ export interface Database {
           certificate_issued_at?: string | null;
         };
       };
+      email_outbox: {
+        Row: {
+          id: number;
+          registration_code: string;
+          kind: string;
+          status: "pending" | "sending" | "sent" | "failed";
+          recipient_email: string | null;
+          recipient_name: string | null;
+          team_name: string | null;
+          captain_name: string | null;
+          event_refs: string[] | null;
+          event_names: string[] | null;
+          total_fee: number;
+          attempts: number;
+          last_error: string | null;
+          claimed_at: string | null;
+          sent_at: string | null;
+          provider_message_id: string | null;
+          next_attempt_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: number;
+          registration_code: string;
+          kind?: string;
+          status?: "pending" | "sending" | "sent" | "failed";
+          recipient_email?: string | null;
+          recipient_name?: string | null;
+          team_name?: string | null;
+          captain_name?: string | null;
+          event_refs?: string[] | null;
+          event_names?: string[] | null;
+          total_fee?: number;
+          attempts?: number;
+          last_error?: string | null;
+          claimed_at?: string | null;
+          sent_at?: string | null;
+          provider_message_id?: string | null;
+          next_attempt_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          status?: "pending" | "sending" | "sent" | "failed";
+          recipient_email?: string | null;
+          recipient_name?: string | null;
+          team_name?: string | null;
+          captain_name?: string | null;
+          event_refs?: string[] | null;
+          event_names?: string[] | null;
+          total_fee?: number;
+          attempts?: number;
+          last_error?: string | null;
+          claimed_at?: string | null;
+          sent_at?: string | null;
+          provider_message_id?: string | null;
+          next_attempt_at?: string | null;
+        };
+      };
+      email_queue_control: {
+        Row: {
+          id: boolean;
+          paused: boolean;
+          updated_at: string;
+        };
+        Insert: {
+          id: boolean;
+          paused?: boolean;
+          updated_at?: string;
+        };
+        Update: {
+          paused?: boolean;
+          updated_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -320,6 +394,34 @@ export interface Database {
       };
       is_admin: {
         Args: Record<string, never>;
+        Returns: boolean;
+      };
+      email_queue_claim: {
+        Args: {
+          p_limit: number;
+        };
+        Returns: {
+          id: number;
+          registration_code: string;
+          recipient_email: string | null;
+          recipient_name: string | null;
+          team_name: string | null;
+          captain_name: string | null;
+          event_names: string[] | null;
+          total_fee: number;
+          attempts: number;
+        }[];
+      };
+      email_queue_retry: {
+        Args: {
+          p_id: number;
+        };
+        Returns: boolean;
+      };
+      email_queue_set_paused: {
+        Args: {
+          p_paused: boolean;
+        };
         Returns: boolean;
       };
     };

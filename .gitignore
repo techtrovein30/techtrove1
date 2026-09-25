@@ -14,6 +14,8 @@ all_db_queries.sql
 *.docx
 *.pdf
 scratch/
+# Session handoff (contains LIVE credentials — never commit)
+session_handoff_email_system.txt
 # DB log exports for manual comparison (contain personal data)
 compare/
 test-browser.js

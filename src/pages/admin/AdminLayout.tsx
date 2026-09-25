@@ -6,6 +6,7 @@ import {
   CreditCard,
   History,
   LogOut,
+  Mail,
   Menu,
   RefreshCcw,
   ShieldCheck,
@@ -28,6 +29,7 @@ const navItems = [
   { to: "/wasd4381/payments", label: "Payments", icon: CreditCard },
   { to: "/wasd4381/reuploads", label: "Re-uploads", icon: RefreshCcw },
   { to: "/wasd4381/history", label: "Deleted History", icon: History },
+  { to: "/wasd4381/emails", label: "Email Queue", icon: Mail },
   { to: "/wasd4381/events", label: "Events", icon: CalendarDays },
 ];
 

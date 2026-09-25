@@ -67,6 +67,9 @@ const AdminReuploadPage = lazy(() =>
 const AdminHistoryPage = lazy(() =>
   import("./pages/admin/AdminHistoryPage").then((m) => ({ default: m.AdminHistoryPage }))
 );
+const AdminEmailQueuePage = lazy(() =>
+  import("./pages/admin/AdminEmailQueuePage").then((m) => ({ default: m.AdminEmailQueuePage }))
+);
 
 
 function ScrollToTop() {
@@ -120,6 +123,7 @@ export default function App() {
               <Route path="payments" element={<AdminPaymentsPage />} />
               <Route path="reuploads" element={<AdminReuploadPage />} />
               <Route path="history" element={<AdminHistoryPage />} />
+              <Route path="emails" element={<AdminEmailQueuePage />} />
               <Route path="events" element={<AdminEventsPage />} />
               <Route path="checkin" element={<AdminCheckinPage />} />
 
