@@ -132,11 +132,13 @@ export async function getAllParticipants(): Promise<ParticipantRow[]> {
     supabase
       .from("internal_participants")
       .select("*")
+      .limit(0)
       .order("created_at", { ascending: false }),
 
     supabase
       .from("external_participants")
       .select("*")
+      .limit(0)
       .order("created_at", { ascending: false }),
   ]);
 
@@ -233,10 +235,12 @@ export async function getAllRegistrations(): Promise<RegistrationRow[]> {
     supabase
       .from("registrations_internal")
       .select("*")
+      .limit(0)
       .order("created_at", { ascending: false }),
     supabase
       .from("registrations_external")
       .select("*")
+      .limit(0)
       .order("created_at", { ascending: false }),
   ]);
   
