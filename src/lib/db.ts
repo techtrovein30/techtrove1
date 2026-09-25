@@ -126,35 +126,39 @@ export async function getParticipantByEmail(
   );
 }
 
+/**
+ * Fetch EVERY row of a table, paging under the PostgREST row cap (1000) so
+ * larger datasets don't get silently truncated (older registrations used to
+ * vanish from the admin counts entirely).
+ */
+async function fetchAllRows(table: string, pageSize = 900): Promise<unknown[]> {
+  const rows: unknown[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from(table as never)
+      .select("*")
+      .range(offset, offset + pageSize - 1)
+      .order("created_at", { ascending: false });
+    if (error) {
+      console.error(`${table} fetch error:`, error);
+      throw new Error(error.message);
+    }
+    rows.push(...((data ?? []) as unknown[]));
+    if ((data?.length ?? 0) < pageSize) break;
+  }
+  return rows;
+}
+
 /** All participants (used by the admin panel). */
 export async function getAllParticipants(): Promise<ParticipantRow[]> {
   const [internal, external] = await Promise.all([
-    supabase
-      .from("internal_participants")
-      .select("*")
-      .limit(0)
-      .order("created_at", { ascending: false }),
-
-    supabase
-      .from("external_participants")
-      .select("*")
-      .limit(0)
-      .order("created_at", { ascending: false }),
+    fetchAllRows("internal_participants"),
+    fetchAllRows("external_participants"),
   ]);
 
-  if (internal.error) {
-    console.error("getAllParticipants internal error:", internal.error);
-    throw new Error(internal.error.message);
-  }
-
-  if (external.error) {
-    console.error("getAllParticipants external error:", external.error);
-    throw new Error(external.error.message);
-  }
-
   return [
-    ...((internal.data ?? []) as unknown as ParticipantRow[]),
-    ...((external.data ?? []) as unknown as ParticipantRow[]),
+    ...(internal as unknown as ParticipantRow[]),
+    ...(external as unknown as ParticipantRow[]),
   ].sort((a, b) =>
     a.created_at > b.created_at ? -1 : 1,
   );
@@ -232,24 +236,13 @@ export async function getRegistrationById(regId: string): Promise<RegistrationRo
 /** All registrations from both tables, newest first (admin panel). */
 export async function getAllRegistrations(): Promise<RegistrationRow[]> {
   const [internal, external] = await Promise.all([
-    supabase
-      .from("registrations_internal")
-      .select("*")
-      .limit(0)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("registrations_external")
-      .select("*")
-      .limit(0)
-      .order("created_at", { ascending: false }),
+    fetchAllRows("registrations_internal"),
+    fetchAllRows("registrations_external"),
   ]);
-  
-  if (internal.error) console.error("getAllRegistrations internal error:", internal.error);
-  if (external.error) console.error("getAllRegistrations external error:", external.error);
 
   return [
-    ...((internal.data ?? []) as unknown as RegistrationRow[]),
-    ...((external.data ?? []) as unknown as RegistrationRow[]),
+    ...(internal as unknown as RegistrationRow[]),
+    ...(external as unknown as RegistrationRow[]),
   ].sort((a, b) => (a.created_at > b.created_at ? -1 : 1));
 }
 
