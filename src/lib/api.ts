@@ -372,11 +372,15 @@ export const api = {
       throw new Error("Registration not found.");
     }
 
-    // Upload a new file — always generates a fresh path so the previous
-    // (admin-deleted) object is not referenced.
+    // Upload a new file — always generates a fresh, unique path so the previous
+    // object is not referenced and browsers/CDNs never serve a stale cached image.
+    const rand = new Uint32Array(2);
+    crypto.getRandomValues(rand);
+    const uniqueFileId = `${registrationId}_${Date.now()}_${Array.from(rand, (n) => n.toString(36)).join("")}`;
+
     const screenshotPath = await uploadPaymentProof(
       authUser.id,
-      registrationId,
+      uniqueFileId,
       file,
     );
 
@@ -423,6 +427,12 @@ export const api = {
           reason +
           " Please try again or contact support.",
       );
+    }
+
+    // Best-effort cleanup of any old screenshot file now that the new one is linked
+    const oldPath = row.payment_screenshot_path || row.payment_screenshot_url;
+    if (oldPath && oldPath !== screenshotPath) {
+      await adminDeletePaymentProof(oldPath).catch(() => {});
     }
 
     return { screenshotPath };

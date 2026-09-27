@@ -131,6 +131,13 @@ export async function uploadPaymentProof(
   const ext = getFileExtension(file.name);
   const path = `payment-proofs/${userId}/${registrationId}.${ext}`;
 
+  // If a file already exists at this path, remove it first.
+  // In Supabase Storage, an upsert on an existing file performs an UPDATE on
+  // `storage.objects`. If storage.objects lacks an UPDATE RLS policy, the write
+  // fails with "new row violates row-level security policy". Removing any
+  // existing object ensures the upload runs as a clean INSERT.
+  await supabase.storage.from(STORAGE_BUCKET).remove([path]).catch(() => {});
+
   const { error } = await supabase.storage
     .from(STORAGE_BUCKET)
     .upload(path, file, {
@@ -183,6 +190,9 @@ export async function reuploadPaymentProof(
     );
   }
 
+  // Remove before uploading to ensure clean INSERT if an UPDATE policy is not granted
+  await supabase.storage.from(STORAGE_BUCKET).remove([cleanPath]).catch(() => {});
+
   const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(cleanPath, file, {
     upsert: true,
     contentType: file.type,
@@ -217,6 +227,8 @@ export async function uploadIdCard(
 
   const ext = getFileExtension(file.name);
   const path = `id-cards/${userId}/${studentId}.${ext}`;
+
+  await supabase.storage.from(STORAGE_BUCKET).remove([path]).catch(() => {});
 
   const { error } = await supabase.storage
     .from(STORAGE_BUCKET)

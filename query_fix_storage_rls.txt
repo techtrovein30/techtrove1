@@ -1,0 +1,68 @@
+-- ============================================================================
+-- Supabase Storage RLS Policies for TechTrove 'uploads' bucket
+-- ----------------------------------------------------------------------------
+-- FIXES: "Failed to upload payment proof: new row violates row-level security policy"
+--
+-- Why this error occurs:
+-- In Supabase Storage, an upload with `upsert: true` on an existing file or path
+-- evaluates an UPDATE on the `storage.objects` table. If the database only has
+-- an INSERT policy (or lacks an UPDATE policy for authenticated users), PostgreSQL
+-- immediately blocks the write with:
+--   "new row violates row-level security policy for table objects"
+--
+-- Run this ONCE in the Supabase SQL Editor (Dashboard -> SQL Editor -> New query).
+-- It is idempotent and safe to re-run.
+-- ============================================================================
+
+-- Ensure the private 'uploads' bucket exists
+insert into storage.buckets (id, name, public)
+values ('uploads', 'uploads', false)
+on conflict (id) do nothing;
+
+-- 1. INSERT: Allow authenticated participants to upload into their own folder
+drop policy if exists "Authenticated users can upload to own folder" on storage.objects;
+create policy "Authenticated users can upload to own folder"
+on storage.objects for insert
+to authenticated
+with check (
+  bucket_id = 'uploads' and
+  (auth.uid())::text = (storage.foldername(name))[2]
+);
+
+-- 2. UPDATE: Allow authenticated participants to update/overwrite files in their own folder
+drop policy if exists "Authenticated users can update own uploads" on storage.objects;
+create policy "Authenticated users can update own uploads"
+on storage.objects for update
+to authenticated
+using (
+  bucket_id = 'uploads' and
+  (auth.uid())::text = (storage.foldername(name))[2]
+)
+with check (
+  bucket_id = 'uploads' and
+  (auth.uid())::text = (storage.foldername(name))[2]
+);
+
+-- 3. DELETE: Allow authenticated participants to delete files in their own folder, and admins to delete any upload
+drop policy if exists "Users and admins can delete uploads" on storage.objects;
+create policy "Users and admins can delete uploads"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'uploads' and (
+    (auth.uid())::text = (storage.foldername(name))[2]
+    or public.is_admin()
+  )
+);
+
+-- 4. SELECT: Allow authenticated participants to read their own uploads, and admins to read all uploads
+drop policy if exists "Users and admins can read uploads" on storage.objects;
+create policy "Users and admins can read uploads"
+on storage.objects for select
+to authenticated
+using (
+  bucket_id = 'uploads' and (
+    (auth.uid())::text = (storage.foldername(name))[2]
+    or public.is_admin()
+  )
+);
