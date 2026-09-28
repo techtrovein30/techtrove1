@@ -132,7 +132,7 @@ export async function createReuploadNotification(
     user_id: userId,
     type: "reupload_requested",
     title: "Payment screenshot re-upload requested",
-    message: `Your payment proof for team "${teamName}" needs to be re-uploaded. Reason: ${reason}`,
+    message: `Your payment proof for team "${teamName}" needs to be re-uploaded. Reason: ${reason}. Please visit your Profile page or registration to upload the new screenshot.`,
     read: false,
     registration_id: registrationId,
   });

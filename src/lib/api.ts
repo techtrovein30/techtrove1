@@ -192,17 +192,121 @@ export const api = {
       }
     }
 
+    const screenshotPath = (input.paymentScreenshotPath ?? input.paymentScreenshotUrl)?.trim();
+
     const { data: existing } = await supabase
       .from(regTable)
-      .select("id")
+      .select("id, registration_code, event_id, payment_status, payment_review_note, payment_screenshot_path")
       .eq("user_id", authUser.id)
-      .in("event_id", input.eventIds)
-      .limit(1);
+      .in("event_id", input.eventIds);
 
-    if (existing && existing.length > 0) throw new Error("You have already registered for one or more of these events.");
+    if (existing && existing.length > 0) {
+      // Check if this submission is a re-upload of payment proof for an existing registration
+      const allExistingAreUnrecorded = existing.every(
+        (r) => r.payment_status !== "recorded"
+      );
+      const hasReuploadNoteOrPending = existing.some(
+        (r) => !!r.payment_review_note || r.payment_status === "pending" || !r.payment_screenshot_path
+      );
+      const isReupload =
+        participantType === "external" &&
+        !!screenshotPath &&
+        !!input.utrNumber?.trim() &&
+        allExistingAreUnrecorded &&
+        hasReuploadNoteOrPending;
+
+      if (isReupload) {
+        const utr = input.utrNumber!.trim();
+        const utrErr = validateUtrNumber(utr);
+        if (utrErr) throw new Error(utrErr);
+
+        const existingCodes = Array.from(new Set(existing.map((r) => r.registration_code)));
+
+        // Pre-check for duplicate UTR against OTHER registrations
+        const { data: utrDup } = await supabase
+          .from("registrations_external")
+          .select("registration_code")
+          .eq("utr_number", utr)
+          .not("registration_code", "in", `(${existingCodes.join(",")})`)
+          .limit(1);
+
+        if (utrDup && utrDup.length > 0) {
+          throw new Error("This UTR / transaction ID has already been used for another registration. Please check the number and try again.");
+        }
+
+        for (const code of existingCodes) {
+          const repRow = existing.find((r) => r.registration_code === code);
+          if (!repRow) continue;
+
+          const { error: rpcError } = await supabase.rpc(
+            "participant_update_screenshot",
+            {
+              p_registration_id: repRow.id,
+              p_screenshot_path: screenshotPath,
+              p_utr_number: utr,
+            },
+          );
+
+          if (rpcError) {
+            console.warn("[api] participant_update_screenshot RPC failed, attempting direct update fallback:", rpcError);
+            const { error: updateError } = await supabase
+              .from("registrations_external")
+              .update({
+                payment_screenshot_path: screenshotPath,
+                payment_screenshot_url: screenshotPath,
+                utr_number: utr,
+                payment_review_note: null,
+                payment_status: "pending",
+              })
+              .eq("registration_code", code)
+              .eq("user_id", authUser.id);
+
+            if (updateError) {
+              console.error("[api] Direct update fallback also failed:", updateError);
+              const rpcMsg = (rpcError.message ?? "").toLowerCase();
+              if (rpcMsg.includes("already been used") || rpcMsg.includes("duplicate")) {
+                throw new Error("This UTR / transaction ID has already been used for another registration. Please check the number and try again.");
+              }
+              throw new Error(
+                rpcError.message || updateError.message || "Failed to update your payment screenshot. Please try again or re-upload from your Profile."
+              );
+            }
+          }
+        }
+
+        const { data: updatedRows, error: fetchErr } = await supabase
+          .from(regTable)
+          .select("*")
+          .in("registration_code", existingCodes)
+          .eq("user_id", authUser.id);
+
+        if (!fetchErr && updatedRows && updatedRows.length > 0) {
+          return updatedRows.map(mapRegistrationRow);
+        }
+      }
+
+      // If not a re-upload, explain specifically which events they are already registered for
+      const registeredNames = existing
+        .map((r) => getEvent(r.event_id)?.name ?? r.event_id)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .join(", ");
+
+      const anyNeedsReupload = existing.some(
+        (r) => r.payment_status !== "recorded" && !!r.payment_review_note
+      );
+
+      if (anyNeedsReupload) {
+        throw new Error(
+          `You have an active registration for ${registeredNames} that requires a payment screenshot re-upload. Please upload a valid screenshot and UTR number, or re-upload directly from your Profile.`
+        );
+      }
+
+      throw new Error(
+        `You have already registered for: ${registeredNames}. You can view your registration details in your Profile.`
+      );
+    }
 
     const regCode = makeId("TT");
-    const screenshotPath = (input.paymentScreenshotPath ?? input.paymentScreenshotUrl)?.trim();
     
     if (participantType === "external") {
       if (!input.utrNumber?.trim()) throw new Error("UTR number is required for external participants.");

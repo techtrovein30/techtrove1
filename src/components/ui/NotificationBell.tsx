@@ -134,7 +134,7 @@ export function NotificationBell({ userId }: { userId: string }) {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-white/[0.08] bg-[#161616] shadow-2xl shadow-black/50 animate-in fade-in slide-in-from-top-2 duration-200 sm:w-96">
+        <div className="absolute right-0 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-sm overflow-hidden rounded-xl border border-white/[0.08] bg-[#161616] shadow-2xl shadow-black/50 animate-in fade-in slide-in-from-top-2 duration-200 sm:w-96">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3">
             <h3 className="text-sm font-semibold text-foreground">Notifications</h3>

@@ -217,15 +217,18 @@ export function Navbar() {
             </Link>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            aria-expanded={open}
-            aria-label="Open menu"
-            className="flex h-10 w-10 items-center justify-center rounded-sm border border-edge/60 bg-surface/40 text-foreground backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:text-primary-soft lg:hidden"
-          >
-            <Menu className="h-5 w-5" aria-hidden />
-          </button>
+          <div className="flex items-center gap-2 lg:hidden">
+            {user && <NotificationBell userId={user.id} />}
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              aria-expanded={open}
+              aria-label="Open menu"
+              className="flex h-10 w-10 items-center justify-center rounded-sm border border-edge/60 bg-surface/40 text-foreground backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:text-primary-soft"
+            >
+              <Menu className="h-5 w-5" aria-hidden />
+            </button>
+          </div>
         </div>
 
         {/* Scroll progress beam */}
