@@ -1,12 +1,11 @@
-import { useEffect, useState, useMemo, Fragment } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState, Fragment } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
   Building2,
   GraduationCap,
   Lock,
   LogOut,
-  RefreshCcw,
   ShieldCheck,
 } from "lucide-react";
 import { useAllEvents, useEvent } from "../lib/useEvents";
@@ -17,7 +16,7 @@ import { computeTotalFee, feeBreakdown, isTechPassEvent } from "../lib/fees";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
 import { validateUploadFile, uploadPaymentProof } from "../lib/storage";
-import type { ParticipantType, RegistrationMember, User, Registration } from "../lib/api";
+import type { ParticipantType, RegistrationMember, User } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { Field } from "../components/ui/Field";
 import { GoogleIcon } from "../components/ui/GoogleIcon";
@@ -344,57 +343,6 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
   const [submitting, setSubmitting] = useState(false);
   const [utrNumber, setUtrNumber] = useState("");
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
-  const [userRegistrations, setUserRegistrations] = useState<Registration[]>([]);
-
-  useEffect(() => {
-    if (!user) {
-      setUserRegistrations([]);
-      return;
-    }
-    api.listMyRegistrations().then(setUserRegistrations).catch(console.error);
-  }, [user]);
-
-  // Find any registration batch where re-upload was requested
-  const reuploadBatches = useMemo(() => {
-    const byCode = new Map<string, Registration[]>();
-    for (const r of userRegistrations) {
-      if (r.paymentStatus !== "recorded" && !!r.paymentReviewNote) {
-        const list = byCode.get(r.registrationCode) ?? [];
-        list.push(r);
-        byCode.set(r.registrationCode, list);
-      }
-    }
-    return Array.from(byCode.values());
-  }, [userRegistrations]);
-
-  const activeReupload = reuploadBatches[0];
-  const reuploadBatch = activeReupload ? activeReupload[0] : null;
-
-  // Is current selection matching the re-upload registration events?
-  const isReuploadFlow = Boolean(
-    activeReupload &&
-    draft.eventIds.length > 0 &&
-    draft.eventIds.every((id) => activeReupload.some((r) => r.eventId === id))
-  );
-
-  function selectReuploadEvents() {
-    if (!activeReupload || activeReupload.length === 0) return;
-    const reuploadEventIds = activeReupload.map((r) => r.eventId);
-    const targetEvent = allEvents.find((e) => e.id === reuploadEventIds[0]);
-    if (targetEvent) {
-      setSelectedDayId(targetEvent.dayId);
-    }
-    setDraft((d) => ({
-      ...d,
-      eventIds: reuploadEventIds,
-      teamName: activeReupload[0].teamName || d.teamName,
-      captainName: activeReupload[0].captainName || d.captainName,
-    }));
-    if (activeReupload[0].utrNumber && !utrNumber) {
-      setUtrNumber(activeReupload[0].utrNumber);
-    }
-    toast.info("Selected events from your pending registration. Upload your new screenshot below.");
-  }
 
   // ── Account / profile section state ───────────────────────────────────────
   const [profileForm, setProfileForm] = useState<ProfileDraft>(initialProfileDraft);
@@ -658,9 +606,6 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
     setSubmitting(true);
     try {
       await handleFinalSubmit();
-      if (isReuploadFlow) {
-        toast.success("Payment screenshot re-uploaded successfully!");
-      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {
@@ -683,50 +628,6 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
     <>
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-8">
         <div className="min-w-0 space-y-6">
-          {/* Re-upload request banner if admin flagged user's previous registration */}
-          {reuploadBatch && (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 backdrop-blur-sm">
-              <div className="flex items-start gap-3.5">
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-300">
-                  <RefreshCcw className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-sm font-bold text-amber-200 uppercase tracking-wide">
-                      Action Required: Screenshot Re-upload Requested
-                    </h4>
-                    <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      {reuploadBatch.registrationCode}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-amber-200/90 leading-relaxed">
-                    Admin requested a new payment screenshot for team <strong>"{reuploadBatch.teamName}"</strong>.
-                  </p>
-                  {reuploadBatch.paymentReviewNote && (
-                    <p className="mt-1 text-xs text-amber-300 font-medium">
-                      Reason: {reuploadBatch.paymentReviewNote.replace(/^RE_UPLOAD_REQUESTED\s*—\s*/, "")}
-                    </p>
-                  )}
-                  <div className="mt-3.5 flex flex-wrap items-center gap-3">
-                    <Link
-                      to="/profile"
-                      className="inline-flex items-center gap-1.5 rounded bg-amber-500 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider text-black transition-colors hover:bg-amber-400"
-                    >
-                      Re-upload on Profile Page <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={selectReuploadEvents}
-                      className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/20 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-500/30"
-                    >
-                      Select Registered Events Below
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* 1 · Who are you — internal/external + inline Google sign-in */}
           <AccountSection
             user={user}
@@ -752,7 +653,6 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
             events={allEvents}
             loading={eventsLoading}
             isInternal={!isExternal}
-            userRegistrations={userRegistrations}
           />
 
           {/* 3 · Details */}
@@ -849,19 +749,15 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
               >
                 {submitting
                   ? "Submitting\u2026"
-                  : isReuploadFlow
-                    ? "Update & Submit Payment Proof"
-                    : isExternal
-                      ? "Confirm & Submit Payment"
-                      : "Confirm Registration"}
+                  : isExternal
+                    ? "Confirm & Submit Payment"
+                    : "Confirm Registration"}
                 {!submitting && <ArrowRight className="h-4 w-4" aria-hidden />}
               </button>
               <p className="text-[11px] leading-relaxed text-muted">
-                {isReuploadFlow
-                  ? `Re-uploading screenshot for ${reuploadBatch?.registrationCode}. This replaces your previous proof for admin review.`
-                  : isExternal
-                    ? "Payment proof is verified by the TechTrove team before your slot is confirmed."
-                    : "Your registration is confirmed immediately."}
+                {isExternal
+                  ? "Payment proof is verified by the TechTrove team before your slot is confirmed."
+                  : "Your registration is confirmed immediately."}
               </p>
             </div>
           </section>
@@ -1274,7 +1170,6 @@ function SportStep({
   events,
   loading,
   isInternal,
-  userRegistrations,
 }: {
   days: Day[];
   selectedIds: string[];
@@ -1284,7 +1179,6 @@ function SportStep({
   events: TechEvent[];
   loading: boolean;
   isInternal: boolean;
-  userRegistrations?: Registration[];
 }) {
   // Day shells for the tabs always exist via static data, so the day selector
   // renders immediately even before the async events fetch completes.
@@ -1399,10 +1293,6 @@ function SportStep({
           const isIndiv = isIndividualEvent(ev) || isTechPassEvent(ev);
           const isSoloTeam = isSoloTeamEvent(ev);
           const isSport = isSportEvent(ev);
-          const userReg = userRegistrations?.find((r) => r.eventId === ev.id);
-          const isConfirmedReg = Boolean(userReg && (userReg.paymentStatus === "recorded" || isInternal));
-          const isReuploadReg = Boolean(userReg && userReg.paymentStatus !== "recorded" && !!userReg.paymentReviewNote);
-
           // Internal students always register for free — never show monetary amounts
           const feeLabel = isInternal ? "Free" : isTechPassEvent(ev) ? `Rs ${ev.registrationFee ?? 0} flat` : formatFee(ev.registrationFee);
           return (
@@ -1416,11 +1306,7 @@ function SportStep({
                 "flex items-center gap-4 rounded-xl border p-4 text-left transition-colors " +
                 (active
                   ? "border-primary bg-primary/10"
-                  : isReuploadReg
-                    ? "border-amber-500/50 bg-amber-500/5 hover:border-amber-500"
-                    : isConfirmedReg
-                      ? "border-emerald-500/40 bg-emerald-500/5 hover:border-emerald-500/60"
-                      : "border-edge bg-background hover:border-primary/50")
+                  : "border-edge bg-background hover:border-primary/50")
               }
             >
               <span className="min-w-0 flex-1">
@@ -1432,16 +1318,6 @@ function SportStep({
                       ? `Solo or 2-player team · ${feeLabel}${isInternal ? "" : " / player"}`
                       : `${ev.requiredPlayers} player${ev.requiredPlayers === 1 ? "" : "s"}${isSport && ev.maxSubstitutes ? ` · ${ev.maxSubstitutes} substitute${ev.maxSubstitutes === 1 ? "" : "s"}` : ""} · ${feeLabel}`}
                 </span>
-                {isReuploadReg && (
-                  <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-amber-300">
-                    <RefreshCcw className="h-3 w-3" /> Re-upload requested
-                  </span>
-                )}
-                {isConfirmedReg && !isReuploadReg && (
-                  <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400">
-                    ✓ Already registered
-                  </span>
-                )}
               </span>
               {active && <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary-soft">Selected</span>}
             </button>
