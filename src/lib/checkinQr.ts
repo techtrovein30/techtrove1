@@ -62,7 +62,14 @@ export async function listMyCheckinPasses(): Promise<CheckinPass[]> {
 }
 
 /** Why a scan failed — mapped straight from the RPC's `reason` column. */
-export type ScanFailure = "invalid_token" | "not_registered" | "revoked";
+export type ScanFailure = "invalid_token" | "not_registered" | "not_paid" | "revoked";
+
+const SCAN_FAILURES: readonly string[] = [
+  "invalid_token",
+  "not_registered",
+  "not_paid",
+  "revoked",
+];
 
 export interface ScanSuccess {
   ok: true;
@@ -88,6 +95,43 @@ export interface ScanFailureResult {
 export type ScanResult = ScanSuccess | ScanFailureResult;
 
 /**
+ * Turn one row of `admin_scan_checkin()` into a result the UI can render.
+ *
+ * The RPC's `reason` strings and the TypeScript union above are one contract
+ * spanning two languages: a reason this function does not recognise falls back
+ * to `invalid_token` rather than reaching the desk as `undefined`, which would
+ * otherwise render the generic "unrecognised code" panel and send a volunteer
+ * hunting for a typo when the real problem is an unpaid registration. Tests
+ * pin the mapping so the two sides cannot drift apart silently.
+ */
+export function toScanResult(row: Record<string, unknown>): ScanResult {
+  if (row.ok !== true) {
+    const reason = String(row.reason ?? "invalid_token");
+    return {
+      ok: false,
+      reason: (SCAN_FAILURES.includes(reason) ? reason : "invalid_token") as ScanFailure,
+      displayName: (row.display_name as string | null) ?? null,
+    };
+  }
+
+  const email = String(row.email ?? "");
+  const alreadyAttended = Number(row.already_attended ?? 0);
+  const membersChecked = Number(row.members_checked ?? 0);
+
+  return {
+    ok: true,
+    email,
+    displayName: String(row.display_name ?? "") || email,
+    participantType:
+      row.participant_type === "internal" ? "internal" : row.participant_type === "external" ? "external" : null,
+    membersChecked,
+    membersTotal: Number(row.members_total ?? 0),
+    alreadyAttended,
+    duplicate: membersChecked === 0 && alreadyAttended > 0,
+  };
+}
+
+/**
  * Check a player in from a scanned or hand-typed code.
  *
  * The same check-in as the manual button, but player-level: one scan covers
@@ -111,32 +155,7 @@ export async function adminScanCheckin(raw: string): Promise<ScanResult> {
     throw new Error(error.message || "Could not check in this pass.");
   }
 
-  const row = (data?.[0] ?? {}) as Record<string, unknown>;
-
-  if (row.ok !== true) {
-    const reason = String(row.reason ?? "invalid_token") as ScanFailure;
-    return {
-      ok: false,
-      reason: reason === "revoked" || reason === "not_registered" ? reason : "invalid_token",
-      displayName: (row.display_name as string | null) ?? null,
-    };
-  }
-
-  const email = String(row.email ?? "");
-  const alreadyAttended = Number(row.already_attended ?? 0);
-  const membersChecked = Number(row.members_checked ?? 0);
-
-  return {
-    ok: true,
-    email,
-    displayName: String(row.display_name ?? "") || email,
-    participantType:
-      row.participant_type === "internal" ? "internal" : row.participant_type === "external" ? "external" : null,
-    membersChecked,
-    membersTotal: Number(row.members_total ?? 0),
-    alreadyAttended,
-    duplicate: membersChecked === 0 && alreadyAttended > 0,
-  };
+  return toScanResult((data?.[0] ?? {}) as Record<string, unknown>);
 }
 
 /**

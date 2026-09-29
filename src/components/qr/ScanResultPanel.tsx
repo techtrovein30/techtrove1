@@ -7,8 +7,9 @@
  *
  * Green  -> first-time arrival, now present for every event they hold.
  * Amber  -> the pass was already scanned; nothing was changed.
- * Red    -> the code is unknown, revoked, or has no registration behind it,
- *           and the manual Check In path is the fallback.
+ * Red    -> the code is unknown, revoked, has no registration behind it, or
+ *           the payment behind it has not been verified, and the manual Check In
+ *           path is the fallback.
  */
 
 import { AlertTriangle, CheckCircle2, Clock, Info, XCircle } from "lucide-react";
@@ -26,6 +27,11 @@ function FailureCopy(result: Extract<ScanResult, { ok: false }>) {
       return {
         title: "No registration found",
         body: "This pass belongs to someone with no completed registration. Check the spelling, or use the manual check-in below.",
+      };
+    case "not_paid":
+      return {
+        title: "Payment not verified",
+        body: `${result.displayName ?? "This participant"} is registered, but their payment has not been verified yet. Send them to the payments desk — do not admit on this pass.`,
       };
     default:
       return {

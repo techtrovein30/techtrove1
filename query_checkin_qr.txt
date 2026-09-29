@@ -32,6 +32,16 @@
 --   - checkin_tokens.email carries the same `email = lower(email)` CHECK the
 --     schema already uses on admin_allowlist.email.
 --
+--   - A pass is only good for someone cleared to enter. checkin_code_is_paid()
+--     is the single predicate: internal (SIMATS) registrations are free and
+--     always cleared; an external flat pass is cleared once EVERY row sharing
+--     its registration_code is 'recorded'. It gates both my_checkin_tokens()
+--     (hand out the QR) and admin_scan_checkin() (accept the scan, and mark
+--     only the memberships behind a cleared code).
+--     The manual "Check In" / "Uncheck" buttons are deliberately NOT gated -
+--     they are the desk's escape hatch for a damaged pass or a genuine mistake,
+--     and an admin on the floor can see the payment state on the same screen.
+--
 --   - my_checkin_token() / my_checkin_tokens() declare `email`, `display_name`
 --     and `participant_type` as RETURNS TABLE columns, which PL/pgSQL treats as
 --     implicit VARIABLES. The bare `email` in `on conflict (email)` is then
@@ -143,7 +153,13 @@ create trigger trg_touch_checkin_attendance
 -- === 5. Issue a pass automatically for every registered participant ==========
 -- registration_members is auto-populated by an existing trigger whenever a
 -- registration is created, so hooking here means every internal and external
--- participant gets a pass with no client involvement at all.
+-- participant has a token with no client involvement at all.
+--
+-- This mints the token for EVERYONE, paid or not, and that is deliberate: the
+-- token is only a credential, and both places that could actually use it -
+-- my_checkin_tokens() (hands out the QR) and admin_scan_checkin() (consumes a
+-- scan) - are gated on checkin_code_is_paid(). Minting early means a pass is
+-- already there the moment the admin records the payment.
 
 create or replace function public.issue_checkin_token()
 returns trigger
@@ -189,6 +205,47 @@ on conflict (email) do nothing;
 -- === 6. Participant read access to their own pass ===========================
 -- Routed through SECURITY DEFINER helpers rather than a self-referential RLS
 -- expression, so the policy stays cheap and cannot recurse.
+
+/**
+ * Is the flat pass behind a registration_code cleared to enter?
+ *
+ *   * A code held by registrations_internal is a SIMATS entry: free, and shown
+ *     as "Free · Auto-confirmed" everywhere in the admin UI, so it counts as
+ *     cleared without any payment record.
+ *   * A code held by registrations_external is cleared only when EVERY row
+ *     sharing the code is 'recorded'. A flat pass spans one row per event, and
+ *     the admin marks the whole batch at once (adminUpdateRegistrationStatusByCode),
+ *     so this mirrors the client rule `rows.every(r => r.paymentStatus === "recorded")`.
+ *
+ * Keyed on registration_code rather than the membership's registration_id so the
+ * caller never has to care whether those ids are uuid or text, and so one lookup
+ * covers the whole flat pass.
+ *
+ * SECURITY DEFINER because registration_members is readable by nobody but the
+ * caller, while this runs inside the admin scanner too.
+ */
+create or replace function public.checkin_code_is_paid(p_registration_code text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    exists (
+      select 1 from public.registrations_internal ri
+       where ri.registration_code = p_registration_code
+    )
+    or coalesce((
+      -- coalesce inside bool_and: a NULL payment_status must read as "not
+      -- paid", not get skipped the way bool_and skips NULL inputs.
+      select bool_and(coalesce(re.payment_status = 'recorded', false))
+        from public.registrations_external re
+       where re.registration_code = p_registration_code
+    ), false);
+$$;
+
+grant execute on function public.checkin_code_is_paid(text) to authenticated;
 
 create or replace function public.current_user_email()
 returns text
@@ -286,6 +343,10 @@ $$;
  * registration owner). registration_members has no `members` jsonb column, so
  * that join is the only correct source - and it makes no assumption about what
  * registration_members.user_id holds.
+ *
+ * A pass is issued only for registrations cleared for entry, via
+ * checkin_code_is_paid(): internal (free) entries always, external entries once
+ * the admin has recorded the whole flat pass. An unpaid participant gets no QR.
  */
 create or replace function public.my_checkin_tokens()
 returns table (
@@ -322,19 +383,33 @@ begin
 
   return query
   with scope as (
+    -- Only registrations cleared for entry hand out a pass. A participant
+    -- waiting on payment verification sees nothing at all, and a teammate on an
+    -- unpaid flat pass does not drag the captain's own pass down with them.
     select lower(btrim(rm.email)) as email, rm.member_name, rm.participant_type
       from public.registration_members rm
       join public.registrations_internal ri
         on ri.id = rm.registration_id and ri.user_id = v_uid
+     where public.checkin_code_is_paid(ri.registration_code)
     union all
     select lower(btrim(rm.email)), rm.member_name, rm.participant_type
       from public.registration_members rm
       join public.registrations_external re
         on re.id = rm.registration_id and re.user_id = v_uid
+     where public.checkin_code_is_paid(re.registration_code)
     union all
     -- The caller's own email, with a NULL name so the dedup below always
-    -- prefers the real member_name from the registration rows.
-    select v_email, null::text, null::text where v_email is not null
+    -- prefers the real member_name from the registration rows. Guarded on the
+    -- caller having at least one cleared registration, so an account that has
+    -- registered but not paid cannot mint itself a pass.
+    select v_email, null::text, null::text
+      where v_email is not null
+        and exists (
+          select 1
+            from public.registration_members rm
+           where lower(btrim(rm.email)) = v_email
+             and public.checkin_code_is_paid(rm.registration_code)
+        )
   ),
   deduped as (
     -- One row per email; prefer a real member name over the email placeholder.
@@ -385,6 +460,7 @@ create policy "checkin_tokens_admin_all" on public.checkin_tokens
  * card (name, events covered) or a precise failure reason:
  *   reason = 'invalid_token'  -> malformed / not a 32-hex token
  *   reason = 'not_registered' -> unknown token, or no registrations behind it
+ *   reason = 'not_paid'       -> registered, but their payment is not verified
  *   reason = 'revoked'        -> pass was deactivated by an admin
  *   ok = true                 -> checked in
  *
@@ -446,12 +522,27 @@ begin
     return;
   end if;
 
+  -- Only memberships whose flat pass is cleared for entry count. Without this
+  -- a single scan would admit a player to every event on their account,
+  -- including ones they have not paid for.
   select count(*), count(*) filter (where rm.attended)
     into v_total, v_existing
     from public.registration_members rm
-   where lower(btrim(rm.email)) = v_email;
+   where lower(btrim(rm.email)) = v_email
+     and public.checkin_code_is_paid(rm.registration_code);
 
   if v_total = 0 then
+    -- Registered, but nothing behind them is paid yet: say so, rather than the
+    -- generic "not registered" that would send the desk hunting for a typo.
+    if exists (
+      select 1 from public.registration_members rm
+       where lower(btrim(rm.email)) = v_email
+    ) then
+      return query
+        select false, 'not_paid', v_email, v_name, v_type, 0, 0, 0;
+      return;
+    end if;
+
     return query
       select false, 'not_registered', v_email, v_name, v_type, 0, 0, 0;
     return;
@@ -470,7 +561,8 @@ begin
            updated_at      = now()
      where lower(btrim(rm.email)) = v_email
        and rm.attended is not true
-    returning 1
+       and public.checkin_code_is_paid(rm.registration_code)
+     returning 1
   )
   select count(*) into v_new from updated;
 
@@ -522,3 +614,16 @@ grant execute on function public.admin_scan_checkin(text, text) to authenticated
 -- Should error with "Not authorised" for a non-admin, and return ok = true for
 -- an admin passing a real token:
 -- select * from public.admin_scan_checkin('<32 hex chars>');
+
+-- THE PAYMENT GATE. Expect TRUE for an internal code (free entry) and for an
+-- external flat pass an admin has fully recorded; FALSE while any row of the
+-- batch is still pending. This is the single predicate that gates the QR and
+-- the scan, so if it is wrong both are wrong.
+-- select registration_code, public.checkin_code_is_paid(registration_code) as cleared
+--   from public.registrations_external
+--  order by created_at desc
+--  limit 10;
+-- select registration_code, public.checkin_code_is_paid(registration_code) as cleared
+--   from public.registrations_internal
+--  order by created_at desc
+--  limit 5;

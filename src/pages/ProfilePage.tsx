@@ -7,6 +7,7 @@ import {
   CreditCard,
   Users,
   CalendarDays,
+  Clock,
   RefreshCcw,
   Loader2,
   ChevronRight,
@@ -491,8 +492,8 @@ function DetailCard({ label, value, accent }: { label: string; value: string; ac
  * The participant's own QR entry pass, plus a compact badge for every member
  * listed on their registrations so a captain can hand each teammate their own
  * pass. Stays hidden entirely for someone with no registrations; for a
- * registered participant whose pass cannot be resolved it explains why instead
- * of leaving an empty gap.
+ * registered participant whose pass cannot be resolved it says whether that is
+ * because payment is still unverified or because loading actually failed.
  */
 function CheckinPassSection({ registrations, selfEmail }: { registrations: Registration[]; selfEmail: string }) {
   const { self, teammates, loading, available, error, refresh } = useCheckinPasses(selfEmail);
@@ -513,6 +514,23 @@ function CheckinPassSection({ registrations, selfEmail }: { registrations: Regis
     return map;
   }, [registrations]);
 
+  // The server only issues a pass for registrations cleared for entry, so an
+  // unpaid participant gets no QR at all. Mirrors checkin_code_is_paid() in
+  // query_checkin_qr.txt: internal (free) entries always, external entries once
+  // every row of the flat pass is recorded.
+  const anyCleared = useMemo(() => {
+    const batches = new Map<string, Registration[]>();
+    for (const reg of registrations) {
+      const list = batches.get(reg.registrationCode) ?? [];
+      list.push(reg);
+      batches.set(reg.registrationCode, list);
+    }
+    return Array.from(batches.values()).some((rows) => {
+      const state = batchPaymentState(rows);
+      return state.internal || state.recorded;
+    });
+  }, [registrations]);
+
   // A registered participant who cannot see a QR must be able to tell "your pass
   // is not ready" apart from "the pass feature is not deployed" — rendering
   // nothing at all is what made this look broken.
@@ -529,23 +547,36 @@ function CheckinPassSection({ registrations, selfEmail }: { registrations: Regis
             Your check-in QR
           </h2>
           <hr className="rule-line mt-4 w-32" />
-          <div className="glass-panel mt-8 p-5">
-            <p className="text-sm font-semibold text-foreground">
-              Your QR pass could not be loaded.
-            </p>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
-              {error
-                ? error
-                : "No pass is linked to your account yet. Tap retry — if it still fails, show this to the desk and you will be checked in by name."}
-            </p>
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-soft transition-colors hover:text-foreground"
-            >
-              Retry
-            </button>
-          </div>
+          {anyCleared ? (
+            <div className="glass-panel mt-8 p-5">
+              <p className="text-sm font-semibold text-foreground">
+                Your QR pass could not be loaded.
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                {error
+                  ? error
+                  : "No pass is linked to your account yet. Tap retry — if it still fails, show this to the desk and you will be checked in by name."}
+              </p>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-soft transition-colors hover:text-foreground"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="glass-panel mt-8 p-5">
+              <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Clock className="h-4 w-4 text-amber-400" aria-hidden />
+                Waiting for payment verification
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                Your QR pass unlocks once an admin verifies your payment. It will
+                appear right here — check back before you reach the check-in desk.
+              </p>
+            </div>
+          )}
         </div>
       </section>
     );
