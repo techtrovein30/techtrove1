@@ -16,7 +16,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.539.0",
+    "qrcode": "^1.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.0"
@@ -26,6 +28,7 @@
     "@tailwindcss/vite": "^4.1.11",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",

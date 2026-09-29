@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Search,
   CheckCircle2,
@@ -6,6 +6,7 @@ import {
   Loader2,
   UserCheck,
   CalendarDays,
+  ScanLine,
 } from "lucide-react";
 import { useAllEvents } from "../../lib/useEvents";
 import {
@@ -14,6 +15,9 @@ import {
   adminToggleCheckin,
   type CheckinMember,
 } from "../../lib/checkin";
+import { adminScanCheckin, type ScanResult } from "../../lib/checkinQr";
+import { QrScanner } from "../../components/qr/QrScanner";
+import { ScanErrorPanel, ScanResultPanel } from "../../components/qr/ScanResultPanel";
 import { cn } from "../../lib/utils";
 import { useToast } from "../../components/ui/toastContext";
 
@@ -25,10 +29,43 @@ export function AdminCheckinPage() {
   const [typeFilter, setTypeFilter] = useState<"all" | "internal" | "external">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "checked" | "pending">("all");
   const [busy, setBusy] = useState<string | null>(null);
+  // Scanner state only. The pre-existing roster below is untouched, and a scan
+  // goes through the same player-level check-in the Check In button uses.
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const { players, loading, refresh } = useCheckinMembers(
     eventId || undefined,
     search
+  );
+
+  /** One scan, same effect as tapping the player's Check In button. */
+  const handleScan = useCallback(
+    async (raw: string) => {
+      setScanning(true);
+      setScanError(null);
+      try {
+        const result = await adminScanCheckin(raw);
+        setScanResult(result);
+        if (result.ok) {
+          // Refresh straight away instead of waiting for the realtime round trip.
+          await refresh();
+          toast.success(
+            result.duplicate
+              ? `${result.displayName} was already checked in`
+              : `${result.displayName} checked in`
+          );
+        }
+      } catch (err) {
+        setScanError(
+          err instanceof Error ? err.message : "Could not check in this pass."
+        );
+      } finally {
+        setScanning(false);
+      }
+    },
+    [refresh, toast]
   );
 
   const statusFor = (player: (typeof players)[number]) =>
@@ -103,8 +140,9 @@ export function AdminCheckinPage() {
             Check-in Desk
           </h1>
           <p className="mt-2 text-sm text-muted">
-            Tap Check In when a participant arrives. Only checked-in members are
-            eligible for certificates.
+            Scan a participant&apos;s entry pass, or tap Check In when a
+            participant arrives. Both mark the same attendance. Only checked-in
+            members are eligible for certificates.
           </p>
         </div>
 
@@ -133,6 +171,35 @@ export function AdminCheckinPage() {
               <p className="text-xl font-bold text-emerald-400">100%</p>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* QR scanner — the second way to check someone in. Renders above the
+          roster and does not change anything about it. */}
+      <div className="rounded-xl border border-white/[0.07] bg-[#161616] p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <ScanLine className="h-4 w-4 text-primary-soft" aria-hidden />
+          <p className="text-sm font-semibold text-foreground">Scan entry pass</p>
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-2">
+          <QrScanner onScan={(raw) => void handleScan(raw)} disabled={scanning} />
+
+          <div className="space-y-4">
+            <ScanResultPanel result={scanResult} />
+            {scanError && <ScanErrorPanel message={scanError} />}
+
+            {!scanResult && !scanError && (
+              <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] p-4">
+                <p className="text-xs leading-relaxed text-muted">
+                  A scan checks the participant in exactly as the Check In button
+                  does below, and is recorded in the check-in log against your
+                  admin account. Rescanning a pass reports it as already checked
+                  in and changes nothing.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

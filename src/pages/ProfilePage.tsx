@@ -11,6 +11,7 @@ import {
   Loader2,
   ChevronRight,
   Pencil,
+  QrCode as QrCodeIcon,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { api, updateOwnFullName, updateOwnCollege } from "../lib/api";
@@ -19,6 +20,8 @@ import { validateUploadFile } from "../lib/storage";
 import { validateUtrNumber } from "../lib/validation";
 import { useAllEvents } from "../lib/useEvents";
 import type { Day, TechEvent } from "../lib/eventStore";
+import { useCheckinPasses } from "../lib/checkinQr";
+import { CheckinPassCard } from "../components/qr/CheckinPassCard";
 import { formatFee } from "../lib/utils";
 import { siteConfig } from "../data/techtrove";
 import { supabase } from "../lib/supabase";
@@ -484,6 +487,105 @@ function DetailCard({ label, value, accent }: { label: string; value: string; ac
   );
 }
 
+/**
+ * The participant's own QR entry pass, plus a compact badge for every member
+ * listed on their registrations so a captain can hand each teammate their own
+ * pass. Renders nothing at all when the SQL script behind the pass has not been
+ * applied yet, rather than leaving an empty heading behind.
+ */
+function CheckinPassSection({ registrations }: { registrations: Registration[] }) {
+  const { self, teammates, loading, available, refresh } = useCheckinPasses();
+
+  // Map each teammate's email to the registration codes it covers, so a badge
+  // tells the volunteer at the desk exactly which entries the pass admits.
+  const codesByEmail = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const reg of registrations) {
+      for (const m of reg.members) {
+        const key = m.email.trim().toLowerCase();
+        if (!key) continue;
+        const set = map.get(key) ?? new Set<string>();
+        set.add(reg.registrationCode);
+        map.set(key, set);
+      }
+    }
+    return map;
+  }, [registrations]);
+
+  if (!loading && (!available || !self)) return null;
+
+  return (
+    <section className="border-t border-edge bg-surface/30">
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
+        <p className="eyebrow">
+          <QrCodeIcon className="mr-1 inline h-3 w-3" aria-hidden />
+          Entry pass
+        </p>
+        <h2 className="display mt-3 text-3xl text-foreground sm:text-4xl">
+          Your check-in QR
+        </h2>
+        <hr className="rule-line mt-4 w-32" />
+
+        {loading || !self ? (
+          <div className="mt-8 flex justify-center py-10">
+            <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : (
+          <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+            <div>
+              <CheckinPassCard
+                pass={self}
+                registrationCodes={Array.from(codesByEmail.get(self.email.toLowerCase()) ?? [])}
+              />
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="mt-3 w-full text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-muted transition-colors hover:text-primary-soft"
+              >
+                Refresh pass
+              </button>
+            </div>
+
+            <div className="min-w-0">
+              <div className="glass-panel h-full p-5">
+                <p className="eyebrow text-muted">Check-in</p>
+                <p className="mt-2 text-sm leading-relaxed text-foreground">
+                  Show your pass at the desk and it marks you present for{" "}
+                  <span className="font-semibold text-primary-soft">
+                    every event you registered for
+                  </span>{" "}
+                  in one scan.
+                </p>
+
+                {teammates.length > 0 && (
+                  <>
+                    <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+                      Your team&apos;s passes ({teammates.length})
+                    </p>
+                    <ul className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                      {teammates.map((pass) => (
+                        <li key={pass.email}>
+                          <CheckinPassCard
+                            pass={pass}
+                            compact
+                            registrationCodes={Array.from(
+                              codesByEmail.get(pass.email.toLowerCase()) ?? []
+                            )}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function ProfilePage() {
   const { user, loading: authLoading, refreshUser } = useAuth();
   const navigate = useNavigate();
@@ -810,6 +912,8 @@ export function ProfilePage() {
           ))}
         </div>
       </section>
+
+      <CheckinPassSection registrations={registrations} />
 
       {/* Registered events */}
       <section className="border-t border-edge bg-surface/30">

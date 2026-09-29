@@ -270,6 +270,8 @@ export interface Database {
           certificate_id: string | null;
           certificate_url: string | null;
           certificate_issued_at: string | null;
+          attended_at: string | null;
+          attended_source: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -295,6 +297,8 @@ export interface Database {
           certificate_id?: string | null;
           certificate_url?: string | null;
           certificate_issued_at?: string | null;
+          attended_at?: string | null;
+          attended_source?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -309,7 +313,66 @@ export interface Database {
           certificate_id?: string | null;
           certificate_url?: string | null;
           certificate_issued_at?: string | null;
+          attended_at?: string | null;
+          attended_source?: string | null;
         };
+      };
+      checkin_tokens: {
+        Row: {
+          email: string;
+          token: string;
+          display_name: string | null;
+          participant_type: string | null;
+          created_at: string;
+          updated_at: string;
+          revoked_at: string | null;
+        };
+        Insert: {
+          email: string;
+          token?: string;
+          display_name?: string | null;
+          participant_type?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          revoked_at?: string | null;
+        };
+        Update: {
+          email?: string;
+          token?: string;
+          display_name?: string | null;
+          participant_type?: string | null;
+          updated_at?: string;
+          revoked_at?: string | null;
+        };
+      };
+      checkin_log: {
+        Row: {
+          id: string;
+          email: string;
+          display_name: string | null;
+          participant_type: string | null;
+          source: string;
+          members_checked: number;
+          members_total: number;
+          already_attended: number;
+          admin_id: string | null;
+          admin_email: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          email: string;
+          display_name?: string | null;
+          participant_type?: string | null;
+          source?: string;
+          members_checked?: number;
+          members_total?: number;
+          already_attended?: number;
+          admin_id?: string | null;
+          admin_email?: string | null;
+          created_at?: string;
+        };
+        Update: Record<string, never>;
       };
       email_outbox: {
         Row: {
@@ -423,6 +486,41 @@ export interface Database {
           p_paused: boolean;
         };
         Returns: boolean;
+      };
+      my_checkin_token: {
+        Args: Record<string, never>;
+        Returns: {
+          token: string;
+          email: string;
+          display_name: string | null;
+          participant_type: string | null;
+        }[];
+      };
+      my_checkin_tokens: {
+        Args: Record<string, never>;
+        Returns: {
+          token: string;
+          email: string;
+          display_name: string | null;
+          participant_type: string | null;
+          is_self: boolean;
+        }[];
+      };
+      admin_scan_checkin: {
+        Args: {
+          p_token: string;
+          p_source?: string;
+        };
+        Returns: {
+          ok: boolean;
+          reason: string;
+          email: string | null;
+          display_name: string | null;
+          participant_type: string | null;
+          members_checked: number;
+          members_total: number;
+          already_attended: number;
+        }[];
       };
     };
     Enums: Record<string, never>;
