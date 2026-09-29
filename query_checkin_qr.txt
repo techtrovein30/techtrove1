@@ -32,6 +32,14 @@
 --   - checkin_tokens.email carries the same `email = lower(email)` CHECK the
 --     schema already uses on admin_allowlist.email.
 --
+--   - my_checkin_token() / my_checkin_tokens() declare `email`, `display_name`
+--     and `participant_type` as RETURNS TABLE columns, which PL/pgSQL treats as
+--     implicit VARIABLES. The bare `email` in `on conflict (email)` is then
+--     ambiguous and the RPC fails with
+--       column reference "email" is ambiguous
+--     so both carry `#variable_conflict use_column`. If you ever rewrite these
+--     bodies, keep that line or qualify every column reference.
+--
 -- RUN THIS ONCE in the Supabase SQL Editor (Dashboard -> SQL Editor -> New query).
 -- Safe to re-run: every statement is idempotent.
 -- ============================================================================
@@ -214,6 +222,13 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
+-- RETURNS TABLE declares every output column as an implicit PL/pgSQL VARIABLE,
+-- so the bare `email` in `on conflict (email)` collides with the OUT parameter
+-- named `email` and the function dies with
+--   column reference "email" is ambiguous
+-- before it can return a single row. use_column resolves any such tie in favour
+-- of the table column, which is what every one of those references means here.
 declare
   v_email text;
   v_name  text;
@@ -284,6 +299,10 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
+-- See my_checkin_token() above: the OUT parameters `email` / `display_name` /
+-- `participant_type` are implicit PL/pgSQL variables, and `on conflict (email)`
+-- trips `column reference "email" is ambiguous` without this line.
 declare
   v_uid   uuid := auth.uid();
   v_email text;
@@ -292,7 +311,14 @@ begin
     raise exception 'Not authenticated';
   end if;
 
-  v_email := public.current_user_email();
+  -- Prefer the participant row, but fall back to the signed-in JWT email.
+  -- Without the fallback a participant whose internal/external row has not
+  -- landed yet resolves to a NULL email, which makes is_self false for EVERY
+  -- row - including their own - and the profile page then renders no QR at all.
+  v_email := coalesce(
+    public.current_user_email(),
+    nullif(lower(btrim(auth.jwt() ->> 'email')), '')
+  );
 
   with scope as (
     select lower(btrim(rm.email)) as email, rm.member_name, rm.participant_type
@@ -468,6 +494,14 @@ grant execute on function public.admin_scan_checkin(text, text) to authenticated
 
 -- === 9. Verify ==============================================================
 -- Run these to confirm the setup; every row should come back.
+
+-- THE FIX FOR "column reference \"email\" is ambiguous":
+-- If the profile page shows "Your QR pass could not be loaded", this is the
+-- statement that proves whether the RPC body is the deployed one. is_self must
+-- be TRUE on the caller's own row; if every row comes back false, the
+-- participant row is missing and the JWT fallback in my_checkin_tokens() is not
+-- deployed yet.
+-- select email, is_self from public.my_checkin_tokens();
 
 -- select count(*) as participants_with_a_pass
 --   from public.checkin_tokens
