@@ -353,6 +353,7 @@ begin
           updated_at   = now()
     returning t.token, t.email, t.display_name, t.participant_type
   )
+  return query
   select u.token, u.email, u.display_name, u.participant_type, (u.email = v_email)
     from upserted u
    order by (u.email = v_email) desc, u.display_name;
