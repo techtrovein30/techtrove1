@@ -39,29 +39,44 @@ function getBarcodeDetector(): BarcodeDetectorCtor | null {
   return typeof ctor === "function" ? ctor : null;
 }
 
+/**
+ * A single line naming what the browser actually did, so one screenshot
+ * identifies the cause instead of another round of guesswork. `NotAllowedError`
+ * in particular covers three unrelated situations — an origin served over plain
+ * http, a permission the operator has clicked "Block" on (which Chrome and
+ * Safari never re-ask for), and an OS-level camera switch being off — and the
+ * recovery is different for each.
+ */
+function mediaDiagnostics(err: unknown): string {
+  const detail =
+    err instanceof DOMException ? `${err.name} ${err.message}` : String((err as Error)?.message ?? err);
+  const gum = typeof navigator.mediaDevices?.getUserMedia;
+  return `origin=${location.origin} secure=${window.isSecureContext} gum=${gum} err=${detail}`;
+}
+
 /** Human-readable text for a getUserMedia failure. */
 function describeMediaError(err: unknown): string {
   // getUserMedia does not exist at all outside a secure context, so this is
   // almost always "you are on plain http" rather than an old browser - and on a
   // venue laptop that is the single most likely reason the desk cannot scan.
   if (!window.isSecureContext) {
-    return "The camera only works over https. Type the code below instead.";
+    return `The camera only works over https. Type the code below instead. ${mediaDiagnostics(err)}`;
   }
   if (err instanceof DOMException) {
     switch (err.name) {
       case "NotAllowedError":
       case "SecurityError":
-        return "Camera permission is blocked for this site. Allow it from the icon in the address bar, then press Start camera again — or type the code below.";
+        return `Camera permission is blocked for this site. Allow it from the icon in the address bar, then press Start camera again — or type the code below. ${mediaDiagnostics(err)}`;
       case "NotFoundError":
       case "OverconstrainedError":
-        return "No camera found on this device. Type the code below instead.";
+        return `No camera found on this device. Type the code below instead. ${mediaDiagnostics(err)}`;
       case "NotReadableError":
-        return "The camera is already in use by another app.";
+        return `The camera is already in use by another app. ${mediaDiagnostics(err)}`;
       default:
-        return "Could not start the camera. Type the code below instead.";
+        return `Could not start the camera. Type the code below instead. ${mediaDiagnostics(err)}`;
     }
   }
-  return "Could not start the camera. Type the code below instead.";
+  return `Could not start the camera. Type the code below instead. ${mediaDiagnostics(err)}`;
 }
 
 export interface QrScannerProps {
