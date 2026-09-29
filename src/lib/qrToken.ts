@@ -45,6 +45,9 @@ export function buildQrPayload(token: string): string | null {
  * payload with stray whitespace, or the token typed by hand with the prefix
  * half-remembered. All three are accepted; anything else returns null so the
  * caller can report a bad code instead of sending junk to the database.
+ *
+ * The dash-grouped form printed on the pass card is accepted too - see the
+ * ungroup step below, which is what keeps the camera-less desk working.
  */
 export function extractQrToken(raw: string): string | null {
   const value = raw.trim().toLowerCase();
@@ -58,6 +61,13 @@ export function extractQrToken(raw: string): string | null {
 
   // Bare token typed into the manual-entry box.
   if (TOKEN_PATTERN.test(value)) return value;
+
+  // The pass card prints the token dash-grouped (see formatTokenForDisplay) so
+  // it can be read out over a noisy desk - and that grouped form is exactly
+  // what a volunteer types into this box when there is no camera to scan with.
+  // Undo the grouping before giving up on it.
+  const ungrouped = value.replace(/[\s-]+/g, "");
+  if (TOKEN_PATTERN.test(ungrouped)) return ungrouped;
 
   // Deep link: pull the first 32-hex run out of the trailing path/query.
   // A regex over a fixed-width alphabet cannot inject SQL — the result is still

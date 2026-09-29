@@ -91,6 +91,19 @@ describe("extractQrToken", () => {
     expect(extractQrToken(TOKEN.toUpperCase())).toBe(TOKEN);
   });
 
+  it("reads back the dash-grouped token as printed on the pass card", () => {
+    // formatTokenForDisplay() groups the token for reading aloud, and that
+    // grouped form is what a volunteer types when there is no camera to scan
+    // with - so it has to survive the round trip through the manual box.
+    expect(extractQrToken(formatTokenForDisplay(TOKEN))).toBe(TOKEN);
+    expect(extractQrToken("  9F2A4C7E - 1B3D5F60 - 81A2C3E4 - F5061728 ")).toBe(TOKEN);
+  });
+
+  it("does not rescue a grouped token whose hex is wrong", () => {
+    expect(extractQrToken("9F2A4C7E-1B3D5F60-81A2C3E4-F506172Z")).toBeNull();
+    expect(extractQrToken("9F2A4C7E-1B3D5F60-81A2C3E4")).toBeNull();
+  });
+
   it("reads back a deep link handed over by a camera app", () => {
     expect(extractQrToken(`https://techtrove.example/checkin/${TOKEN}`)).toBe(TOKEN);
     expect(extractQrToken(`https://techtrove.example/checkin?pass=${TOKEN}`)).toBe(TOKEN);

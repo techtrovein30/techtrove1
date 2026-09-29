@@ -41,11 +41,17 @@ function getBarcodeDetector(): BarcodeDetectorCtor | null {
 
 /** Human-readable text for a getUserMedia failure. */
 function describeMediaError(err: unknown): string {
+  // getUserMedia does not exist at all outside a secure context, so this is
+  // almost always "you are on plain http" rather than an old browser - and on a
+  // venue laptop that is the single most likely reason the desk cannot scan.
+  if (!window.isSecureContext) {
+    return "The camera only works over https. Type the code below instead.";
+  }
   if (err instanceof DOMException) {
     switch (err.name) {
       case "NotAllowedError":
       case "SecurityError":
-        return "Camera permission was blocked. Allow camera access for this site, or type the code below.";
+        return "Camera permission is blocked for this site. Allow it from the icon in the address bar, then press Start camera again — or type the code below.";
       case "NotFoundError":
       case "OverconstrainedError":
         return "No camera found on this device. Type the code below instead.";
@@ -163,7 +169,11 @@ export function QrScanner({ onScan, disabled = false, className }: QrScannerProp
       stop();
 
       if (!navigator.mediaDevices?.getUserMedia) {
-        setError("This browser cannot open a camera. Type the code below instead.");
+        setError(
+          window.isSecureContext
+            ? "This browser cannot open a camera. Type the code below instead."
+            : "The camera only works over https. Type the code below instead.",
+        );
         return;
       }
 
