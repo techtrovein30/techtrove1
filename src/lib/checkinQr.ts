@@ -48,15 +48,15 @@ function toPass(row: Record<string, unknown>): CheckinPass {
  * on their registrations. A captain uses this to print the whole team's badges
  * from one place; a solo participant just sees the one card.
  *
- * Returns an empty array (never throws) when the RPC is unavailable, so a
- * missing SQL script degrades to "no QR shown" instead of breaking the profile
- * page for signed-in participants.
+ * Throws when the RPC is unavailable so the profile can say "the pass could not
+ * be loaded" instead of quietly rendering no QR at all — which is
+ * indistinguishable from having no pass.
  */
 export async function listMyCheckinPasses(): Promise<CheckinPass[]> {
   const { data, error } = await supabase.rpc("my_checkin_tokens");
   if (error) {
     console.error("[checkin-qr] my_checkin_tokens failed:", error);
-    return [];
+    throw new Error(error.message || "Could not load your check-in pass.");
   }
   return ((data ?? []) as Record<string, unknown>[]).map(toPass);
 }
@@ -141,11 +141,18 @@ export async function adminScanCheckin(raw: string): Promise<ScanResult> {
 
 /**
  * React hook: the signed-in participant's check-in passes.
- * `reload` is returned so the profile can re-fetch after an admin edits a
+ * `refresh` is returned so the profile can re-fetch after an admin edits a
  * registration, and `available` tells the UI whether the SQL script has been
- * applied yet (a missing RPC returns an empty list rather than an error).
+ * applied yet (a missing RPC surfaces as `error`).
+ *
+ * `selfEmail` is the signed-in account's email. The RPC flags the caller's own
+ * pass with `is_self`, but that flag comes from current_user_email(), which
+ * resolves the caller through internal_participants / external_participants —
+ * so it comes back false for anyone whose participant row has not been created
+ * yet, and the profile used to hide the whole pass section. Matching on the
+ * signed-in email client-side recovers the caller's own pass in that case.
  */
-export function useCheckinPasses() {
+export function useCheckinPasses(selfEmail?: string) {
   const [passes, setPasses] = useState<CheckinPass[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -167,8 +174,13 @@ export function useCheckinPasses() {
     void Promise.resolve().then(refresh);
   }, [refresh]);
 
-  const self = passes.find((p) => p.isSelf) ?? null;
-  const teammates = passes.filter((p) => !p.isSelf);
+  const own = selfEmail?.trim().toLowerCase() ?? "";
+
+  const self =
+    passes.find((p) => p.isSelf) ??
+    (own ? passes.find((p) => p.email.trim().toLowerCase() === own) : undefined) ??
+    null;
+  const teammates = self ? passes.filter((p) => p !== self) : passes;
 
   return {
     passes,

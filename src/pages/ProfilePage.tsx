@@ -490,11 +490,12 @@ function DetailCard({ label, value, accent }: { label: string; value: string; ac
 /**
  * The participant's own QR entry pass, plus a compact badge for every member
  * listed on their registrations so a captain can hand each teammate their own
- * pass. Renders nothing at all when the SQL script behind the pass has not been
- * applied yet, rather than leaving an empty heading behind.
+ * pass. Stays hidden entirely for someone with no registrations; for a
+ * registered participant whose pass cannot be resolved it explains why instead
+ * of leaving an empty gap.
  */
-function CheckinPassSection({ registrations }: { registrations: Registration[] }) {
-  const { self, teammates, loading, available, refresh } = useCheckinPasses();
+function CheckinPassSection({ registrations, selfEmail }: { registrations: Registration[]; selfEmail: string }) {
+  const { self, teammates, loading, available, error, refresh } = useCheckinPasses(selfEmail);
 
   // Map each teammate's email to the registration codes it covers, so a badge
   // tells the volunteer at the desk exactly which entries the pass admits.
@@ -512,7 +513,43 @@ function CheckinPassSection({ registrations }: { registrations: Registration[] }
     return map;
   }, [registrations]);
 
-  if (!loading && (!available || !self)) return null;
+  // A registered participant who cannot see a QR must be able to tell "your pass
+  // is not ready" apart from "the pass feature is not deployed" — rendering
+  // nothing at all is what made this look broken.
+  if (!loading && (!available || !self)) {
+    if (registrations.length === 0) return null;
+    return (
+      <section className="border-t border-edge bg-surface/30">
+        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
+          <p className="eyebrow">
+            <QrCodeIcon className="mr-1 inline h-3 w-3" aria-hidden />
+            Entry pass
+          </p>
+          <h2 className="display mt-3 text-3xl text-foreground sm:text-4xl">
+            Your check-in QR
+          </h2>
+          <hr className="rule-line mt-4 w-32" />
+          <div className="glass-panel mt-8 p-5">
+            <p className="text-sm font-semibold text-foreground">
+              Your QR pass could not be loaded.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              {error
+                ? error
+                : "No pass is linked to your account yet. Tap retry — if it still fails, show this to the desk and you will be checked in by name."}
+            </p>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-soft transition-colors hover:text-foreground"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="border-t border-edge bg-surface/30">
@@ -913,7 +950,7 @@ export function ProfilePage() {
         </div>
       </section>
 
-      <CheckinPassSection registrations={registrations} />
+      <CheckinPassSection registrations={registrations} selfEmail={user.email} />
 
       {/* Registered events */}
       <section className="border-t border-edge bg-surface/30">
