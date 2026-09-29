@@ -320,6 +320,7 @@ begin
     nullif(lower(btrim(auth.jwt() ->> 'email')), '')
   );
 
+  return query
   with scope as (
     select lower(btrim(rm.email)) as email, rm.member_name, rm.participant_type
       from public.registration_members rm
@@ -353,7 +354,6 @@ begin
           updated_at   = now()
     returning t.token, t.email, t.display_name, t.participant_type
   )
-  return query
   select u.token, u.email, u.display_name, u.participant_type, (u.email = v_email)
     from upserted u
    order by (u.email = v_email) desc, u.display_name;
