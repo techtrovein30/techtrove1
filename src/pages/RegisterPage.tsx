@@ -7,6 +7,9 @@ import {
   Lock,
   LogOut,
   ShieldCheck,
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { useAllEvents, useEvent } from "../lib/useEvents";
 import type { TechEvent, Day } from "../lib/eventStore";
@@ -14,7 +17,7 @@ import { days as staticDays } from "../data/techtrove";
 import { formatFee } from "../lib/utils";
 import { computeTotalFee, feeBreakdown, isTechPassEvent } from "../lib/fees";
 import { cn } from "../lib/utils";
-import { api } from "../lib/api";
+import { api, checkUtrExists } from "../lib/api";
 import { validateUploadFile, uploadPaymentProof } from "../lib/storage";
 import type { ParticipantType, RegistrationMember, User } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
@@ -342,7 +345,59 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
 
   const [submitting, setSubmitting] = useState(false);
   const [utrNumber, setUtrNumber] = useState("");
+  const [utrChecking, setUtrChecking] = useState(false);
+  const [utrDuplicateError, setUtrDuplicateError] = useState<string | null>(null);
+  const [utrAvailable, setUtrAvailable] = useState(false);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
+
+  // Debounced real-time duplicate check against existing registrations in database
+  useEffect(() => {
+    const trimmed = utrNumber.trim();
+    if (!trimmed) {
+      setUtrChecking(false);
+      setUtrDuplicateError(null);
+      setUtrAvailable(false);
+      return;
+    }
+
+    // Only query database once user types at least 6 characters
+    if (trimmed.length < 6) {
+      setUtrChecking(false);
+      setUtrDuplicateError(null);
+      setUtrAvailable(false);
+      return;
+    }
+
+    let cancelled = false;
+    setUtrChecking(true);
+    setUtrDuplicateError(null);
+    setUtrAvailable(false);
+
+    const timer = setTimeout(async () => {
+      try {
+        const exists = await checkUtrExists(trimmed);
+        if (cancelled) return;
+        if (exists) {
+          setUtrDuplicateError(
+            "This Transaction ID / UTR is already recorded in the database. Please enter your own unique transaction ID."
+          );
+          setUtrAvailable(false);
+        } else {
+          setUtrDuplicateError(null);
+          setUtrAvailable(true);
+        }
+      } catch {
+        if (!cancelled) setUtrChecking(false);
+      } finally {
+        if (!cancelled) setUtrChecking(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [utrNumber]);
 
   // ── Account / profile section state ───────────────────────────────────────
   const [profileForm, setProfileForm] = useState<ProfileDraft>(initialProfileDraft);
@@ -480,6 +535,25 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
       toast.error(utrError);
       return;
     }
+    if (utrDuplicateError) {
+      toast.error("This Transaction ID / UTR has already been used. Please enter a unique transaction ID.");
+      return;
+    }
+    if (utrChecking) {
+      toast.info("Please wait while we verify your transaction ID...");
+      return;
+    }
+
+    // Pre-flight duplicate check against database before uploading files or saving
+    const duplicate = await checkUtrExists(utrNumber.trim());
+    if (duplicate) {
+      setUtrDuplicateError(
+        "This Transaction ID / UTR is already recorded in the database. Please enter your own unique transaction ID."
+      );
+      toast.error("This Transaction ID / UTR is already in use by another registration.");
+      return;
+    }
+
     if (!paymentFile) {
       toast.error("Please upload a payment screenshot before confirming.");
       return;
@@ -707,6 +781,9 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
                 draft={draft}
                 utrNumber={utrNumber}
                 onUtrNumber={setUtrNumber}
+                utrChecking={utrChecking}
+                utrDuplicateError={utrDuplicateError}
+                utrAvailable={utrAvailable}
                 file={paymentFile}
                 onFileChange={handlePaymentFileChange}
               />
@@ -738,13 +815,19 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
               Review your selection in the summary and lock in your entry.
               {!user && " When you confirm you'll be asked to sign in with Google — the flow continues on this same page."}
             </p>
+            {isExternal && utrDuplicateError && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
+                <span>Cannot confirm: The entered Transaction ID / UTR already exists in the database. Please provide your own unique transaction ID.</span>
+              </div>
+            )}
             <hr className="rule-line mt-5 w-32" />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
               <button
                 type="button"
                 id="registration-confirm-btn"
                 onClick={handleConfirm}
-                disabled={submitting || accountBusy}
+                disabled={submitting || accountBusy || (isExternal && (!!utrDuplicateError || utrChecking))}
                 className="clip-angle inline-flex w-full items-center justify-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50 sm:w-auto"
               >
                 {submitting
@@ -1714,6 +1797,9 @@ function PaymentPanel({
   draft,
   utrNumber,
   onUtrNumber,
+  utrChecking,
+  utrDuplicateError,
+  utrAvailable,
   file,
   onFileChange,
 }: {
@@ -1722,6 +1808,9 @@ function PaymentPanel({
   draft: Draft;
   utrNumber: string;
   onUtrNumber: (v: string) => void;
+  utrChecking: boolean;
+  utrDuplicateError: string | null;
+  utrAvailable: boolean;
   file: File | null;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }) {
@@ -1817,7 +1906,29 @@ function PaymentPanel({
             onChange={(e) => onUtrNumber(e.target.value)}
             placeholder="e.g. 123456789012"
             hint="GPay → Transaction ID | PhonePe → UTR Number | FamPay → Transaction ID"
+            error={utrDuplicateError ?? undefined}
           />
+          {utrChecking && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-primary-soft">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Checking transaction ID uniqueness in database...</span>
+            </div>
+          )}
+          {utrDuplicateError && (
+            <div className="mt-2.5 flex items-start gap-2.5 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-red-400 mt-0.5" />
+              <div>
+                <p className="font-semibold text-red-200">Duplicate Transaction ID</p>
+                <p className="mt-0.5 text-red-300/90">{utrDuplicateError}</p>
+              </div>
+            </div>
+          )}
+          {utrAvailable && !utrDuplicateError && utrNumber.trim().length >= 12 && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              <span>Transaction ID is unique and valid.</span>
+            </div>
+          )}
           <p className="mt-2 text-xs text-muted">
             If you paid through Google Pay (GPay), enter your Transaction ID. If you paid through PhonePe, enter your UTR number. If you paid through FamPay, enter your Transaction ID.
           </p>

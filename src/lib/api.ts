@@ -57,7 +57,7 @@ export interface User {
   regNumber?: string;
   college?: string;
   phone?: string;
-  role?: "user" | "admin";
+  role?: "user" | "admin" | "coordinator";
 }
 
 export type MemberRole = "player" | "substitute";
@@ -210,16 +210,10 @@ export const api = {
 
       // Reject a UTR / transaction ID that is already attached to a different
       // registration_code (a flat pass legitimately repeats its UTR across the
-      // rows sharing one code). Only a friendly pre-check here; the DB trigger
-      // from query_participant_update_screenshot_utr.txt is the hard guarantee.
+      // rows sharing one code).
       const utr = input.utrNumber.trim();
-      const { data: utrDup } = await supabase
-        .from("registrations_external")
-        .select("registration_code")
-        .eq("utr_number", utr)
-        .neq("registration_code", regCode)
-        .limit(1);
-      if (utrDup && utrDup.length > 0) {
+      const dupCheck = await checkUtrExists(utr, regCode);
+      if (dupCheck.exists) {
         throw new Error("This UTR / transaction ID has already been used for another registration. Please check the number and try again.");
       }
     }
@@ -372,6 +366,12 @@ export const api = {
       throw new Error("Registration not found.");
     }
 
+    // Pre-check for duplicate UTR before uploading screenshot
+    const dupCheck = await checkUtrExists(utr, row.registration_code);
+    if (dupCheck.exists) {
+      throw new Error("This UTR / transaction ID has already been used for another registration. Please check the number and try again.");
+    }
+
     // Upload a new file — always generates a fresh, unique path so the previous
     // object is not referenced and browsers/CDNs never serve a stale cached image.
     const rand = new Uint32Array(2);
@@ -437,7 +437,96 @@ export const api = {
 
     return { screenshotPath };
   },
+
+  checkUtrExists: (utrNumber: string, excludeRegistrationCode?: string) =>
+    checkUtrExists(utrNumber, excludeRegistrationCode),
 };
+
+/**
+ * Check if a transaction ID / UTR already exists in the database.
+ * Used for real-time validation while entering transaction ID during registration
+ * and re-uploading payment proof.
+ */
+export async function checkUtrExists(
+  utrNumber: string,
+  excludeRegistrationCode?: string
+): Promise<{ exists: boolean; existingCode?: string; message?: string }> {
+  const cleanUtr = utrNumber.trim();
+  if (!cleanUtr || cleanUtr.length < 4) {
+    return { exists: false };
+  }
+
+  try {
+    // 1. Check registrations_external (case-insensitive)
+    let queryExt = supabase
+      .from("registrations_external")
+      .select("registration_code, utr_number")
+      .ilike("utr_number", cleanUtr);
+
+    if (excludeRegistrationCode) {
+      queryExt = queryExt.neq("registration_code", excludeRegistrationCode);
+    }
+
+    const { data: extRows, error: extError } = await queryExt.limit(1);
+    if (!extError && extRows && extRows.length > 0) {
+      return {
+        exists: true,
+        existingCode: extRows[0].registration_code,
+        message: "This Transaction ID / UTR has already been used for another registration.",
+      };
+    }
+
+    // 2. Check registrations_internal (in case an internal record has a UTR)
+    let queryInt = supabase
+      .from("registrations_internal")
+      .select("registration_code, utr_number")
+      .ilike("utr_number", cleanUtr);
+
+    if (excludeRegistrationCode) {
+      queryInt = queryInt.neq("registration_code", excludeRegistrationCode);
+    }
+
+    const { data: intRows, error: intError } = await queryInt.limit(1);
+    if (!intError && intRows && intRows.length > 0) {
+      return {
+        exists: true,
+        existingCode: intRows[0].registration_code,
+        message: "This Transaction ID / UTR has already been used for another registration.",
+      };
+    }
+
+    // 3. Fallback check in local storage if in mock/dev/test environment
+    if (typeof localStorage !== "undefined") {
+      try {
+        const raw = localStorage.getItem("techtrove_registrations");
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const found = list.find((item: any) => {
+              const u = String(item.utr_number ?? item.utrNumber ?? "").trim().toLowerCase();
+              const code = String(item.registration_code ?? item.registrationCode ?? "");
+              return u === cleanUtr.toLowerCase() && (!excludeRegistrationCode || code !== excludeRegistrationCode);
+            });
+            if (found) {
+              return {
+                exists: true,
+                existingCode: found.registration_code ?? found.registrationCode,
+                message: "This Transaction ID / UTR has already been used for another registration.",
+              };
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return { exists: false };
+  } catch (err) {
+    console.error("[api] checkUtrExists error:", err);
+    return { exists: false };
+  }
+}
 
 /**
  * Update the signed-in participant's own display name.

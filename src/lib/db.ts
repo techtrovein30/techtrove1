@@ -32,7 +32,7 @@ export interface ParticipantRow {
   college: string | null;
   phone: string | null;
   id_card_path?: string | null;
-  role: "user" | "admin" | null;
+  role: "user" | "admin" | "coordinator" | null;
   created_at: string;
 }
 

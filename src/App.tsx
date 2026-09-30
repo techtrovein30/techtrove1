@@ -70,6 +70,18 @@ const AdminHistoryPage = lazy(() =>
 const AdminEmailQueuePage = lazy(() =>
   import("./pages/admin/AdminEmailQueuePage").then((m) => ({ default: m.AdminEmailQueuePage }))
 );
+const AdminCoordinatorsPage = lazy(() =>
+  import("./pages/admin/AdminCoordinatorsPage").then((m) => ({ default: m.AdminCoordinatorsPage }))
+);
+const CoordinatorDashboardPage = lazy(() =>
+  import("./pages/CoordinatorDashboardPage").then((m) => ({ default: m.CoordinatorDashboardPage }))
+);
+const AttendancePage = lazy(() =>
+  import("./pages/AttendancePage").then((m) => ({ default: m.AttendancePage }))
+);
+const CoordinatorRoute = lazy(() =>
+  import("./components/coordinator/CoordinatorRoute").then((m) => ({ default: m.CoordinatorRoute }))
+);
 
 
 function ScrollToTop() {
@@ -117,6 +129,7 @@ export default function App() {
               </AdminRoute>
             }>
               <Route path="dashboard" element={<AdminDashboardPage />} />
+              <Route path="coordinators" element={<AdminCoordinatorsPage />} />
               <Route path="students" element={<AdminStudentsPage />} />
               <Route path="registrations" element={<AdminRegistrationsPage />} />
               <Route path="teams" element={<AdminTeamsPage />} />
@@ -131,6 +144,20 @@ export default function App() {
             </Route>
           </Route>
 
+          {/* Admin Aliases */}
+          <Route path="/admin/coordinators" element={<Navigate to="/wasd4381/coordinators" replace />} />
+          <Route path="/admin" element={<Navigate to="/wasd4381/dashboard" replace />} />
+
+          {/* Coordinator Portal (Strict role & event assignment check) */}
+          <Route
+            path="/coordinator"
+            element={
+              <CoordinatorRoute>
+                <CoordinatorDashboardPage />
+              </CoordinatorRoute>
+            }
+          />
+
           {/* ── Public website (with Navbar + Footer) ──────────────── */}
           <Route element={<PublicLayout />}>
             <Route path="/" element={<HomePage />} />
@@ -139,6 +166,11 @@ export default function App() {
             <Route path="/events/:eventId" element={<EventDetailPage />} />
             <Route path="/schedule" element={<SchedulePage />} />
             <Route path="/rules" element={<RulesPage />} />
+
+            {/* Attendance Scanner (Student side) */}
+            <Route path="/attendance" element={<AttendancePage />} />
+            <Route path="/attendance/scan" element={<AttendancePage />} />
+            <Route path="/attendance/:token" element={<AttendancePage />} />
 
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/login" element={<LoginPage />} />

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2, RefreshCcw } from "lucide-react";
+import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2, RefreshCcw, AlertTriangle } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
   adminUpdateRegistrationStatusByCode,
@@ -51,6 +51,7 @@ export function AdminPaymentsPage() {
   }
   const [eventFilter, setEventFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [onlyDuplicates, setOnlyDuplicates] = useState(false);
   const [selectedProof, setSelectedProof] = useState<Registration | null>(null);
   const [copiedUtr, setCopiedUtr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -58,6 +59,25 @@ export function AdminPaymentsPage() {
   const [reuploadTarget, setReuploadTarget] = useState<Registration | null>(null);
   const [reuploadBusy, setReuploadBusy] = useState(false);
   const [reuploadBanner, setReuploadBanner] = useState<string | null>(null);
+
+  // Map of UTR -> number of distinct registration codes sharing it
+  const duplicateUtrMap = useMemo(() => {
+    const codeByUtr = new Map<string, Set<string>>();
+    for (const r of registrations) {
+      if (!isExternal(r) || !r.utrNumber?.trim()) continue;
+      const key = r.utrNumber.trim().toLowerCase();
+      const set = codeByUtr.get(key) ?? new Set<string>();
+      set.add(r.registrationCode);
+      codeByUtr.set(key, set);
+    }
+    const dupMap = new Map<string, number>();
+    for (const [key, set] of codeByUtr.entries()) {
+      if (set.size > 1) {
+        dupMap.set(key, set.size);
+      }
+    }
+    return dupMap;
+  }, [registrations]);
 
   function copyUtr(utr: string) {
     navigator.clipboard.writeText(utr).then(() => {
@@ -74,6 +94,11 @@ export function AdminPaymentsPage() {
       if (!isExternal(r)) return false;
       if (eventFilter !== "all" && r.eventId !== eventFilter) return false;
       if (statusFilter !== "all" && r.paymentStatus !== statusFilter) return false;
+      if (onlyDuplicates) {
+        if (!r.utrNumber?.trim() || !duplicateUtrMap.has(r.utrNumber.trim().toLowerCase())) {
+          return false;
+        }
+      }
       if (!q) return true;
 
       const evName = events.find((e) => e.id === r.eventId)?.name.toLowerCase() ?? "";
@@ -85,7 +110,7 @@ export function AdminPaymentsPage() {
         evName.includes(q)
       );
     });
-  }, [registrations, query, eventFilter, statusFilter, events]);
+  }, [registrations, query, eventFilter, statusFilter, onlyDuplicates, duplicateUtrMap, events]);
 
   // Group registrations into flat-pass batches keyed by registration_code.
   // Each batch is ONE payment that may cover multiple events, so we collapse
@@ -397,6 +422,21 @@ export function AdminPaymentsPage() {
             </button>
           ))}
         </div>
+
+        {duplicateUtrMap.size > 0 && (
+          <button
+            type="button"
+            onClick={() => setOnlyDuplicates((v) => !v)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.13em] rounded border transition-colors ${
+              onlyDuplicates
+                ? "border-amber-500/50 bg-amber-500/20 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.2)]"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+            }`}
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+            <span>Duplicate UTRs ({duplicateUtrMap.size})</span>
+          </button>
+        )}
       </div>
 
       {/* Payment Table */}
@@ -435,9 +475,18 @@ export function AdminPaymentsPage() {
                       (r) => r.paymentScreenshotPath ?? r.paymentScreenshotUrl
                     ) ?? group.rows[0];
                   const proofPath = group.proofPath;
+                  const isDuplicateUtr = !!(group.utrNumber?.trim() && duplicateUtrMap.has(group.utrNumber.trim().toLowerCase()));
+                  const dupCount = isDuplicateUtr ? duplicateUtrMap.get(group.utrNumber!.trim().toLowerCase()) : 0;
 
                   return (
-                    <tr key={group.code} className="transition-colors hover:bg-white/[0.025]">
+                    <tr
+                      key={group.code}
+                      className={`transition-colors ${
+                        isDuplicateUtr
+                          ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]"
+                          : "hover:bg-white/[0.025]"
+                      }`}
+                    >
                       <td className="px-4 py-3">
                         <div>
                           <p className="font-medium text-foreground">{group.teamName}</p>
@@ -465,10 +514,14 @@ export function AdminPaymentsPage() {
                         {formatFee(group.totalFee)}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-1.5">
                           {group.utrNumber ? (
-                            <div className="flex items-center gap-1.5">
-                              <code className="font-mono text-xs text-foreground bg-white/[0.05] px-1.5 py-0.5 rounded">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <code className={`font-mono text-xs px-1.5 py-0.5 rounded ${
+                                isDuplicateUtr
+                                  ? "border border-amber-500/50 bg-amber-500/15 text-amber-200 font-bold"
+                                  : "text-foreground bg-white/[0.05]"
+                              }`}>
                                 {group.utrNumber}
                               </code>
                               <button
@@ -486,6 +539,12 @@ export function AdminPaymentsPage() {
                             </div>
                           ) : (
                             <span className="text-xs text-muted">—</span>
+                          )}
+                          {isDuplicateUtr && (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 w-fit">
+                              <AlertTriangle className="h-3 w-3 text-amber-400" />
+                              Duplicate ({dupCount}x)
+                            </span>
                           )}
                           {proofPath && (
                             <button

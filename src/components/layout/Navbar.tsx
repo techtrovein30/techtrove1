@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { LogOut, Menu, X, User, ChevronRight } from "lucide-react";
+import { LogOut, Menu, X, User, ChevronRight, Camera } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { cn } from "../../lib/utils";
 import { Brand } from "../site/Brand";
@@ -178,6 +178,13 @@ export function Navbar() {
               <>
                 <NotificationBell userId={user.id} />
                 <Link
+                  to="/attendance"
+                  className="flex items-center gap-1.5 rounded-sm border border-primary/30 bg-primary/10 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-primary-soft hover:bg-primary/20 hover:text-white transition-all shadow-[0_0_15px_rgba(124,58,237,0.15)]"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                  <span>Scan QR</span>
+                </Link>
+                <Link
                   to="/profile"
                   className="group relative flex items-center gap-2.5 rounded-sm border border-edge/60 bg-surface/40 px-3.5 py-2 backdrop-blur-sm transition-all duration-300 hover:border-primary/40 hover:bg-primary/5 hover:shadow-[0_0_20px_rgba(124,58,237,0.12)]"
                 >
@@ -319,6 +326,14 @@ export function Navbar() {
           <div className="relative space-y-3 border-t border-edge/50 p-6 pb-8">
             {user ? (
               <>
+                <Link
+                  to="/attendance"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center justify-center gap-2 rounded-sm border border-primary/40 bg-gradient-to-r from-primary/20 to-primary-soft/10 px-5 py-3 text-xs font-bold uppercase tracking-wider text-primary-soft shadow-lg shadow-primary/20"
+                >
+                  <Camera className="h-4 w-4" />
+                  <span>Scan Attendance QR</span>
+                </Link>
                 <Link
                   to="/profile"
                   onClick={() => setOpen(false)}

@@ -17,8 +17,16 @@
  * (set `revoked_at`) without changing anyone's name or email.
  */
 
-/** Payload version. Bump when the encoding below changes incompatibly. */
+/** Payload version for the participant's personal pass. Bump when the encoding below changes incompatibly. */
 export const QR_PAYLOAD_VERSION = "TTQ1";
+
+/**
+ * Payload prefix for the EVENT code a coordinator displays.
+ *
+ * Distinct from QR_PAYLOAD_VERSION on purpose: the two are read by opposite
+ * parties and must never be mistaken for one another.
+ */
+export const EVENT_QR_PREFIX = "TTE1";
 
 /** 32 lowercase hex characters, exactly what `gen_random_bytes(16)` encodes to. */
 const TOKEN_PATTERN = /^[0-9a-f]{32}$/;
@@ -76,9 +84,72 @@ export function extractQrToken(raw: string): string | null {
   return match ? match[0] : null;
 }
 
+/**
+ * Extracts an EVENT attendance token (the one a coordinator displays) from a
+ * scanned value.
+ *
+ * Deliberately separate from extractQrToken above, which reads the participant's
+ * personal `TTQ1` pass. The two flows are easy to confuse and must never be
+ * interchangeable:
+ *
+ *   - a personal pass identifies ONE participant and is scanned BY an admin;
+ *   - an event code identifies ONE event and is scanned BY the participant.
+ *
+ * Getting this backwards would either let a student mark somebody else in, or
+ * let a coordinator's code be mistaken for a personal pass. The prefixes are
+ * distinct on the wire and the extractors refuse each other's payload.
+ *
+ * The event token is stored raw (32 lowercase hex, no prefix) in
+ * events.attendance_token, so the wire prefix is added purely to make a
+ * displayed QR self-describing; it is stripped again here.
+ */
+export function extractEventToken(raw: string): string | null {
+  const value = raw.trim().toLowerCase();
+  if (!value) return null;
+
+  // Canonical event payload, and the slash variant some scanners normalise to.
+  if (value.startsWith(`${EVENT_QR_PREFIX.toLowerCase()}:`)) {
+    const rest = value.slice(EVENT_QR_PREFIX.length + 1).replace(/^\/+/, "");
+    return TOKEN_PATTERN.test(rest) ? rest : null;
+  }
+
+  // A bare token: the coordinator may have printed it, or a volunteer typed it
+  // into the manual box.
+  if (TOKEN_PATTERN.test(value)) return value;
+
+  // Grouped for reading aloud, same as the pass card.
+  const ungrouped = value.replace(/[\s-]+/g, "");
+  if (TOKEN_PATTERN.test(ungrouped)) return ungrouped;
+
+  // Deep link, e.g. `https://techtrove.live/attendance?token=TTE1:<token>`.
+  //
+  // Restricted to values that are actually links or paths. The personal-pass
+  // extractor above will pull a 32-hex run out of arbitrary junk, which is
+  // deliberate there because a phone camera hands over whatever the QR decoder
+  // produced. For the event code it is the wrong trade: a truncated or extended
+  // string like `<token>f` would silently be read as `<token>`, so what gets
+  // accepted is not what the coordinator printed. Only take the token out of a
+  // structure that says where it should be.
+  if (value.includes("ttq1")) return null;
+  if (!/^https?:\/\//.test(value) && !value.startsWith("/") && !value.includes("attendance")) return null;
+  const match = value.match(TOKEN_SCAN_PATTERN);
+  return match ? match[0] : null;
+}
+
 /** True when a raw DB token is well formed (guards the render path too). */
 export function isValidToken(token: string): boolean {
   return TOKEN_PATTERN.test(token.trim().toLowerCase());
+}
+
+/**
+ * Wraps a raw event token into the canonical `TTE1:<token>` payload.
+ * Returns null for a malformed token so the coordinator's screen never renders
+ * a QR that cannot be scanned.
+ */
+export function buildEventQrPayload(token: string): string | null {
+  const clean = token.trim().toLowerCase();
+  if (!TOKEN_PATTERN.test(clean)) return null;
+  return `${EVENT_QR_PREFIX}:${clean}`;
 }
 
 /**

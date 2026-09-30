@@ -12,21 +12,29 @@ import {
   Loader2,
   ChevronRight,
   Pencil,
-  QrCode as QrCodeIcon,
+  Camera,
+  UserCheck,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { api, updateOwnFullName, updateOwnCollege } from "../lib/api";
+import { api, checkUtrExists, updateOwnFullName, updateOwnCollege } from "../lib/api";
 import type { Registration } from "../lib/api";
 import { validateUploadFile } from "../lib/storage";
 import { validateUtrNumber } from "../lib/validation";
 import { useAllEvents } from "../lib/useEvents";
 import type { Day, TechEvent } from "../lib/eventStore";
-import { useCheckinPasses } from "../lib/checkinQr";
-import { CheckinPassCard } from "../components/qr/CheckinPassCard";
 import { formatFee } from "../lib/utils";
 import { siteConfig } from "../data/techtrove";
 import { supabase } from "../lib/supabase";
 import { useToast } from "../components/ui/toastContext";
+import {
+  getStudentAttendanceHistory,
+  getAssignedCoordinatorEvent,
+  subscribeToAttendanceUpdates,
+  type EventAttendanceRecord,
+  type EventCoordinator,
+} from "../lib/coordinatorApi";
 
 function initialsOf(name: string): string {
   return (
@@ -120,12 +128,15 @@ function RegistrationCard({
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadDone, setUploadDone] = useState(false);
+  const [utrChecking, setUtrChecking] = useState(false);
+  const [utrDuplicateError, setUtrDuplicateError] = useState<string | null>(null);
 
   // Keep the UTR field in sync when the card shows a different batch
   // (identified by its primary registration id) without a side effect.
   if (prevBatchId !== registrations[0]?.id) {
     setPrevBatchId(registrations[0]?.id);
     setUtr(registrations[0]?.utrNumber ?? "");
+    setUtrDuplicateError(null);
   }
 
   const eventById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
@@ -146,6 +157,43 @@ function RegistrationCard({
   const totalFee = registrations.reduce((sum, r) => sum + (r.fee ?? 0), 0);
   const needsReupload = paymentState.needsReupload;
   const utrError = validateUtrNumber(utr);
+
+  // Debounced real-time duplicate check for re-upload UTR
+  useEffect(() => {
+    const trimmed = utr.trim();
+    if (!trimmed || trimmed.length < 6) {
+      setUtrChecking(false);
+      setUtrDuplicateError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setUtrChecking(true);
+    setUtrDuplicateError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const exists = await checkUtrExists(trimmed, first?.registrationCode);
+        if (cancelled) return;
+        if (exists) {
+          setUtrDuplicateError(
+            "This Transaction ID / UTR is already recorded for another registration in the database."
+          );
+        } else {
+          setUtrDuplicateError(null);
+        }
+      } catch {
+        if (!cancelled) setUtrChecking(false);
+      } finally {
+        if (!cancelled) setUtrChecking(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [utr, first?.registrationCode]);
 
   function copyCode() {
     navigator.clipboard.writeText(first.registrationCode).then(() => {
@@ -171,11 +219,18 @@ function RegistrationCard({
   }
 
   async function handleReupload() {
-    if (!selectedFile || !first || utrError) return;
+    if (!selectedFile || !first || utrError || utrDuplicateError || utrChecking) return;
     setUploadBusy(true);
     setUploadError(null);
     setUploadDone(false);
     try {
+      const duplicate = await checkUtrExists(utr.trim(), first.registrationCode);
+      if (duplicate) {
+        setUtrDuplicateError("This Transaction ID / UTR is already in use by another registration.");
+        setUploadError("This Transaction ID / UTR is already in use by another registration.");
+        return;
+      }
+
       await api.reuploadPaymentScreenshot(first.id, selectedFile, utr.trim());
       setUploadDone(true);
       setSelectedFile(null);
@@ -323,9 +378,23 @@ function RegistrationCard({
                 onChange={(e) => setUtr(e.target.value)}
                 placeholder="e.g. 123456789012"
                 maxLength={16}
-                className="mt-1 block w-full border border-edge bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-primary-soft focus:outline-none"
+                className={`mt-1 block w-full border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-primary-soft focus:outline-none ${
+                  utrDuplicateError || utrError ? "border-red-500/70" : "border-edge"
+                }`}
               />
-              {utrError && (
+              {utrChecking && (
+                <div className="mt-1.5 flex items-center gap-2 text-xs text-primary-soft">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Checking transaction ID uniqueness...</span>
+                </div>
+              )}
+              {utrDuplicateError && (
+                <div className="mt-2 flex items-start gap-2 rounded border border-red-500/40 bg-red-500/10 p-2.5 text-xs text-red-300">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-400 mt-0.5" />
+                  <span>{utrDuplicateError}</span>
+                </div>
+              )}
+              {utrError && !utrDuplicateError && (
                 <p role="alert" className="mt-1 text-[11px] text-red-300">
                   {utrError}
                 </p>
@@ -346,7 +415,7 @@ function RegistrationCard({
               <button
                 type="button"
                 onClick={handleReupload}
-                disabled={uploadBusy || !selectedFile || !!utrError}
+                disabled={uploadBusy || !selectedFile || !!utrError || !!utrDuplicateError || utrChecking}
                 className="clip-angle mt-3 inline-flex items-center gap-2 bg-primary px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
               >
                 {uploadBusy ? (
@@ -489,164 +558,124 @@ function DetailCard({ label, value, accent }: { label: string; value: string; ac
 }
 
 /**
- * The participant's own QR entry pass, plus a compact badge for every member
- * listed on their registrations so a captain can hand each teammate their own
- * pass. Stays hidden entirely for someone with no registrations; for a
- * registered participant whose pass cannot be resolved it says whether that is
- * because payment is still unverified or because loading actually failed.
+ * StudentAttendanceSection
+ * ------------------------
+ * Displays the student's attendance records across registered events.
+ * Updates in real-time when a student scans an event QR code.
  */
-function CheckinPassSection({ registrations, selfEmail }: { registrations: Registration[]; selfEmail: string }) {
-  const { self, teammates, loading, available, error, refresh } = useCheckinPasses(selfEmail);
-
-  // Map each teammate's email to the registration codes it covers, so a badge
-  // tells the volunteer at the desk exactly which entries the pass admits.
-  const codesByEmail = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const reg of registrations) {
-      for (const m of reg.members) {
-        const key = m.email.trim().toLowerCase();
-        if (!key) continue;
-        const set = map.get(key) ?? new Set<string>();
-        set.add(reg.registrationCode);
-        map.set(key, set);
-      }
+function StudentAttendanceSection({
+  registrations,
+  events,
+  attendanceHistory,
+}: {
+  registrations: Registration[];
+  events: TechEvent[];
+  attendanceHistory: EventAttendanceRecord[];
+}) {
+  const eventById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
+  const attendanceByEventId = useMemo(() => {
+    const map = new Map<string, EventAttendanceRecord>();
+    for (const a of attendanceHistory) {
+      map.set(a.eventId, a);
     }
     return map;
-  }, [registrations]);
+  }, [attendanceHistory]);
 
-  // The server only issues a pass for registrations cleared for entry, so an
-  // unpaid participant gets no QR at all. Mirrors checkin_code_is_paid() in
-  // query_checkin_qr.txt: internal (free) entries always, external entries once
-  // every row of the flat pass is recorded.
-  const anyCleared = useMemo(() => {
-    const batches = new Map<string, Registration[]>();
-    for (const reg of registrations) {
-      const list = batches.get(reg.registrationCode) ?? [];
-      list.push(reg);
-      batches.set(reg.registrationCode, list);
+  const registeredEvents = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of registrations) {
+      set.add(r.eventId);
     }
-    return Array.from(batches.values()).some((rows) => {
-      const state = batchPaymentState(rows);
-      return state.internal || state.recorded;
-    });
-  }, [registrations]);
-
-  // A registered participant who cannot see a QR must be able to tell "your pass
-  // is not ready" apart from "the pass feature is not deployed" — rendering
-  // nothing at all is what made this look broken.
-  if (!loading && (!available || !self)) {
-    if (registrations.length === 0) return null;
-    return (
-      <section className="border-t border-edge bg-surface/30">
-        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
-          <p className="eyebrow">
-            <QrCodeIcon className="mr-1 inline h-3 w-3" aria-hidden />
-            Entry pass
-          </p>
-          <h2 className="display mt-3 text-3xl text-foreground sm:text-4xl">
-            Your check-in QR
-          </h2>
-          <hr className="rule-line mt-4 w-32" />
-          {anyCleared ? (
-            <div className="glass-panel mt-8 p-5">
-              <p className="text-sm font-semibold text-foreground">
-                Your QR pass could not be loaded.
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                {error
-                  ? error
-                  : "No pass is linked to your account yet. Tap retry — if it still fails, show this to the desk and you will be checked in by name."}
-              </p>
-              <button
-                type="button"
-                onClick={() => void refresh()}
-                className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-soft transition-colors hover:text-foreground"
-              >
-                Retry
-              </button>
-            </div>
-          ) : (
-            <div className="glass-panel mt-8 p-5">
-              <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Clock className="h-4 w-4 text-amber-400" aria-hidden />
-                Waiting for payment verification
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                Your QR pass unlocks once an admin verifies your payment. It will
-                appear right here — check back before you reach the check-in desk.
-              </p>
-            </div>
-          )}
-        </div>
-      </section>
-    );
-  }
+    return Array.from(set).map((id) => eventById.get(id)).filter((e): e is TechEvent => !!e);
+  }, [registrations, eventById]);
 
   return (
     <section className="border-t border-edge bg-surface/30">
-      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
-        <p className="eyebrow">
-          <QrCodeIcon className="mr-1 inline h-3 w-3" aria-hidden />
-          Entry pass
-        </p>
-        <h2 className="display mt-3 text-3xl text-foreground sm:text-4xl">
-          Your check-in QR
-        </h2>
-        <hr className="rule-line mt-4 w-32" />
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8 space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="eyebrow text-primary-soft">
+              <CheckCircle2 className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />
+              Verified Attendance
+            </p>
+            <h2 className="display mt-2 text-3xl text-foreground sm:text-4xl">
+              My Attendance Record
+            </h2>
+            <hr className="rule-line mt-4 w-32" />
+          </div>
 
-        {loading || !self ? (
-          <div className="mt-8 flex justify-center py-10">
-            <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <Link
+            to="/attendance"
+            className="inline-flex items-center gap-2 rounded-xl bg-primary/10 border border-primary/25 px-4 py-2 text-xs font-bold uppercase tracking-wider text-primary-soft hover:bg-primary/20 transition-colors"
+          >
+            <Camera className="h-4 w-4" />
+            Open Scanner
+          </Link>
+        </div>
+
+        {registeredEvents.length === 0 ? (
+          <div className="glass-panel p-6 text-center text-muted">
+            <p className="text-sm">You have not registered for any events yet.</p>
           </div>
         ) : (
-          <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
-            <div>
-              <CheckinPassCard
-                pass={self}
-                registrationCodes={Array.from(codesByEmail.get(self.email.toLowerCase()) ?? [])}
-              />
-              <button
-                type="button"
-                onClick={() => void refresh()}
-                className="mt-3 w-full text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-muted transition-colors hover:text-primary-soft"
-              >
-                Refresh pass
-              </button>
-            </div>
+          <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#121212]">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-white/10 bg-white/[0.03] text-[11px] uppercase tracking-wider text-muted font-semibold">
+                <tr>
+                  <th className="py-3.5 px-4">Event</th>
+                  <th className="py-3.5 px-4">Day & Category</th>
+                  <th className="py-3.5 px-4">Venue & Time</th>
+                  <th className="py-3.5 px-4">Attendance Status</th>
+                  <th className="py-3.5 px-4">Marked At</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.05]">
+                {registeredEvents.map((ev) => {
+                  const record = attendanceByEventId.get(ev.id);
+                  const isPresent = Boolean(record);
 
-            <div className="min-w-0">
-              <div className="glass-panel h-full p-5">
-                <p className="eyebrow text-muted">Check-in</p>
-                <p className="mt-2 text-sm leading-relaxed text-foreground">
-                  Show your pass at the desk and it marks you present for{" "}
-                  <span className="font-semibold text-primary-soft">
-                    every event you registered for
-                  </span>{" "}
-                  in one scan.
-                </p>
-
-                {teammates.length > 0 && (
-                  <>
-                    <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-                      Your team&apos;s passes ({teammates.length})
-                    </p>
-                    <ul className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                      {teammates.map((pass) => (
-                        <li key={pass.email}>
-                          <CheckinPassCard
-                            pass={pass}
-                            compact
-                            registrationCodes={Array.from(
-                              codesByEmail.get(pass.email.toLowerCase()) ?? []
-                            )}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </div>
-            </div>
+                  return (
+                    <tr key={ev.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="py-3.5 px-4 font-semibold text-foreground">
+                        {ev.name}
+                      </td>
+                      <td className="py-3.5 px-4 text-muted">
+                        <span className="rounded bg-white/[0.05] px-2 py-0.5 text-[10px] font-mono mr-1.5">
+                          {ev.dayId}
+                        </span>
+                        {ev.category}
+                      </td>
+                      <td className="py-3.5 px-4 text-muted">
+                        {ev.venue || "Campus Venue"} {ev.time ? `· ${ev.time}` : ""}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {isPresent ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 text-[11px] font-semibold text-emerald-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Present
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-1 text-[11px] font-semibold text-amber-400">
+                            <Clock className="h-3.5 w-3.5" />
+                            Yet to Scan
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-muted font-mono">
+                        {record?.markedAt ? (
+                          new Date(record.markedAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -660,6 +689,8 @@ export function ProfilePage() {
   const toast = useToast();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
+  const [attendanceHistory, setAttendanceHistory] = useState<EventAttendanceRecord[]>([]);
+  const [coordinatorInfo, setCoordinatorInfo] = useState<{ coordinator: EventCoordinator; event: TechEvent } | null>(null);
   const { days, events } = useAllEvents();
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -673,6 +704,23 @@ export function ProfilePage() {
       navigate("/login?next=/profile", { replace: true });
     }
   }, [user, authLoading, navigate]);
+
+  const loadAttendance = useCallback(() => {
+    if (!user) return;
+    getStudentAttendanceHistory(user.id, user.email)
+      .then(setAttendanceHistory)
+      .catch(() => setAttendanceHistory([]));
+
+    getAssignedCoordinatorEvent(user)
+      .then(setCoordinatorInfo)
+      .catch(() => setCoordinatorInfo(null));
+  }, [user]);
+
+  useEffect(() => {
+    loadAttendance();
+    const unsub = subscribeToAttendanceUpdates(undefined, loadAttendance);
+    return unsub;
+  }, [loadAttendance]);
 
   const loadRegistrations = useCallback(() => {
     api
@@ -903,6 +951,64 @@ export function ProfilePage() {
         </div>
       </section>
 
+      {/* ── 1. High-Visibility Scan Attendance Callout (Main Action) ── */}
+      <section className="mx-auto max-w-7xl px-4 pt-8 sm:px-6 lg:px-8">
+        <div className="relative overflow-hidden rounded-3xl border border-primary/30 bg-gradient-to-r from-primary/20 via-surface/90 to-primary/10 p-6 sm:p-8 backdrop-blur-xl shadow-2xl">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/20 border border-primary/30 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-soft">
+                <Camera className="h-3.5 w-3.5" />
+                📷 Scan Attendance
+              </span>
+              <h2 className="display text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
+                SCAN TO MARK ATTENDANCE
+              </h2>
+              <p className="text-xs sm:text-sm text-muted max-w-lg leading-relaxed">
+                Welcome, <span className="font-semibold text-foreground">{user.fullName}</span>! Point your camera at the event coordinator&apos;s QR code to record your attendance.
+              </p>
+            </div>
+
+            <Link
+              to="/attendance"
+              className="group shrink-0 inline-flex items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-primary via-primary-soft to-primary bg-[length:200%_auto] px-8 py-4 text-sm font-bold uppercase tracking-widest text-white shadow-xl shadow-primary/30 hover:scale-105 active:scale-95 transition-all"
+            >
+              <Camera className="h-5 w-5" />
+              <span>SCAN QR</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* Coordinator Banner if user is assigned */}
+        {coordinatorInfo && (
+          <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+                <UserCheck className="h-6 w-6" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                  Event Coordinator Assigned
+                </span>
+                <h3 className="text-base font-bold text-foreground">
+                  {coordinatorInfo.event.name}
+                </h3>
+                <p className="text-xs text-muted">
+                  You are the assigned main coordinator. Start attendance or monitor participant scans.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              to="/coordinator"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 text-black px-6 py-2.5 text-xs font-bold uppercase tracking-wider hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20"
+            >
+              Coordinator Dashboard
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        )}
+      </section>
+
       {/* Profile details */}
       <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
         <p className="eyebrow">Account details</p>
@@ -981,7 +1087,12 @@ export function ProfilePage() {
         </div>
       </section>
 
-      <CheckinPassSection registrations={registrations} selfEmail={user.email} />
+      {/* 2. Verified Student Attendance Record */}
+      <StudentAttendanceSection
+        registrations={registrations}
+        events={events}
+        attendanceHistory={attendanceHistory}
+      />
 
       {/* Registered events */}
       <section className="border-t border-edge bg-surface/30">

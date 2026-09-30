@@ -11,6 +11,7 @@ export interface TechEvent {
   time?: string;
   duration?: string;
   coordinator?: string;
+  attendanceToken?: string;
   registrationOpen: boolean;
   registrationType?: RegistrationType;
   requiredPlayers?: number;

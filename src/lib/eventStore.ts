@@ -49,6 +49,7 @@ interface EventRow {
   time?: string | null;
   duration?: string | null;
   coordinator?: string | null;
+  attendance_token?: string | null;
   registration_fee?: number | null;
   registration_type?: string | null;
   eligibility?: string | null;
@@ -115,6 +116,7 @@ function rowToEvent(r: EventRow): TechEvent {
     time: r.time ?? undefined,
     duration: r.duration ?? undefined,
     coordinator: r.coordinator ?? undefined,
+    attendanceToken: r.attendance_token ?? undefined,
     registrationFee: r.registration_fee ?? 0,
     registrationType: isNonSport ? "individual" : ((r.registration_type as TechEvent["registrationType"]) ?? "team"),
     eligibility: r.eligibility ? r.eligibility.split(", ") : undefined,
@@ -137,6 +139,7 @@ export function eventToRow(event: TechEvent): EventRow {
     time: event.time ?? null,
     duration: event.duration ?? null,
     coordinator: event.coordinator ?? null,
+    attendance_token: event.attendanceToken ?? null,
     registration_fee: event.registrationFee ?? 0,
     registration_type: event.registrationType ?? "team",
     eligibility: event.eligibility ? event.eligibility.join(", ") : null,
@@ -322,6 +325,7 @@ export async function adminUpdateEvent(
   if (patch.time !== undefined) updateRow.time = patch.time ?? null;
   if (patch.duration !== undefined) updateRow.duration = patch.duration ?? null;
   if (patch.coordinator !== undefined) updateRow.coordinator = patch.coordinator ?? null;
+  if (patch.attendanceToken !== undefined) updateRow.attendance_token = patch.attendanceToken ?? null;
   if (patch.registrationFee !== undefined) updateRow.registration_fee = patch.registrationFee;
   if (patch.registrationType !== undefined) updateRow.registration_type = patch.registrationType;
   if (patch.eligibility !== undefined) updateRow.eligibility = patch.eligibility ? patch.eligibility.join(", ") : null;

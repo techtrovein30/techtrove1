@@ -18,7 +18,7 @@ export interface AdminView {
   username: string;
   fullName: string;
   email: string;
-  role: "user" | "admin";
+  role: "user" | "admin" | "coordinator";
 }
 
 /** Throws if the currently signed-in user is not an admin. */

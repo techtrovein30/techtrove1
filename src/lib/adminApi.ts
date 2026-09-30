@@ -200,11 +200,15 @@ export interface RepeatedUtrRegistration {
   totalFee: number;
   paymentStatus: PaymentStatus;
   createdAt: string;
+  paymentScreenshotPath?: string;
+  userEmail?: string;
+  userPhone?: string;
 }
 
 export interface RepeatedUtrGroup {
   utrNumber: string;
   occurrences: number;
+  totalFeeAtRisk: number;
   registrations: RepeatedUtrRegistration[];
 }
 
@@ -271,7 +275,7 @@ export async function getAdminStats(): Promise<AdminStats> {
   }
 
   // ── Repeated UTR detection ───────────────────────────────────────────────
-  // Group external registration rows by registration_code first (flat passes
+  // Group registration rows by registration_code first (flat passes
   // share code + UTR legitimately). Then group distinct codes by utr_number.
   // Flag any UTR attached to 2 or more distinct registration codes.
   const codeToBatch = new Map<string, {
@@ -283,11 +287,17 @@ export async function getAdminStats(): Promise<AdminStats> {
     paymentStatus: PaymentStatus;
     utrNumber?: string;
     createdAt: string;
+    paymentScreenshotPath?: string;
+    userEmail?: string;
+    userPhone?: string;
   }>();
 
   for (const r of registrations) {
-    if (isInternalRow(r)) continue;
     const existing = codeToBatch.get(r.registration_code);
+    const membersList = Array.isArray(r.members) ? (r.members as any[]) : [];
+    const firstMember = membersList[0];
+    const screenshot = r.payment_screenshot_path || r.payment_screenshot_url;
+
     if (!existing) {
       codeToBatch.set(r.registration_code, {
         registrationCode: r.registration_code,
@@ -298,11 +308,23 @@ export async function getAdminStats(): Promise<AdminStats> {
         paymentStatus: r.payment_status as PaymentStatus,
         utrNumber: r.utr_number?.trim() || undefined,
         createdAt: r.created_at,
+        paymentScreenshotPath: screenshot ?? undefined,
+        userEmail: firstMember?.email,
+        userPhone: firstMember?.phone,
       });
     } else {
       existing.totalFee += r.fee ?? 0;
       if (!existing.utrNumber && r.utr_number?.trim()) {
         existing.utrNumber = r.utr_number.trim();
+      }
+      if (!existing.paymentScreenshotPath && screenshot) {
+        existing.paymentScreenshotPath = screenshot;
+      }
+      if (!existing.userEmail && firstMember?.email) {
+        existing.userEmail = firstMember.email;
+      }
+      if (!existing.userPhone && firstMember?.phone) {
+        existing.userPhone = firstMember.phone;
       }
     }
   }
@@ -310,7 +332,7 @@ export async function getAdminStats(): Promise<AdminStats> {
   const utrGroups = new Map<string, { displayUtr: string; batches: RepeatedUtrRegistration[] }>();
   for (const batch of codeToBatch.values()) {
     if (!batch.utrNumber) continue;
-    const key = batch.utrNumber.toLowerCase();
+    const key = batch.utrNumber.trim().toLowerCase();
     const group = utrGroups.get(key);
     const item: RepeatedUtrRegistration = {
       registrationCode: batch.registrationCode,
@@ -320,6 +342,9 @@ export async function getAdminStats(): Promise<AdminStats> {
       totalFee: batch.totalFee,
       paymentStatus: batch.paymentStatus,
       createdAt: batch.createdAt,
+      paymentScreenshotPath: batch.paymentScreenshotPath,
+      userEmail: batch.userEmail,
+      userPhone: batch.userPhone,
     };
     if (!group) {
       utrGroups.set(key, { displayUtr: batch.utrNumber, batches: [item] });
@@ -331,9 +356,11 @@ export async function getAdminStats(): Promise<AdminStats> {
   const repeatedUtrs: RepeatedUtrGroup[] = [];
   for (const { displayUtr, batches } of utrGroups.values()) {
     if (batches.length > 1) {
+      const totalFeeAtRisk = batches.reduce((sum, b) => sum + (b.totalFee || 0), 0);
       repeatedUtrs.push({
         utrNumber: displayUtr,
         occurrences: batches.length,
+        totalFeeAtRisk,
         registrations: batches,
       });
     }

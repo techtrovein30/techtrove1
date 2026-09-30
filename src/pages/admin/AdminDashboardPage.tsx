@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   Users,
@@ -13,12 +13,16 @@ import {
   AlertTriangle,
   Copy,
   Check,
+  Eye,
+  ShieldCheck,
+  Search,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { getAdminStats, type AdminStats } from "../../lib/adminApi";
 import { useAllEvents } from "../../lib/useEvents";
 import { formatFee } from "../../lib/utils";
 import { StatCard } from "../../components/admin/StatCard";
+import { ProofModal } from "../../components/admin/ProofModal";
 import { supabase } from "../../lib/supabase";
 
 export function AdminDashboardPage() {
@@ -26,6 +30,8 @@ export function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedUtr, setCopiedUtr] = useState<string | null>(null);
+  const [selectedProof, setSelectedProof] = useState<{ path: string; utr: string; title: string } | null>(null);
+  const [utrSearch, setUtrSearch] = useState("");
 
   function copyUtr(utr: string) {
     navigator.clipboard.writeText(utr).then(() => {
@@ -64,6 +70,23 @@ export function AdminDashboardPage() {
   }, []);
 
   const { events } = useAllEvents();
+
+  const filteredRepeatedUtrs = useMemo(() => {
+    if (!stats) return [];
+    const q = utrSearch.trim().toLowerCase();
+    if (!q) return stats.repeatedUtrs;
+    return stats.repeatedUtrs.filter(
+      (g) =>
+        g.utrNumber.toLowerCase().includes(q) ||
+        g.registrations.some(
+          (r) =>
+            r.registrationCode.toLowerCase().includes(q) ||
+            r.teamName.toLowerCase().includes(q) ||
+            r.captainName.toLowerCase().includes(q) ||
+            (r.userEmail && r.userEmail.toLowerCase().includes(q))
+        )
+    );
+  }, [stats, utrSearch]);
 
   if (errorMsg) {
     return (
@@ -187,8 +210,37 @@ export function AdminDashboardPage() {
         />
       </div>
 
-      {/* Repeated UTR Numbers Section (Displayed prominently if duplicates exist) */}
-      {stats.repeatedUtrs.length > 0 && (
+      {/* Repeated UTR Numbers Section */}
+      {stats.repeatedUtrs.length === 0 ? (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-5 shadow-[0_0_20px_rgba(16,185,129,0.05)]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-500/20 text-emerald-400">
+                <ShieldCheck className="h-5 w-5" aria-hidden />
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-foreground">
+                    Transaction UTR Integrity: 100% Unique
+                  </h2>
+                  <span className="rounded-full border border-emerald-500/40 bg-emerald-500/20 px-2.5 py-0.5 text-xs font-mono font-bold text-emerald-300">
+                    0 duplicates
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-muted">
+                  Zero duplicate transaction IDs detected across all registrations in the database. Every UTR is verified unique.
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/wasd4381/payments"
+              className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-lg border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs font-semibold text-muted hover:text-foreground transition-colors"
+            >
+              View Payments <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      ) : (
         <div className="rounded-xl border border-amber-500/40 bg-gradient-to-b from-amber-500/10 to-amber-500/[0.02] p-5 shadow-[0_0_30px_rgba(245,158,11,0.08)]">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-500/20 pb-4">
             <div className="flex items-start sm:items-center gap-3">
@@ -198,14 +250,17 @@ export function AdminDashboardPage() {
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-bold text-foreground">
-                    Repeated UTR Numbers Detected
+                    Duplicate Transaction UTRs Detected
                   </h2>
                   <span className="rounded-full border border-amber-500/40 bg-amber-500/20 px-2.5 py-0.5 text-xs font-mono font-bold text-amber-300">
                     {stats.repeatedUtrs.length} {stats.repeatedUtrs.length === 1 ? "group" : "groups"} · {stats.repeatedUtrs.reduce((acc, g) => acc + g.occurrences, 0)} registrations
                   </span>
+                  <span className="rounded-full border border-red-500/40 bg-red-500/20 px-2.5 py-0.5 text-xs font-mono font-bold text-red-300">
+                    {formatFee(stats.repeatedUtrs.reduce((acc, g) => acc + (g.totalFeeAtRisk || 0), 0))} at risk
+                  </span>
                 </div>
                 <p className="mt-0.5 text-xs text-muted">
-                  These UTR / Transaction IDs were submitted across 2 or more different registrations. Review immediately to avoid duplicate payment approvals.
+                  These UTR / Transaction IDs were submitted across 2 or more different registrations. Review immediately to prevent duplicate payment approvals.
                 </p>
               </div>
             </div>
@@ -217,8 +272,22 @@ export function AdminDashboardPage() {
             </Link>
           </div>
 
+          {/* Quick search if multiple duplicates exist */}
+          {stats.repeatedUtrs.length > 1 && (
+            <div className="relative mt-4">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted" />
+              <input
+                type="text"
+                value={utrSearch}
+                onChange={(e) => setUtrSearch(e.target.value)}
+                placeholder="Search duplicate UTR number, registration code, team, or captain..."
+                className="w-full rounded-lg border border-white/10 bg-black/40 pl-9 pr-4 py-2 text-xs text-foreground placeholder:text-muted/60 focus:border-amber-500/50 focus:outline-none"
+              />
+            </div>
+          )}
+
           <div className="mt-4 space-y-3">
-            {stats.repeatedUtrs.map((group) => (
+            {filteredRepeatedUtrs.map((group) => (
               <div
                 key={group.utrNumber}
                 className="rounded-lg border border-white/[0.08] bg-black/40 p-4 transition-colors hover:border-amber-500/40"
@@ -244,9 +313,12 @@ export function AdminDashboardPage() {
                       )}
                     </button>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <span className="text-xs font-medium text-amber-300">
                       Reused in {group.occurrences} separate registrations
+                    </span>
+                    <span className="text-xs font-mono font-semibold text-muted">
+                      Total: {formatFee(group.totalFeeAtRisk)}
                     </span>
                     <Link
                       to={`/wasd4381/payments?q=${encodeURIComponent(group.utrNumber)}`}
@@ -285,9 +357,31 @@ export function AdminDashboardPage() {
                         <p className="text-[11px] text-muted truncate">
                           Captain: {reg.captainName} · {ev?.name ?? reg.eventId}
                         </p>
+                        {(reg.userEmail || reg.userPhone) && (
+                          <p className="text-[10px] text-muted/80 truncate mt-0.5 font-mono">
+                            {[reg.userEmail, reg.userPhone].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
                         <div className="mt-2 flex items-center justify-between border-t border-white/[0.04] pt-1.5 text-[11px] text-muted">
                           <span className="font-medium text-foreground">{formatFee(reg.totalFee)}</span>
-                          <span>{new Date(reg.createdAt).toLocaleDateString()}</span>
+                          <div className="flex items-center gap-2">
+                            <span>{new Date(reg.createdAt).toLocaleDateString()}</span>
+                            {reg.paymentScreenshotPath && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedProof({
+                                    path: reg.paymentScreenshotPath!,
+                                    utr: group.utrNumber,
+                                    title: `${reg.teamName} (${reg.registrationCode})`,
+                                  })
+                                }
+                                className="inline-flex items-center gap-1 rounded bg-white/[0.06] border border-white/10 px-2 py-0.5 text-[10px] font-medium text-primary-soft hover:bg-white/[0.12] hover:text-foreground transition-colors"
+                              >
+                                <Eye className="h-3 w-3" /> Proof
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -420,6 +514,15 @@ export function AdminDashboardPage() {
           )}
         </div>
       </div>
+      {/* Proof Modal for reviewing payment proof of duplicate registrations */}
+      <ProofModal
+        isOpen={Boolean(selectedProof)}
+        onClose={() => setSelectedProof(null)}
+        path={selectedProof?.path}
+        utrNumber={selectedProof?.utr}
+        title={selectedProof?.title}
+        subtitle="Payment Screenshot Review"
+      />
     </div>
   );
 }

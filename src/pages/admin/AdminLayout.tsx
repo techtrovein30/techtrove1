@@ -22,7 +22,7 @@ import { cn } from "../../lib/utils";
 
 const navItems = [
   { to: "/wasd4381/dashboard", label: "Dashboard", icon: BarChart3 },
-  { to: "/wasd4381/checkin", label: "Check-in", icon: UserCheck },
+  { to: "/wasd4381/coordinators", label: "Coordinators", icon: UserCheck },
   { to: "/wasd4381/students", label: "Students", icon: Users },
   { to: "/wasd4381/registrations", label: "Registrations", icon: ClipboardList },
   { to: "/wasd4381/teams", label: "Teams", icon: UsersRound },
