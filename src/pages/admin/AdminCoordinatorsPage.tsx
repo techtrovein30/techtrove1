@@ -9,10 +9,12 @@ import {
   Phone,
   Mail,
   Loader2,
+  ShieldAlert,
 } from "lucide-react";
 import {
   adminGetCoordinatorSummaries,
   adminRemoveCoordinator,
+  checkCoordinatorTablesReady,
   type CoordinatorEventSummary,
 } from "../../lib/coordinatorApi";
 import type { TechEvent } from "../../data/techtrove";
@@ -25,6 +27,7 @@ export function AdminCoordinatorsPage() {
   const toast = useToast();
   const [summaries, setSummaries] = useState<CoordinatorEventSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [migrationRequired, setMigrationRequired] = useState(false);
   const [search, setSearch] = useState("");
   const [dayFilter, setDayFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -42,7 +45,10 @@ export function AdminCoordinatorsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      setSummaries(await adminGetCoordinatorSummaries());
+      const readyCheck = await checkCoordinatorTablesReady();
+      setMigrationRequired(!readyCheck.ready);
+      const data = await adminGetCoordinatorSummaries();
+      setSummaries(data);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load coordinators data.");
     } finally {
@@ -52,21 +58,21 @@ export function AdminCoordinatorsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    adminGetCoordinatorSummaries()
-      .then((data) => {
-        if (!cancelled) setSummaries(data);
-      })
-      .catch((err) => {
+    (async () => {
+      try {
+        const readyCheck = await checkCoordinatorTablesReady();
         if (cancelled) return;
-        // Deliberately loud. This page reads coordinators and attendance straight
-        // from the database now, so a failure here means the admin is looking at
-        // an empty page. Showing "no coordinators assigned" instead would read as
-        // a real answer.
+        setMigrationRequired(!readyCheck.ready);
+        const data = await adminGetCoordinatorSummaries();
+        if (cancelled) return;
+        setSummaries(data);
+      } catch (err) {
+        if (cancelled) return;
         toast.error(err instanceof Error ? err.message : "Failed to load coordinators data.");
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -145,6 +151,36 @@ export function AdminCoordinatorsPage() {
           Refresh
         </button>
       </div>
+
+      {/* Migration Required Warning Banner */}
+      {migrationRequired && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-amber-200">
+          <div className="flex items-start gap-3.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <ShieldAlert className="h-5 w-5" />
+            </div>
+            <div className="space-y-2 flex-1">
+              <div>
+                <h3 className="font-semibold text-sm text-foreground">
+                  Database Setup Required: Coordinator Tables Missing
+                </h3>
+                <p className="text-xs text-muted leading-relaxed mt-0.5">
+                  The <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-300 border border-amber-500/20">event_coordinators</code> and <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-300 border border-amber-500/20">attendance</code> tables have not been created yet in your Supabase project.
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/5 bg-black/30 p-3 text-xs text-muted space-y-1.5">
+                <p className="text-foreground font-medium">To complete setup and enable coordinator assignments & QR attendance:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Open your Supabase Project Dashboard → <strong>SQL Editor</strong></li>
+                  <li>Copy and paste the SQL script from <code className="rounded bg-black/60 px-1.5 py-0.5 font-mono text-primary-soft border border-white/10">query_coordinator_attendance.sql</code></li>
+                  <li>Click <strong>Run</strong></li>
+                  <li>Click <strong>Refresh</strong> button above to verify</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top Metric Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">

@@ -24,6 +24,8 @@ import {
   getEventParticipants,
   ensureEventAttendanceToken,
   subscribeToAttendanceUpdates,
+  checkCoordinatorTablesReady,
+  isMissingTableError,
   type EventCoordinator,
   type CoordinatorParticipant,
 } from "../lib/coordinatorApi";
@@ -37,6 +39,7 @@ export function CoordinatorDashboardPage() {
   const toast = useToast();
 
   const [loading, setLoading] = useState(true);
+  const [migrationRequired, setMigrationRequired] = useState(false);
   const [coordinator, setCoordinator] = useState<EventCoordinator | null>(null);
   const [event, setEvent] = useState<TechEvent | null>(null);
   const [participants, setParticipants] = useState<CoordinatorParticipant[]>([]);
@@ -58,6 +61,9 @@ export function CoordinatorDashboardPage() {
     if (!user) return;
     try {
       setLoading(true);
+      const readyCheck = await checkCoordinatorTablesReady();
+      setMigrationRequired(!readyCheck.ready);
+
       const res = await getAssignedCoordinatorEvent(user);
       if (res) {
         setCoordinator(res.coordinator);
@@ -72,20 +78,15 @@ export function CoordinatorDashboardPage() {
         setEvent(null);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error loading coordinator dashboard.");
+      if (!isMissingTableError(err)) {
+        toast.error(err instanceof Error ? err.message : "Error loading coordinator dashboard.");
+      }
     } finally {
       setLoading(false);
     }
   }, [user, toast]);
 
   // Auth & role check, then load the assignment.
-  //
-  // The work is inlined rather than calling checkAssignment() because that
-  // function calls setLoading(true) before its first await, and doing that from
-  // an effect body is the cascading-render pattern the lint rule flags. It also
-  // gets a cancellation flag: this is a security gate, so a response that lands
-  // after the user navigates away must not repaint a dashboard they no longer
-  // have access to.
   useEffect(() => {
     if (authLoading) return;
 
@@ -98,6 +99,10 @@ export function CoordinatorDashboardPage() {
     (async () => {
       try {
         setLoading(true);
+        const readyCheck = await checkCoordinatorTablesReady();
+        if (cancelled) return;
+        setMigrationRequired(!readyCheck.ready);
+
         const res = await getAssignedCoordinatorEvent(user);
         if (cancelled) return;
 
@@ -114,7 +119,9 @@ export function CoordinatorDashboardPage() {
         setParticipants(await getEventParticipants(res.event.id));
       } catch (err) {
         if (cancelled) return;
-        toast.error(err instanceof Error ? err.message : "Error loading coordinator dashboard.");
+        if (!isMissingTableError(err)) {
+          toast.error(err instanceof Error ? err.message : "Error loading coordinator dashboard.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -233,6 +240,44 @@ export function CoordinatorDashboardPage() {
 
   // If user is authenticated but not assigned as coordinator for an event
   if (!coordinator || !event) {
+    if (migrationRequired) {
+      return (
+        <div className="mx-auto max-w-2xl px-4 py-24 text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <ShieldAlert className="h-8 w-8" />
+          </div>
+          <h1 className="display mt-6 text-2xl text-foreground sm:text-3xl">
+            Database Setup Required
+          </h1>
+          <p className="mt-3 text-sm leading-relaxed text-muted">
+            The coordinator and attendance tables have not been created in Supabase yet.
+          </p>
+          <div className="mt-6 mx-auto max-w-md rounded-2xl border border-white/10 bg-[#141414] p-5 text-left text-xs text-muted space-y-2">
+            <p className="font-semibold text-foreground">To initialize the Coordinator system:</p>
+            <ol className="list-decimal list-inside space-y-1.5 leading-relaxed">
+              <li>Open your Supabase Project Dashboard → <strong>SQL Editor</strong></li>
+              <li>Paste and run the contents of <code className="text-primary-soft">query_coordinator_attendance.sql</code></li>
+              <li>Click <strong>Check Again</strong> below</li>
+            </ol>
+          </div>
+          <div className="mt-8 flex justify-center gap-4">
+            <Link
+              to="/profile"
+              className="rounded-lg bg-surface border border-white/10 px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-foreground hover:bg-white/[0.05]"
+            >
+              Back to Profile
+            </Link>
+            <button
+              onClick={() => checkAssignment()}
+              className="rounded-lg bg-primary px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-white hover:bg-primary-soft"
+            >
+              Check Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="mx-auto max-w-2xl px-4 py-24 text-center">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -267,6 +312,25 @@ export function CoordinatorDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 space-y-8">
+      {/* Migration Required Warning Banner */}
+      {migrationRequired && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-amber-200">
+          <div className="flex items-start gap-3.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <ShieldAlert className="h-5 w-5" />
+            </div>
+            <div className="space-y-1.5 flex-1">
+              <h3 className="font-semibold text-sm text-foreground">
+                Database Migration Pending
+              </h3>
+              <p className="text-xs text-muted leading-relaxed">
+                The <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-300 border border-amber-500/20">event_coordinators</code> and <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-300 border border-amber-500/20">attendance</code> tables are not yet initialized in Supabase. Please ask an administrator to run <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-primary-soft border border-white/10">query_coordinator_attendance.sql</code> in the Supabase SQL Editor.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Event Header Banner */}
       <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#161616] via-[#121212] to-[#0d0d0d] p-6 sm:p-8 shadow-2xl">
         <div className="absolute right-0 top-0 -z-0 h-64 w-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />

@@ -17,7 +17,7 @@ import { getDaysAsync, adminUpdateEvent } from "./eventStore";
 import { extractEventToken } from "./qrToken";
 import type { TechEvent } from "../data/techtrove";
 import type { User } from "./api";
-import { getAllRegistrations } from "./db";
+import { getAllRegistrations, type RegistrationRow } from "./db";
 
 export interface EventCoordinator {
   id: string;
@@ -132,6 +132,47 @@ export function generateSecureAttendanceToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// ─── Database Readiness Helpers ──────────────────────────────────────────
+
+/**
+ * Checks whether an error is due to missing database tables or unapplied migrations in Supabase.
+ */
+export function isMissingTableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { code?: string; message?: string };
+  return (
+    err.code === "PGRST205" ||
+    err.code === "42P01" ||
+    (typeof err.message === "string" &&
+      (err.message.includes("schema cache") ||
+        err.message.includes("does not exist") ||
+        err.message.includes("relation") ||
+        err.message.includes("event_coordinators") ||
+        err.message.includes("attendance")))
+  );
+}
+
+/**
+ * Checks whether the coordinator and attendance database tables exist in Supabase.
+ */
+export async function checkCoordinatorTablesReady(): Promise<{ ready: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from("event_coordinators").select("id").limit(1);
+    if (error && isMissingTableError(error)) {
+      return {
+        ready: false,
+        error: "Table 'event_coordinators' is missing in the database schema cache.",
+      };
+    }
+    return { ready: true };
+  } catch (err) {
+    return {
+      ready: false,
+      error: err instanceof Error ? err.message : "Error checking tables.",
+    };
+  }
+}
+
 // ─── Admin Coordinator Management ──────────────────────────────────────────
 
 /**
@@ -141,16 +182,19 @@ export function generateSecureAttendanceToken(): string {
  * so a caller can tell "nobody is assigned" apart from "we could not ask".
  */
 export async function adminListCoordinators(): Promise<EventCoordinator[]> {
-  // No localStorage fallback. An empty list from a failed read and "no
-  // coordinators are assigned" look identical to a caller, and the old fallback
-  // meant a transient network error showed one browser's cached appointments as
-  // if they were the real thing - and hid a genuine outage.
   const { data, error } = await supabase
     .from("event_coordinators")
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (error) throw new Error(error.message || "Could not load coordinators.");
+  if (error) {
+    if (isMissingTableError(error)) {
+      throw new Error(
+        "Database setup required: Table 'event_coordinators' is missing in Supabase. Please run 'query_coordinator_attendance.sql' in your Supabase SQL Editor."
+      );
+    }
+    throw new Error(error.message || "Could not load coordinators.");
+  }
 
   return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => ({
     id: String(r.id ?? ""),
@@ -202,7 +246,14 @@ export async function adminAssignCoordinator(input: {
     p_mobile: cleanMobile,
   });
 
-  if (error) throw new Error(error.message || "Could not assign coordinator.");
+  if (error) {
+    if (isMissingTableError(error) || error.message?.includes("admin_assign_event_coordinator")) {
+      throw new Error(
+        "Database migration required: Function 'admin_assign_event_coordinator' not found. Please run 'query_coordinator_attendance.sql' in Supabase SQL Editor."
+      );
+    }
+    throw new Error(error.message || "Could not assign coordinator.");
+  }
 
   const res = (data ?? {}) as Record<string, unknown>;
   if (!res.ok) {
@@ -245,7 +296,14 @@ export async function adminRemoveCoordinator(eventId: string): Promise<void> {
   const { error } = await supabase.rpc("admin_remove_event_coordinator", {
     p_event_id: eventId,
   });
-  if (error) throw new Error(error.message || "Could not remove coordinator.");
+  if (error) {
+    if (isMissingTableError(error) || error.message?.includes("admin_remove_event_coordinator")) {
+      throw new Error(
+        "Database migration required: Function 'admin_remove_event_coordinator' not found. Please run 'query_coordinator_attendance.sql' in Supabase SQL Editor."
+      );
+    }
+    throw new Error(error.message || "Could not remove coordinator.");
+  }
 
   try {
     await adminUpdateEvent(eventId, { coordinator: "" });
@@ -282,29 +340,35 @@ export async function getEventAttendanceStats(eventId: string): Promise<{ totalP
 export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSummary[]> {
   await requireAdmin();
 
-  // Counted per event from the `attendance` table rather than from localStorage.
-  // The previous version unioned this browser's cached marks with
-  // registration_members, and had a `.length || localSet.size` fallback that
-  // reported the cached count whenever the member filter returned 0 - so an
-  // admin's headline numbers depended on what that one browser had seen.
+  // Load festival days first. Even if event_coordinators or attendance tables haven't been
+  // migrated yet in Supabase, we degrade gracefully so the admin can see their events list.
   const [days, coordinators, registrations, membersRes, attendanceRes] = await Promise.all([
     getDaysAsync(),
-    adminListCoordinators(),
-    getAllRegistrations().catch(() => []),
-    supabase.from("registration_members").select("*"),
-    supabase.from("attendance").select("event_id"),
+    adminListCoordinators().catch((err: Error) => {
+      console.warn("[coordinatorApi] adminListCoordinators error (migration pending):", err.message);
+      return [] as EventCoordinator[];
+    }),
+    getAllRegistrations().catch(() => [] as RegistrationRow[]),
+    (async () => {
+      const { data } = await supabase.from("registration_members").select("*");
+      return (data ?? []) as Record<string, unknown>[];
+    })(),
+    (async () => {
+      const { data } = await supabase.from("attendance").select("event_id");
+      return (data ?? []) as Record<string, unknown>[];
+    })(),
   ]);
 
   const allEvents = days.flatMap((d) => d.events);
   const coordByEvent = new Map<string, EventCoordinator>();
   coordinators.forEach((c) => coordByEvent.set(c.eventId, c));
 
-  const allMembers = membersRes.data ?? [];
+  const allMembers = membersRes ?? [];
 
   // attendance is UNIQUE(event_id, participant_id), so a raw row count per event
   // is already the number of distinct people present.
   const attendedByEvent = new Map<string, number>();
-  for (const row of (attendanceRes.data ?? []) as unknown as Record<string, unknown>[]) {
+  for (const row of attendanceRes) {
     const id = String(row.event_id ?? "");
     attendedByEvent.set(id, (attendedByEvent.get(id) ?? 0) + 1);
   }
@@ -360,8 +424,14 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
   // marked than another, and a browser with no history saw none.
   const [membersRes, attendanceRes, regs] = await Promise.all([
     supabase.from("registration_members").select("*").eq("event_id", eventId),
-    supabase.from("attendance").select("participant_id,participant_email,marked_at").eq("event_id", eventId),
-    getAllRegistrations().catch(() => []),
+    (async () => {
+      const { data } = await supabase
+        .from("attendance")
+        .select("participant_id,participant_email,marked_at")
+        .eq("event_id", eventId);
+      return { data: data ?? [] };
+    })(),
+    getAllRegistrations().catch(() => [] as RegistrationRow[]),
   ]);
 
   let allRegs = regs;
@@ -457,30 +527,33 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
 export async function getAssignedCoordinatorEvent(
   user: User
 ): Promise<{ coordinator: EventCoordinator; event: TechEvent } | null> {
-  const [coordinators, days] = await Promise.all([
-    adminListCoordinators(),
-    getDaysAsync(),
-  ]);
+  let coordinators: EventCoordinator[] = [];
+  try {
+    coordinators = await adminListCoordinators();
+  } catch (err) {
+    if (isMissingTableError(err)) {
+      console.warn("[coordinatorApi] Table missing in getAssignedCoordinatorEvent:", err);
+    } else {
+      throw err;
+    }
+  }
 
+  const days = await getDaysAsync();
   const allEvents = days.flatMap((d) => d.events);
   const userEmail = user.email.trim().toLowerCase();
   const userId = user.id.trim();
 
-  // Match on userId, or on the email they were appointed with. NOT on name:
-  // the previous version also matched `c.name === user.fullName`, which handed
-  // coordinator rights to anybody whose name happened to match an appointee's -
-  // names are not unique and are not an identifier. The SQL policies match on
-  // exactly these two things, so the UI and the database agree on who somebody is.
+  // Match on userId, or on the email they were appointed with.
   const match = coordinators.find(
     (c) => (!!c.userId && c.userId === userId) || c.email.trim().toLowerCase() === userEmail
   );
 
-  if (!match) return null;
+  if (match) {
+    const event = allEvents.find((e) => e.id === match.eventId);
+    if (event) return { coordinator: match, event };
+  }
 
-  const event = allEvents.find((e) => e.id === match.eventId);
-  if (!event) return null;
-
-  return { coordinator: match, event };
+  return null;
 }
 
 /**
@@ -626,7 +699,12 @@ export async function getStudentAttendanceHistory(
     .select("*")
     .or(`participant_id.eq.${userId},participant_email.ilike.${email}`);
 
-  if (error) throw new Error(error.message || "Could not load your attendance.");
+  if (error) {
+    if (isMissingTableError(error)) {
+      return [];
+    }
+    throw new Error(error.message || "Could not load your attendance.");
+  }
 
   return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => ({
     id: String(r.id),
