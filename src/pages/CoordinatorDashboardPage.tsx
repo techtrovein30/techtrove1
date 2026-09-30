@@ -78,16 +78,52 @@ export function CoordinatorDashboardPage() {
     }
   }, [user, toast]);
 
-  // Auth & role check
+  // Auth & role check, then load the assignment.
+  //
+  // The work is inlined rather than calling checkAssignment() because that
+  // function calls setLoading(true) before its first await, and doing that from
+  // an effect body is the cascading-render pattern the lint rule flags. It also
+  // gets a cancellation flag: this is a security gate, so a response that lands
+  // after the user navigates away must not repaint a dashboard they no longer
+  // have access to.
   useEffect(() => {
-    if (!authLoading) {
-      if (!user) {
-        navigate("/login?next=/coordinator", { replace: true });
-        return;
-      }
-      checkAssignment();
+    if (authLoading) return;
+
+    if (!user) {
+      navigate("/login?next=/coordinator", { replace: true });
+      return;
     }
-  }, [user, authLoading, navigate, checkAssignment]);
+
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const res = await getAssignedCoordinatorEvent(user);
+        if (cancelled) return;
+
+        if (!res) {
+          setCoordinator(null);
+          setEvent(null);
+          return;
+        }
+
+        setCoordinator(res.coordinator);
+        setEvent(res.event);
+        setAttendanceToken(await ensureEventAttendanceToken(res.event.id));
+        if (cancelled) return;
+        setParticipants(await getEventParticipants(res.event.id));
+      } catch (err) {
+        if (cancelled) return;
+        toast.error(err instanceof Error ? err.message : "Error loading coordinator dashboard.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, authLoading, navigate, toast]);
 
   // Realtime updates subscription
   useEffect(() => {

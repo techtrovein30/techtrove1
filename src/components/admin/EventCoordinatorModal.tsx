@@ -31,11 +31,12 @@ export function EventCoordinatorModal({
   // Student autocomplete
   const [students, setStudents] = useState<User[]>([]);
   const [studentSearch, setStudentSearch] = useState("");
-  const [loadingStudents, setLoadingStudents] = useState(false);
+  // Starts true: the list is requested on mount, so there is nothing to show
+  // before that request settles.
+  const [loadingStudents, setLoadingStudents] = useState(true);
   const [showStudentPicker, setShowStudentPicker] = useState(false);
 
   useEffect(() => {
-    setLoadingStudents(true);
     adminListUsers()
       .then((users) => setStudents(users))
       .catch(() => setStudents([]))

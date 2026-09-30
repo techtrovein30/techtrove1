@@ -350,36 +350,42 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
   const [utrAvailable, setUtrAvailable] = useState(false);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
 
+  // A UTR shorter than 6 characters is not worth querying. Whether the field is
+  // "long enough" is derived here rather than pushed through the effect, so the
+  // effect needs no early-return branch that resets three pieces of state
+  // synchronously. The effect still owns the query.
+  const trimmedUtrNumber = utrNumber.trim();
+  const utrTooShortToCheck = trimmedUtrNumber.length < 6;
+  // What the UI should actually show. Below 6 characters there is no verdict
+  // yet, so a leftover spinner, error or "available" tick from a longer value
+  // must not survive the user deleting characters.
+  const effUtrChecking = utrChecking && !utrTooShortToCheck;
+  const effUtrDuplicateError = utrTooShortToCheck ? null : utrDuplicateError;
+  const effUtrAvailable = utrTooShortToCheck ? false : utrAvailable;
+
   // Debounced real-time duplicate check against existing registrations in database
   useEffect(() => {
     const trimmed = utrNumber.trim();
-    if (!trimmed) {
-      setUtrChecking(false);
-      setUtrDuplicateError(null);
-      setUtrAvailable(false);
-      return;
-    }
 
     // Only query database once user types at least 6 characters
-    if (trimmed.length < 6) {
-      setUtrChecking(false);
-      setUtrDuplicateError(null);
-      setUtrAvailable(false);
-      return;
-    }
+    if (trimmed.length < 6) return;
 
     let cancelled = false;
-    setUtrChecking(true);
-    setUtrDuplicateError(null);
-    setUtrAvailable(false);
 
     const timer = setTimeout(async () => {
+      // Inside the timer rather than the effect body: this is where the user has
+      // stopped typing, so a spinner here means a query is genuinely in flight.
+      if (cancelled) return;
+      setUtrChecking(true);
+      setUtrDuplicateError(null);
+      setUtrAvailable(false);
       try {
-        const exists = await checkUtrExists(trimmed);
+        const res = await checkUtrExists(trimmed);
         if (cancelled) return;
-        if (exists) {
+        if (res.exists) {
           setUtrDuplicateError(
-            "This Transaction ID / UTR is already recorded in the database. Please enter your own unique transaction ID."
+            res.message ||
+              "This Transaction ID / UTR is already recorded in the database. Please enter your own unique transaction ID."
           );
           setUtrAvailable(false);
         } else {
@@ -546,9 +552,10 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
 
     // Pre-flight duplicate check against database before uploading files or saving
     const duplicate = await checkUtrExists(utrNumber.trim());
-    if (duplicate) {
+    if (duplicate.exists) {
       setUtrDuplicateError(
-        "This Transaction ID / UTR is already recorded in the database. Please enter your own unique transaction ID."
+        duplicate.message ||
+          "This Transaction ID / UTR is already recorded in the database. Please enter your own unique transaction ID."
       );
       toast.error("This Transaction ID / UTR is already in use by another registration.");
       return;
@@ -781,9 +788,9 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
                 draft={draft}
                 utrNumber={utrNumber}
                 onUtrNumber={setUtrNumber}
-                utrChecking={utrChecking}
-                utrDuplicateError={utrDuplicateError}
-                utrAvailable={utrAvailable}
+                utrChecking={effUtrChecking}
+                utrDuplicateError={effUtrDuplicateError}
+                utrAvailable={effUtrAvailable}
                 file={paymentFile}
                 onFileChange={handlePaymentFileChange}
               />
@@ -815,7 +822,7 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
               Review your selection in the summary and lock in your entry.
               {!user && " When you confirm you'll be asked to sign in with Google — the flow continues on this same page."}
             </p>
-            {isExternal && utrDuplicateError && (
+            {isExternal && effUtrDuplicateError && (
               <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">
                 <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
                 <span>Cannot confirm: The entered Transaction ID / UTR already exists in the database. Please provide your own unique transaction ID.</span>
@@ -827,7 +834,7 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
                 type="button"
                 id="registration-confirm-btn"
                 onClick={handleConfirm}
-                disabled={submitting || accountBusy || (isExternal && (!!utrDuplicateError || utrChecking))}
+                disabled={submitting || accountBusy || (isExternal && (!!effUtrDuplicateError || effUtrChecking))}
                 className="clip-angle inline-flex w-full items-center justify-center gap-2 bg-primary px-9 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50 sm:w-auto"
               >
                 {submitting

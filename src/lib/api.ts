@@ -457,7 +457,22 @@ export async function checkUtrExists(
   }
 
   try {
-    // 1. Check registrations_external (case-insensitive)
+    // 1. Primary check: Call the dedicated SECURITY DEFINER RPC in PostgreSQL
+    const { data: rpcData, error: rpcError } = await supabase.rpc("check_utr_exists", {
+      p_utr: cleanUtr,
+      p_exclude_code: excludeRegistrationCode || null,
+    });
+
+    if (!rpcError && typeof rpcData === "boolean") {
+      return {
+        exists: rpcData,
+        message: rpcData
+          ? "This Transaction ID / UTR has already been used for another registration."
+          : undefined,
+      };
+    }
+
+    // 2. Fallback check: direct query against registrations_external
     let queryExt = supabase
       .from("registrations_external")
       .select("registration_code, utr_number")

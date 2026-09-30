@@ -10,26 +10,37 @@ export function CoordinatorRoute({ children }: { children?: React.ReactNode }) {
   const [checking, setChecking] = useState(true);
   const [hasAssignment, setHasAssignment] = useState(false);
 
+  // Admins bypass the assignment lookup entirely. Derived rather than stored,
+  // so no effect has to setState synchronously to express "an admin is allowed".
+  const isAdmin = user?.role === "admin";
+  const allowed = isAdmin || hasAssignment;
+
   useEffect(() => {
-    if (!loading && user) {
-      if (user.role === "admin") {
-        setHasAssignment(true);
-        setChecking(false);
-        return;
-      }
+    // An admin never needs the lookup, and short-circuiting here keeps them off
+    // the request entirely rather than fetching and then ignoring the answer.
+    if (loading || !user || isAdmin) return;
 
-      getAssignedCoordinatorEvent(user)
-        .then((res) => {
-          setHasAssignment(Boolean(res));
-        })
-        .catch(() => setHasAssignment(false))
-        .finally(() => setChecking(false));
-    } else if (!loading && !user) {
-      setChecking(false);
-    }
-  }, [user, loading]);
+    let cancelled = false;
+    getAssignedCoordinatorEvent(user)
+      .then((res) => {
+        if (!cancelled) setHasAssignment(Boolean(res));
+      })
+      .catch(() => {
+        if (!cancelled) setHasAssignment(false);
+      })
+      .finally(() => {
+        if (!cancelled) setChecking(false);
+      });
 
-  if (loading || checking) {
+    return () => {
+      // Cancelled rather than left uncancelled: this decides whether the roster
+      // is shown at all, and a late response must not re-open a gate that a
+      // later render has already closed.
+      cancelled = true;
+    };
+  }, [user, loading, isAdmin]);
+
+  if (loading || (checking && !isAdmin)) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary-soft" />
@@ -41,7 +52,7 @@ export function CoordinatorRoute({ children }: { children?: React.ReactNode }) {
     return <Navigate to="/login?next=/coordinator" replace />;
   }
 
-  if (!hasAssignment) {
+  if (!allowed) {
     return (
       <div className="mx-auto max-w-xl px-4 py-24 text-center">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20">

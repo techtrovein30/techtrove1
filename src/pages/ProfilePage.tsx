@@ -158,26 +158,35 @@ function RegistrationCard({
   const needsReupload = paymentState.needsReupload;
   const utrError = validateUtrNumber(utr);
 
+  // A UTR too short to check must not show a spinner or a stale "already used"
+  // error. Derived from `utr` rather than pushed through the effect, so the
+  // effect has no early-return branch that clears state synchronously.
+  const trimmedUtr = utr.trim();
+  const utrTooShortToCheck = trimmedUtr.length < 6;
+  const showUtrChecking = utrChecking && !utrTooShortToCheck;
+  const visibleUtrDuplicateError = utrTooShortToCheck ? null : utrDuplicateError;
+
   // Debounced real-time duplicate check for re-upload UTR
   useEffect(() => {
     const trimmed = utr.trim();
-    if (!trimmed || trimmed.length < 6) {
-      setUtrChecking(false);
-      setUtrDuplicateError(null);
-      return;
-    }
+    if (trimmed.length < 6) return;
 
     let cancelled = false;
-    setUtrChecking(true);
-    setUtrDuplicateError(null);
 
     const timer = setTimeout(async () => {
+      // Inside the timer, not in the effect body: this is also the point at which
+      // the user has stopped typing. Showing a spinner during the debounce would
+      // claim a check is running when none has been sent yet.
+      if (cancelled) return;
+      setUtrChecking(true);
+      setUtrDuplicateError(null);
       try {
-        const exists = await checkUtrExists(trimmed, first?.registrationCode);
+        const res = await checkUtrExists(trimmed, first?.registrationCode);
         if (cancelled) return;
-        if (exists) {
+        if (res.exists) {
           setUtrDuplicateError(
-            "This Transaction ID / UTR is already recorded for another registration in the database."
+            res.message ||
+              "This Transaction ID / UTR is already recorded for another registration in the database."
           );
         } else {
           setUtrDuplicateError(null);
@@ -225,9 +234,13 @@ function RegistrationCard({
     setUploadDone(false);
     try {
       const duplicate = await checkUtrExists(utr.trim(), first.registrationCode);
-      if (duplicate) {
-        setUtrDuplicateError("This Transaction ID / UTR is already in use by another registration.");
-        setUploadError("This Transaction ID / UTR is already in use by another registration.");
+      if (duplicate.exists) {
+        setUtrDuplicateError(
+          duplicate.message || "This Transaction ID / UTR is already in use by another registration."
+        );
+        setUploadError(
+          duplicate.message || "This Transaction ID / UTR is already in use by another registration."
+        );
         return;
       }
 
@@ -379,22 +392,22 @@ function RegistrationCard({
                 placeholder="e.g. 123456789012"
                 maxLength={16}
                 className={`mt-1 block w-full border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-primary-soft focus:outline-none ${
-                  utrDuplicateError || utrError ? "border-red-500/70" : "border-edge"
+                  visibleUtrDuplicateError || utrError ? "border-red-500/70" : "border-edge"
                 }`}
               />
-              {utrChecking && (
+              {showUtrChecking && (
                 <div className="mt-1.5 flex items-center gap-2 text-xs text-primary-soft">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   <span>Checking transaction ID uniqueness...</span>
                 </div>
               )}
-              {utrDuplicateError && (
+              {visibleUtrDuplicateError && (
                 <div className="mt-2 flex items-start gap-2 rounded border border-red-500/40 bg-red-500/10 p-2.5 text-xs text-red-300">
                   <AlertTriangle className="h-4 w-4 shrink-0 text-red-400 mt-0.5" />
-                  <span>{utrDuplicateError}</span>
+                  <span>{visibleUtrDuplicateError}</span>
                 </div>
               )}
-              {utrError && !utrDuplicateError && (
+              {utrError && !visibleUtrDuplicateError && (
                 <p role="alert" className="mt-1 text-[11px] text-red-300">
                   {utrError}
                 </p>

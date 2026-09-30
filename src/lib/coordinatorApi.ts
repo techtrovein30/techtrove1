@@ -146,7 +146,7 @@ export async function adminListCoordinators(): Promise<EventCoordinator[]> {
   // meant a transient network error showed one browser's cached appointments as
   // if they were the real thing - and hid a genuine outage.
   const { data, error } = await supabase
-    .from("event_coordinators" as never)
+    .from("event_coordinators")
     .select("*")
     .order("created_at", { ascending: false });
 
@@ -292,7 +292,7 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
     adminListCoordinators(),
     getAllRegistrations().catch(() => []),
     supabase.from("registration_members").select("*"),
-    supabase.from("attendance" as never).select("event_id"),
+    supabase.from("attendance").select("event_id"),
   ]);
 
   const allEvents = days.flatMap((d) => d.events);
@@ -360,7 +360,7 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
   // marked than another, and a browser with no history saw none.
   const [membersRes, attendanceRes, regs] = await Promise.all([
     supabase.from("registration_members").select("*").eq("event_id", eventId),
-    supabase.from("attendance" as never).select("participant_id,participant_email,marked_at").eq("event_id", eventId),
+    supabase.from("attendance").select("participant_id,participant_email,marked_at").eq("event_id", eventId),
     getAllRegistrations().catch(() => []),
   ]);
 
@@ -622,7 +622,7 @@ export async function getStudentAttendanceHistory(
   // Database only. A student clearing their browser used to lose their entire
   // attendance history, and a second device showed them nothing at all.
   const { data, error } = await supabase
-    .from("attendance" as never)
+    .from("attendance")
     .select("*")
     .or(`participant_id.eq.${userId},participant_email.ilike.${email}`);
 

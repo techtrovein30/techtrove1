@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import {
   UserCheck,
   Search,
@@ -36,21 +36,41 @@ export function AdminCoordinatorsPage() {
   const [removingEventName, setRemovingEventName] = useState<string>("");
   const [removingBusy, setRemovingBusy] = useState(false);
 
-  const loadData = async () => {
+  // Manual refresh (the reload button, and after a mutation). Kept separate from
+  // the mount effect because setting `loading` from an effect body forces an
+  // extra render pass for no gain - on mount it is already true.
+  const loadData = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const data = await adminGetCoordinatorSummaries();
-      setSummaries(data);
+      setSummaries(await adminGetCoordinatorSummaries());
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load coordinators data.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    let cancelled = false;
+    adminGetCoordinatorSummaries()
+      .then((data) => {
+        if (!cancelled) setSummaries(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Deliberately loud. This page reads coordinators and attendance straight
+        // from the database now, so a failure here means the admin is looking at
+        // an empty page. Showing "no coordinators assigned" instead would read as
+        // a real answer.
+        toast.error(err instanceof Error ? err.message : "Failed to load coordinators data.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
 
   const filteredSummaries = useMemo(() => {
     return summaries.filter((item) => {

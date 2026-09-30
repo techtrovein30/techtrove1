@@ -20,8 +20,10 @@ export function EventParticipantsModal({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "present" | "absent">("all");
 
+  // Re-fetched whenever the modal is pointed at a different event. `loading` is
+  // not reset here: it already starts true, and setting it synchronously would
+  // render the stale roster from the previous event for a frame.
   useEffect(() => {
-    setLoading(true);
     getEventParticipants(event.id)
       .then(setParticipants)
       .catch(() => setParticipants([]))
