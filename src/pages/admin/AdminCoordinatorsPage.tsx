@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   UserCheck,
   Search,
@@ -23,7 +24,13 @@ import { EventParticipantsModal } from "../../components/admin/EventParticipants
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 import { useToast } from "../../components/ui/toastContext";
 
-export function AdminCoordinatorsPage() {
+export function AdminCoordinatorsPage({
+  viewOnly: viewOnlyProp,
+}: {
+  viewOnly?: boolean;
+} = {}) {
+  const outlet = useOutletContext<{ viewOnly?: boolean } | null>();
+  const viewOnly = viewOnlyProp ?? outlet?.viewOnly ?? false;
   const toast = useToast();
   const [summaries, setSummaries] = useState<CoordinatorEventSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,7 +143,9 @@ export function AdminCoordinatorsPage() {
                 Event Coordinators
               </h1>
               <p className="text-xs text-muted">
-                Manage single-coordinator assignments, monitor live event attendance & permissions
+                {viewOnly
+                  ? "Faculty oversight: view assigned event coordinators, contact information, and real-time attendance."
+                  : "Manage single-coordinator assignments, monitor live event attendance & permissions"}
               </p>
             </div>
           </div>
@@ -275,7 +284,7 @@ export function AdminCoordinatorsPage() {
                   <th className="py-3.5 px-4 text-center">Participants</th>
                   <th className="py-3.5 px-4">Attendance</th>
                   <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
+                  <th className="py-3.5 px-4 text-right">{viewOnly ? "Inspect" : "Actions"}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.05]">
@@ -401,17 +410,19 @@ export function AdminCoordinatorsPage() {
                             <Eye className="h-4 w-4" />
                           </button>
 
-                          {/* Assign / Change Coordinator */}
-                          <button
-                            type="button"
-                            onClick={() => setAssignEvent(event)}
-                            className="rounded-lg bg-primary/10 border border-primary/20 px-2.5 py-1 text-[11px] font-semibold text-primary-soft hover:bg-primary/20 transition-colors"
-                          >
-                            {coordinator ? "Change" : "Assign"}
-                          </button>
+                          {/* Assign / Change Coordinator (Admin only) */}
+                          {!viewOnly && (
+                            <button
+                              type="button"
+                              onClick={() => setAssignEvent(event)}
+                              className="rounded-lg bg-primary/10 border border-primary/20 px-2.5 py-1 text-[11px] font-semibold text-primary-soft hover:bg-primary/20 transition-colors"
+                            >
+                              {coordinator ? "Change" : "Assign"}
+                            </button>
+                          )}
 
-                          {/* Remove Coordinator */}
-                          {coordinator && (
+                          {/* Remove Coordinator (Admin only) */}
+                          {!viewOnly && coordinator && (
                             <button
                               type="button"
                               title="Remove coordinator"

@@ -16,7 +16,13 @@ import { requireAdmin } from "../../lib/adminGuard";
  *   pre-promotion role (otherwise a legit admin gets silently kicked to "/").
  * - Role confirmed 'admin' (directly or after re-check) → render children.
  */
-export function AdminRoute({ children }: { children?: React.ReactNode }) {
+export function AdminRoute({
+  children,
+  loginPath = "/wasd4381",
+}: {
+  children?: React.ReactNode;
+  loginPath?: string;
+}) {
   const { user, loading, refreshUser } = useAuth();
   const [rechecking, setRechecking] = useState(false);
   const [recheckOk, setRecheckOk] = useState(false);
@@ -55,7 +61,7 @@ export function AdminRoute({ children }: { children?: React.ReactNode }) {
   }
 
   if (!user) {
-    return <Navigate to="/wasd4381" replace />;
+    return <Navigate to={loginPath} replace />;
   }
 
   if (user.role !== "admin" && !recheckOk) {

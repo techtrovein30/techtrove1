@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   Search,
   X,
@@ -35,7 +36,7 @@ import { ProofModal } from "../../components/admin/ProofModal";
 import { ReuploadRequestDialog } from "../../components/admin/ReuploadRequestDialog";
 import { useToast } from "../../components/ui/toastContext";
 
-type StatusFilter = "all" | "pending" | "recorded";
+type StatusFilter = "all" | "pending" | "reupload" | "recorded";
 type TypeFilter = "all" | "internal" | "external";
 type CategoryFilter = "all" | "Technical" | "Non-Technical" | "Sports";
 
@@ -70,6 +71,7 @@ interface BatchGroup {
   captainName: string;
   createdAt: string;
   paymentStatus: PaymentStatus;
+  isReupload: boolean;
 }
 
 const PAGE_SIZE = 15;
@@ -79,11 +81,13 @@ function RegistrationDetail({
   onClose,
   onDeleted,
   onUpdated,
+  viewOnly = false,
 }: {
   registration: Registration;
   onClose: () => void;
   onDeleted: (id: string) => void;
   onUpdated: (r: Registration) => void;
+  viewOnly?: boolean;
 }) {
   const { events } = useAllEvents();
   const event = events.find((e) => e.id === registration.eventId);
@@ -230,6 +234,15 @@ function RegistrationDetail({
           title={`Payment Proof · ${registration.teamName}`}
           subtitle={`Registration ${registration.registrationCode} · ${event?.name ?? registration.eventId}`}
           utrNumber={registration.utrNumber}
+          createdAt={registration.createdAt}
+          showPaymentActions={!viewOnly && regType(registration) !== "internal"}
+          paymentStatus={registration.paymentStatus}
+          busyPayment={busyPayment}
+          onMarkPaid={viewOnly ? undefined : togglePaymentStatus}
+          onRequestReupload={viewOnly ? undefined : () => {
+            setShowProofModal(false);
+            setShowReuploadDialog(true);
+          }}
         />
       )}
 
@@ -247,13 +260,15 @@ function RegistrationDetail({
             <h2 className="flex-1 truncate text-sm font-semibold text-foreground">
               {registration.registrationCode} · {registration.teamName}
             </h2>
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-red-400 hover:text-red-300"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
-            </button>
+            {!viewOnly && (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="flex items-center gap-1.5 text-[11px] font-medium text-red-400 hover:text-red-300"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
@@ -267,37 +282,57 @@ function RegistrationDetail({
                   <p className="mt-1 text-sm font-semibold text-foreground capitalize">
                     {regType(registration) === "internal"
                       ? "Confirmed"
-                      : registration.paymentStatus}
+                      : registration.paymentStatus === "recorded"
+                      ? "Paid · Recorded"
+                      : hasReuploadRequest
+                      ? "Re-upload"
+                      : "Pending"}
                   </p>
                 </div>
                 {regType(registration) === "internal" ? (
                   <span className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] border border-primary/40 text-primary-soft">
                     <CheckCircle2 className="h-3.5 w-3.5" /> Free · Auto-confirmed
                   </span>
-                ) : (
-                <button
-                  onClick={togglePaymentStatus}
-                  disabled={busyPayment}
-                  className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
+                ) : screenshotPath ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowProofModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-[0_0_15px_rgba(124,58,237,0.3)] transition-all hover:bg-primary-soft hover:shadow-[0_0_20px_rgba(124,58,237,0.5)]"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" /> View Screenshot
+                  </button>
+                ) : viewOnly ? (
+                  <span className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] border ${
                     registration.paymentStatus === "recorded"
-                      ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                      : "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-                  }`}
-                >
-                  {busyPayment ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
-                    </>
-                  ) : registration.paymentStatus === "recorded" ? (
-                    <>
-                      <Clock className="h-3.5 w-3.5" /> Mark Pending
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
-                    </>
-                  )}
-                </button>
+                      ? "border-emerald-500/40 text-emerald-300"
+                      : "border-amber-500/40 text-amber-300"
+                  }`}>
+                    {registration.paymentStatus === "recorded" ? "Paid" : "Pending"}
+                  </span>
+                ) : (
+                  <button
+                    onClick={togglePaymentStatus}
+                    disabled={busyPayment}
+                    className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
+                      registration.paymentStatus === "recorded"
+                        ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                        : "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                    }`}
+                  >
+                    {busyPayment ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
+                      </>
+                    ) : registration.paymentStatus === "recorded" ? (
+                      <>
+                        <Clock className="h-3.5 w-3.5" /> Mark Pending
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
+                      </>
+                    )}
+                  </button>
                 )}
               </div>
 
@@ -313,42 +348,19 @@ function RegistrationDetail({
               )}
 
               {/* Payment Proof & UTR Actions */}
-              {(registration.utrNumber || screenshotPath) && (
-                <div className="border-t border-white/[0.06] pt-3 flex flex-wrap items-center justify-between gap-2">
-                  {registration.utrNumber ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] uppercase font-semibold tracking-wider text-muted">UTR:</span>
-                      <code className="font-mono text-xs font-bold text-primary-soft">{registration.utrNumber}</code>
-                      <button
-                        type="button"
-                        onClick={copyUtr}
-                        className="text-muted hover:text-foreground transition-colors p-1"
-                        title="Copy UTR"
-                      >
-                        {copiedUtr ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      </button>
-                    </div>
-                  ) : <div />}
-
+              {registration.utrNumber && (
+                <div className="border-t border-white/[0.06] pt-3 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    {screenshotPath && (
-                      <button
-                        type="button"
-                        onClick={() => setShowProofModal(true)}
-                        className="inline-flex items-center gap-1.5 rounded bg-primary/20 border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary-soft hover:bg-primary/30 transition-colors"
-                      >
-                        <ImageIcon className="h-3.5 w-3.5" /> View Screenshot
-                      </button>
-                    )}
-                    {screenshotPath && registration.paymentStatus === "pending" && (
-                      <button
-                        type="button"
-                        onClick={() => setShowReuploadDialog(true)}
-                        className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors"
-                      >
-                        <RefreshCcw className="h-3.5 w-3.5" /> Request Re-upload
-                      </button>
-                    )}
+                    <span className="text-[10px] uppercase font-semibold tracking-wider text-muted">UTR:</span>
+                    <code className="font-mono text-xs font-bold text-primary-soft">{registration.utrNumber}</code>
+                    <button
+                      type="button"
+                      onClick={copyUtr}
+                      className="text-muted hover:text-foreground transition-colors p-1"
+                      title="Copy UTR"
+                    >
+                      {copiedUtr ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                    </button>
                   </div>
                 </div>
               )}
@@ -431,7 +443,14 @@ function RegistrationDetail({
   );
 }
 
-export function AdminRegistrationsPage() {
+export function AdminRegistrationsPage({
+  viewOnly: viewOnlyProp,
+}: {
+  viewOnly?: boolean;
+} = {}) {
+  const outlet = useOutletContext<{ viewOnly?: boolean } | null>();
+  const viewOnly = viewOnlyProp ?? outlet?.viewOnly ?? false;
+
   const { registrations, refresh } = useAdminRegistrations();
   const toast = useToast();
 
@@ -459,7 +478,16 @@ export function AdminRegistrationsPage() {
     const q = query.toLowerCase().trim();
     return registrations.filter((r) => {
       if (eventFilter !== "all" && r.eventId !== eventFilter) return false;
-      if (statusFilter !== "all" && r.paymentStatus !== statusFilter) return false;
+      if (statusFilter !== "all") {
+        const isReupload = r.paymentStatus !== "recorded" && !!r.paymentReviewNote;
+        if (statusFilter === "reupload") {
+          if (!isReupload) return false;
+        } else if (statusFilter === "pending") {
+          if (r.paymentStatus !== "pending" || isReupload) return false;
+        } else if (statusFilter === "recorded") {
+          if (r.paymentStatus !== "recorded") return false;
+        }
+      }
       if (typeFilter !== "all" && regType(r) !== typeFilter) return false;
       if (categoryFilter !== "all") {
         const ev = events.find((e) => e.id === r.eventId);
@@ -495,6 +523,9 @@ export function AdminRegistrationsPage() {
       const eventNames = rows
         .map((r) => events.find((e) => e.id === r.eventId)?.name ?? r.eventId)
         .filter((n, i, arr) => arr.indexOf(n) === i);
+      const isReupload = rows.some(
+        (r) => r.paymentStatus !== "recorded" && !!r.paymentReviewNote
+      );
       return {
         code: first.registrationCode,
         rows,
@@ -504,6 +535,7 @@ export function AdminRegistrationsPage() {
         captainName: first.captainName,
         createdAt: first.createdAt,
         paymentStatus: first.paymentStatus,
+        isReupload,
       };
     });
   }, [filtered, events]);
@@ -552,7 +584,10 @@ export function AdminRegistrationsPage() {
       .map((code) => grouped.find((g) => g.code === code))
       .filter(
         (g): g is BatchGroup =>
-          !!g && regType(g.rows[0]) === "external" && g.paymentStatus === "pending"
+          !!g &&
+          regType(g.rows[0]) === "external" &&
+          g.paymentStatus === "pending" &&
+          !g.isReupload
       );
 
     if (targets.length === 0) {
@@ -597,6 +632,7 @@ export function AdminRegistrationsPage() {
           onClose={() => setSelected(null)}
           onDeleted={handleDeleted}
           onUpdated={handleUpdated}
+          viewOnly={viewOnly}
         />
       )}
 
@@ -625,7 +661,11 @@ export function AdminRegistrationsPage() {
           {grouped.length} total
         </span>
         <span className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-amber-300">
-          {grouped.filter((g) => regType(g.rows[0]) === "external" && g.paymentStatus === "pending").length} pending
+          {grouped.filter((g) => regType(g.rows[0]) === "external" && g.paymentStatus === "pending" && !g.isReupload).length} pending
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-lg border border-orange-500/30 bg-orange-500/[0.06] px-3 py-2 text-orange-400">
+          <RefreshCcw className="h-3.5 w-3.5" aria-hidden />
+          {grouped.filter((g) => regType(g.rows[0]) === "external" && g.isReupload).length} re-upload
         </span>
         <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2 text-emerald-400">
           {grouped.filter((g) => regType(g.rows[0]) === "external" && g.paymentStatus === "recorded").length} paid
@@ -671,7 +711,7 @@ export function AdminRegistrationsPage() {
 
         {/* Status filter */}
         <div className="flex rounded border border-white/[0.08] bg-[#161616] overflow-hidden">
-          {(["all", "pending", "recorded"] as StatusFilter[]).map((st) => (
+          {(["all", "pending", "reupload", "recorded"] as StatusFilter[]).map((st) => (
             <button
               key={st}
               onClick={() => {
@@ -684,7 +724,7 @@ export function AdminRegistrationsPage() {
                   : "text-muted hover:text-foreground"
               }`}
             >
-              {st}
+              {st === "reupload" ? "Re-upload" : st}
             </button>
           ))}
         </div>
@@ -726,8 +766,8 @@ export function AdminRegistrationsPage() {
         </select>
       </div>
 
-      {/* Bulk action bar */}
-      {selectedCodes.size > 0 && (
+      {/* Bulk action bar (Admin only) */}
+      {!viewOnly && selectedCodes.size > 0 && (
         <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-3 rounded-xl border border-primary/50 bg-[#1d1429] px-4 py-3 shadow-[0_8px_30px_-8px_rgba(124,58,237,0.4)]">
           <span className="text-sm font-semibold text-foreground">
             {selectedCodes.size} selected
@@ -767,15 +807,17 @@ export function AdminRegistrationsPage() {
           <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="border-b border-white/[0.07]">
-                <th className="w-10 px-4 py-3">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all on page"
-                    checked={allPageSelected}
-                    onChange={togglePage}
-                    className="h-4 w-4 cursor-pointer accent-[#7c3aed]"
-                  />
-                </th>
+                {!viewOnly && (
+                  <th className="w-10 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all on page"
+                      checked={allPageSelected}
+                      onChange={togglePage}
+                      className="h-4 w-4 cursor-pointer accent-[#7c3aed]"
+                    />
+                  </th>
+                )}
                 {["Code / Team", "Event", "Captain", "Fee", "Status", "Date"].map(
                   (h) => (
                     <th
@@ -812,16 +854,18 @@ export function AdminRegistrationsPage() {
                       }`}
                       onClick={() => setSelected(group.rows[0])}
                     >
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${group.teamName}`}
-                          checked={checked}
-                          onChange={() => toggleCode(group.code)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="h-4 w-4 cursor-pointer accent-[#7c3aed]"
-                        />
-                      </td>
+                      {!viewOnly && (
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${group.teamName}`}
+                            checked={checked}
+                            onChange={() => toggleCode(group.code)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-4 w-4 cursor-pointer accent-[#7c3aed]"
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <span
@@ -869,14 +913,18 @@ export function AdminRegistrationsPage() {
                               ? "border-primary/40 text-primary-soft"
                               : group.paymentStatus === "recorded"
                                 ? "border-emerald-500/40 text-emerald-400"
-                                : "border-amber-500/40 text-amber-400"
+                                : group.isReupload
+                                  ? "border-orange-500/40 text-orange-400 bg-orange-500/10"
+                                  : "border-amber-500/40 text-amber-400"
                           }`}
                         >
                           {isInternalBatch
                             ? "Confirmed"
                             : group.paymentStatus === "recorded"
                               ? "Paid"
-                              : "Pending"}
+                              : group.isReupload
+                                ? "Re-upload"
+                                : "Pending"}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-muted">
@@ -969,14 +1017,18 @@ export function AdminRegistrationsPage() {
                           ? "border-primary/40 text-primary-soft"
                           : group.paymentStatus === "recorded"
                             ? "border-emerald-500/40 text-emerald-400"
-                            : "border-amber-500/40 text-amber-400"
+                            : group.isReupload
+                              ? "border-orange-500/40 text-orange-400 bg-orange-500/10"
+                              : "border-amber-500/40 text-amber-400"
                       }`}
                     >
                       {isInternalBatch
                         ? "Confirmed"
                         : group.paymentStatus === "recorded"
                           ? "Paid"
-                          : "Pending"}
+                          : group.isReupload
+                            ? "Re-upload"
+                            : "Pending"}
                     </span>
                   </div>
                   <div className="mt-3 flex items-center justify-between border-t border-white/[0.05] pt-3 text-xs">
@@ -985,22 +1037,24 @@ export function AdminRegistrationsPage() {
                   </div>
                 </button>
 
-                <div className="flex items-center gap-2 border-t border-white/[0.05] px-4 py-2.5">
-                  <input
-                    type="checkbox"
-                    id={`bulk-${group.code}`}
-                    aria-label={`Select ${group.teamName}`}
-                    checked={checked}
-                    onChange={() => toggleCode(group.code)}
-                    className="h-4 w-4 cursor-pointer accent-[#7c3aed]"
-                  />
-                  <label
-                    htmlFor={`bulk-${group.code}`}
-                    className="text-[11px] font-medium text-muted"
-                  >
-                    Select for bulk action
-                  </label>
-                </div>
+                {!viewOnly && (
+                  <div className="flex items-center gap-2 border-t border-white/[0.05] px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      id={`bulk-${group.code}`}
+                      aria-label={`Select ${group.teamName}`}
+                      checked={checked}
+                      onChange={() => toggleCode(group.code)}
+                      className="h-4 w-4 cursor-pointer accent-[#7c3aed]"
+                    />
+                    <label
+                      htmlFor={`bulk-${group.code}`}
+                      className="text-[11px] font-medium text-muted"
+                    >
+                      Select for bulk action
+                    </label>
+                  </div>
+                )}
               </div>
             );
           })

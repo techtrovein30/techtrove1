@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2, RefreshCcw, AlertTriangle } from "lucide-react";
+import { useSearchParams, Link } from "react-router-dom";
+import { Search, CreditCard, Clock, CheckCircle2, Download, Receipt, Image as ImageIcon, Copy, Check, Loader2, RefreshCcw, AlertTriangle, ArrowRight } from "lucide-react";
 import type { Registration } from "../../lib/api";
 import {
   adminUpdateRegistrationStatusByCode,
@@ -92,6 +92,11 @@ export function AdminPaymentsPage() {
       // Internal (SIMATS) registrations are free and auto-confirmed — they
       // never go through payment review, so exclude them from this page.
       if (!isExternal(r)) return false;
+
+      // Payments opted for re-upload move to the re-upload page and must not be shown as pending
+      const isReupload = r.paymentStatus !== "recorded" && !!r.paymentReviewNote;
+      if (isReupload) return false;
+
       if (eventFilter !== "all" && r.eventId !== eventFilter) return false;
       if (statusFilter !== "all" && r.paymentStatus !== statusFilter) return false;
       if (onlyDuplicates) {
@@ -160,36 +165,39 @@ export function AdminPaymentsPage() {
     let recordedCount = 0;
     let totalRevenue = 0;
     let pendingRevenue = 0;
+    let reuploadCount = 0;
 
-    // Sum ALL row fees per code — the trigger already zeros out duplicate
-    // day-2 event fees at insert time (already_charged > 0 → fee = 0), so
-    // summing is safe for flat-pass codes (only one row carries a non-zero fee).
-    // The old first-row approach missed money whenever the ₹0 row had a lower
-    // DB id than the ₹75 row. Internal registrations are excluded via isExternal.
-    const codeStats = new Map<string, { status: string; feeSum: number }>();
+    // Sum ALL row fees per code. Exclude re-upload requests from pendingCount
+    // so they do not artificially inflate the active pending review backlog.
+    const codeStats = new Map<string, { status: string; feeSum: number; hasReupload: boolean }>();
     for (const r of registrations) {
       if (!isExternal(r)) continue;
+      const isReupload = r.paymentStatus !== "recorded" && !!r.paymentReviewNote;
       const existing = codeStats.get(r.registrationCode);
       if (existing) {
         existing.feeSum += r.fee ?? 0;
+        if (isReupload) existing.hasReupload = true;
       } else {
         codeStats.set(r.registrationCode, {
           status: r.paymentStatus ?? "",
           feeSum: r.fee ?? 0,
+          hasReupload: isReupload,
         });
       }
     }
-    for (const { status, feeSum } of codeStats.values()) {
+    for (const { status, feeSum, hasReupload } of codeStats.values()) {
       if (status === "recorded") {
         recordedCount++;
         totalRevenue += feeSum;
+      } else if (hasReupload) {
+        reuploadCount++;
       } else {
         pendingCount++;
         pendingRevenue += feeSum;
       }
     }
 
-    return { pendingCount, recordedCount, totalRevenue, pendingRevenue };
+    return { pendingCount, recordedCount, totalRevenue, pendingRevenue, reuploadCount };
   }, [registrations]);
 
   async function togglePaymentStatus(group: BatchGroup) {
@@ -309,8 +317,9 @@ export function AdminPaymentsPage() {
           onClose={() => setSelectedProof(null)}
           path={selectedProof.paymentScreenshotPath ?? selectedProof.paymentScreenshotUrl}
           title={`Payment Proof · ${selectedProof.teamName}`}
-          subtitle={`Registration ${selectedProof.registrationCode} · UTR: ${selectedProof.utrNumber ?? "N/A"} · Submitted ${new Date(selectedProof.createdAt).toLocaleString()}`}
+          subtitle={`Registration ${selectedProof.registrationCode} · Event: ${selectedProof.eventId}`}
           utrNumber={selectedProof.utrNumber}
+          createdAt={selectedProof.createdAt}
         />
       )}
 
@@ -391,6 +400,31 @@ export function AdminPaymentsPage() {
           </p>
         </div>
       </div>
+
+      {/* Re-uploads Callout */}
+      {summary.reuploadCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/20 text-amber-400">
+              <RefreshCcw className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-amber-300">
+                {summary.reuploadCount} payment{summary.reuploadCount === 1 ? "" : "s"} opted for re-upload
+              </p>
+              <p className="text-[11px] text-amber-400/80">
+                Moved to the Re-upload queue awaiting fresh screenshots. Not counted as pending.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/wasd4381/reuploads"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-200 transition-colors hover:bg-amber-500/30"
+          >
+            Go to Re-uploads <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex flex-wrap gap-3">

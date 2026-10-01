@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   Plus,
   Pencil,
@@ -369,7 +370,10 @@ function matchesCategory(event: TechEvent, filter: CategoryFilter): boolean {
   return true;
 }
 
-export function AdminEventsPage() {
+export function AdminEventsPage({ viewOnly: viewOnlyProp }: { viewOnly?: boolean } = {}) {
+  const outletCtx = useOutletContext<{ viewOnly?: boolean } | null>();
+  const viewOnly = viewOnlyProp ?? outletCtx?.viewOnly ?? false;
+
   const [days, setDays] = useState<Day[]>([]);
   const [editingEvent, setEditingEvent] = useState<TechEvent | null>(null);
   const [addingDayId, setAddingDayId] = useState<string | null>(null);
@@ -623,36 +627,42 @@ export function AdminEventsPage() {
                   >
                     {day.status}
                   </span>
-                  <button
-                    onClick={() => handleToggleDayStatus(day.id, day.status)}
-                    title={day.status === "active" ? "Set to Coming Soon" : "Set to Active"}
-                    className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors ${
-                      day.status === "active"
-                        ? "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
-                        : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                    }`}
-                  >
-                    {day.status === "active" ? "→ Coming Soon" : "→ Set Active"}
-                  </button>
+                  {!viewOnly && (
+                    <button
+                      onClick={() => handleToggleDayStatus(day.id, day.status)}
+                      title={day.status === "active" ? "Set to Coming Soon" : "Set to Active"}
+                      className={`rounded px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors ${
+                        day.status === "active"
+                          ? "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+                          : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                      }`}
+                    >
+                      {day.status === "active" ? "→ Coming Soon" : "→ Set Active"}
+                    </button>
+                  )}
                 </div>
                 <div className="mt-1 flex items-center gap-2">
                   <h2 className="text-lg font-bold text-foreground">{day.name}</h2>
-                  <button
-                    onClick={() => setEditingDay(day)}
-                    title="Edit day name & description"
-                    className="flex items-center justify-center rounded border border-white/10 p-1 text-muted hover:text-foreground hover:bg-white/[0.05] transition-colors"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
+                  {!viewOnly && (
+                    <button
+                      onClick={() => setEditingDay(day)}
+                      title="Edit day name & description"
+                      className="flex items-center justify-center rounded border border-white/10 p-1 text-muted hover:text-foreground hover:bg-white/[0.05] transition-colors"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
                 <p className="text-xs text-muted">{day.description}</p>
               </div>
-              <button
-                onClick={() => setAddingDayId(day.id)}
-                className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-white hover:bg-primary-soft"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add Event
-              </button>
+              {!viewOnly && (
+                <button
+                  onClick={() => setAddingDayId(day.id)}
+                  className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-white hover:bg-primary-soft"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Event
+                </button>
+              )}
             </div>
 
             {/* Event List */}
@@ -728,44 +738,46 @@ export function AdminEventsPage() {
                         </div>
                       </div>
 
-                      <div className="mt-5 flex flex-wrap items-center gap-2 pt-4 border-t border-white/[0.06]">
-                        <button
-                          onClick={() => handleToggleOpen(event)}
-                          disabled={isBusy}
-                          className={`flex-1 flex items-center justify-center gap-2 rounded px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
-                            event.registrationOpen
-                              ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                              : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                          }`}
-                        >
-                          {isBusy ? (
-                            <>
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Updating…
-                            </>
-                          ) : event.registrationOpen ? (
-                            "Close Reg."
-                          ) : (
-                            "Open Reg."
-                          )}
-                        </button>
-                        <button
-                          onClick={() => setEditingEvent(event)}
-                          disabled={isBusy}
-                          className="flex items-center justify-center rounded border border-white/10 px-3 py-2 text-muted hover:text-foreground hover:bg-white/[0.05] disabled:opacity-50"
-                          title="Edit Event"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => setDeletingEvent(event)}
-                          disabled={isBusy}
-                          className="flex items-center justify-center rounded border border-red-500/20 px-3 py-2 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
-                          title="Delete Event"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
+                      {!viewOnly && (
+                        <div className="mt-5 flex flex-wrap items-center gap-2 pt-4 border-t border-white/[0.06]">
+                          <button
+                            onClick={() => handleToggleOpen(event)}
+                            disabled={isBusy}
+                            className={`flex-1 flex items-center justify-center gap-2 rounded px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors disabled:opacity-50 ${
+                              event.registrationOpen
+                                ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                                : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                            }`}
+                          >
+                            {isBusy ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Updating…
+                              </>
+                            ) : event.registrationOpen ? (
+                              "Close Reg."
+                            ) : (
+                              "Open Reg."
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setEditingEvent(event)}
+                            disabled={isBusy}
+                            className="flex items-center justify-center rounded border border-white/10 px-3 py-2 text-muted hover:text-foreground hover:bg-white/[0.05] disabled:opacity-50"
+                            title="Edit Event"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => setDeletingEvent(event)}
+                            disabled={isBusy}
+                            className="flex items-center justify-center rounded border border-red-500/20 px-3 py-2 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                            title="Delete Event"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

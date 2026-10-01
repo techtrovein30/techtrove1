@@ -14,7 +14,7 @@ function regType(r: Registration): "internal" | "external" {
   return r.members[0]?.participantType === "internal" ? "internal" : "external";
 }
 
-export function AdminTeamsPage() {
+export function AdminTeamsPage(_props: { viewOnly?: boolean } = {}) {
   const { registrations } = useAdminRegistrations();
 
   const { events } = useAllEvents();

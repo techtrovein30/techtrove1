@@ -147,11 +147,11 @@ export function adminSignOut(): void {
  * they land back on /wasd4381?oauth=google, where adminResolveOAuthAccess()
  * decides whether they get in (server-side allowlist check).
  */
-export async function adminSignInWithGoogle(): Promise<void> {
+export async function adminSignInWithGoogle(customRedirect?: string): Promise<void> {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: window.location.origin + "/wasd4381?oauth=google",
+      redirectTo: customRedirect ?? (window.location.origin + "/wasd4381?oauth=google"),
     },
   });
   if (error) throw friendlyError(error, "Could not start Google sign-in.");
@@ -222,6 +222,7 @@ export interface AdminStats {
   totalEventRegistrations: number;
   pendingPayments: number;
   recordedPayments: number;
+  reuploadPayments: number;
   totalRevenue: number;
   checkedInMembers: number;
   totalMembers: number;
@@ -267,24 +268,29 @@ export async function getAdminStats(): Promise<AdminStats> {
   //
   // payment_status: the query confirmed n_status = 0 (no code has rows that
   // disagree on status), so any row's status is representative — we use the
-  // first one we encounter per code.
-  const codeStats = new Map<string, { status: string; feeSum: number }>();
+  const codeStats = new Map<string, { status: string; feeSum: number; hasReupload: boolean }>();
   for (const r of registrations) {
     if (isInternalRow(r)) continue;
+    const isReupload = r.payment_status !== "recorded" && !!r.payment_review_note;
     const existing = codeStats.get(r.registration_code);
     if (existing) {
       existing.feeSum += r.fee ?? 0;
+      if (isReupload) existing.hasReupload = true;
     } else {
       codeStats.set(r.registration_code, {
         status: r.payment_status ?? "",
         feeSum: r.fee ?? 0,
+        hasReupload: isReupload,
       });
     }
   }
-  for (const { status, feeSum } of codeStats.values()) {
+  let reuploadCount = 0;
+  for (const { status, feeSum, hasReupload } of codeStats.values()) {
     if (status === "recorded") {
       recorded++;
       revenue += feeSum;
+    } else if (hasReupload) {
+      reuploadCount++;
     } else {
       pending++;
     }
@@ -406,6 +412,7 @@ export async function getAdminStats(): Promise<AdminStats> {
     totalEventRegistrations: registrations.length,
     pendingPayments: pending,
     recordedPayments: recorded,
+    reuploadPayments: reuploadCount,
     totalRevenue: revenue,
     checkedInMembers: checkedInMembers ?? 0,
     totalMembers: totalMembers ?? 0,

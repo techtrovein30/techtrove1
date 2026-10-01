@@ -1,7 +1,19 @@
 import { useEffect, useState } from "react";
-import { X, ExternalLink, Copy, Check, Loader2, RefreshCcw, Image as ImageIcon, FileX2 } from "lucide-react";
+import {
+  X,
+  ExternalLink,
+  Copy,
+  Check,
+  Loader2,
+  RefreshCcw,
+  Image as ImageIcon,
+  FileX2,
+  CheckCircle2,
+  Clock,
+} from "lucide-react";
 import { adminGetSignedUrl } from "../../lib/adminApi";
 import { getUploadPublicUrl } from "../../lib/storage";
+import type { PaymentStatus } from "../../lib/api";
 
 interface ProofModalProps {
   isOpen: boolean;
@@ -10,6 +22,12 @@ interface ProofModalProps {
   title?: string;
   subtitle?: string;
   utrNumber?: string;
+  createdAt?: string | Date | null;
+  paymentStatus?: PaymentStatus;
+  onMarkPaid?: () => void | Promise<void>;
+  onRequestReupload?: () => void;
+  busyPayment?: boolean;
+  showPaymentActions?: boolean;
 }
 
 export function ProofModal({
@@ -19,6 +37,12 @@ export function ProofModal({
   title = "Payment Proof",
   subtitle,
   utrNumber,
+  createdAt,
+  paymentStatus,
+  onMarkPaid,
+  onRequestReupload,
+  busyPayment = false,
+  showPaymentActions = false,
 }: ProofModalProps) {
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(isOpen && Boolean(path));
@@ -89,6 +113,10 @@ export function ProofModal({
 
   const publicUrl = error ? getUploadPublicUrl(path) : null;
 
+  const formattedTimestamp = createdAt
+    ? new Date(createdAt).toLocaleString()
+    : null;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
@@ -118,28 +146,44 @@ export function ProofModal({
           </button>
         </div>
 
-        {/* UTR Pill (if present) */}
-        {utrNumber && (
+        {/* UTR & Timestamp Bar */}
+        {(utrNumber || formattedTimestamp) && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] bg-white/[0.02] px-5 py-3 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold uppercase tracking-wider text-muted">UTR / Transaction ID:</span>
-              <code className="font-mono text-sm font-bold text-primary-soft">{utrNumber}</code>
-            </div>
-            <button
-              type="button"
-              onClick={copyUtr}
-              className="inline-flex items-center gap-1.5 rounded border border-white/10 px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-white/[0.06]"
-            >
-              {copied ? (
-                <>
-                  <Check className="h-3.5 w-3.5 text-emerald-400" /> Copied
-                </>
-              ) : (
-                <>
-                  <Copy className="h-3.5 w-3.5" /> Copy UTR
-                </>
+            <div className="flex flex-wrap items-center gap-4">
+              {utrNumber && (
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold uppercase tracking-wider text-muted">UTR / Transaction ID:</span>
+                  <code className="font-mono text-sm font-bold text-primary-soft">{utrNumber}</code>
+                </div>
               )}
-            </button>
+              {formattedTimestamp && (
+                <div className="flex items-center gap-2">
+                  {utrNumber && <span className="h-3 w-px bg-white/10 hidden sm:inline-block" />}
+                  <span className="font-semibold uppercase tracking-wider text-muted flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-primary-soft" />
+                    Created At:
+                  </span>
+                  <span className="font-mono text-xs font-semibold text-foreground">{formattedTimestamp}</span>
+                </div>
+              )}
+            </div>
+            {utrNumber && (
+              <button
+                type="button"
+                onClick={copyUtr}
+                className="inline-flex items-center gap-1.5 rounded border border-white/10 px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-white/[0.06]"
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-400" /> Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" /> Copy UTR
+                  </>
+                )}
+              </button>
+            )}
           </div>
         )}
 
@@ -206,11 +250,11 @@ export function ProofModal({
         </div>
 
         {/* Footer */}
-        <div className="flex shrink-0 items-center justify-between border-t border-white/[0.08] px-5 py-3 text-xs bg-[#141414]">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] px-5 py-3 text-xs bg-[#141414]">
           <p className="text-muted text-[11px]">
             Private file · Temporary signed URL (expires in 10 mins)
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {signedUrl && (
               <a
                 href={signedUrl}
@@ -221,12 +265,64 @@ export function ProofModal({
                 <ExternalLink className="h-3.5 w-3.5" /> Full Size
               </a>
             )}
-            <button
-              onClick={onClose}
-              className="rounded bg-primary px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-soft"
-            >
-              Done
-            </button>
+
+            {showPaymentActions || onMarkPaid || onRequestReupload ? (
+              <>
+                {onRequestReupload && paymentStatus !== "recorded" && (
+                  <button
+                    type="button"
+                    onClick={onRequestReupload}
+                    disabled={busyPayment}
+                    className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+                  >
+                    <RefreshCcw className="h-3.5 w-3.5" /> Request Re-upload
+                  </button>
+                )}
+
+                {onMarkPaid && (
+                  <button
+                    type="button"
+                    onClick={onMarkPaid}
+                    disabled={busyPayment}
+                    className={`inline-flex items-center gap-1.5 rounded px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      paymentStatus === "recorded"
+                        ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                        : "bg-emerald-600 text-white hover:bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+                    }`}
+                  >
+                    {busyPayment ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
+                      </>
+                    ) : paymentStatus === "recorded" ? (
+                      <>
+                        <Clock className="h-3.5 w-3.5" /> Mark Pending
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
+                      </>
+                    )}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded bg-primary px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-soft"
+              >
+                Done
+              </button>
+            )}
           </div>
         </div>
       </div>

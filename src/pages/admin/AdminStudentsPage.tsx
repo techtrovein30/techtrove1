@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   Search,
   X,
@@ -8,6 +9,7 @@ import {
   Check,
   ChevronLeft,
   Download,
+  Eye,
 } from "lucide-react";
 import type { User, Registration } from "../../lib/api";
 import {
@@ -35,12 +37,14 @@ function StudentDetail({
   onDeleted,
   onUpdated,
   initialEditing = false,
+  viewOnly = false,
 }: {
   student: User;
   onClose: () => void;
   onDeleted: (id: string) => void;
   onUpdated: (u: User) => void;
   initialEditing?: boolean;
+  viewOnly?: boolean;
 }) {
   const { events } = useAllEvents();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
@@ -122,23 +126,27 @@ function StudentDetail({
             <h2 className="flex-1 truncate text-sm font-semibold text-foreground">
               {student.fullName}
             </h2>
-            <button
-              onClick={() => {
-                setEditing(!editing);
-                setEditError(null);
-              }}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-primary-soft hover:text-primary"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              {editing ? "Cancel" : "Edit"}
-            </button>
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-red-400 hover:text-red-300"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
-            </button>
+            {!viewOnly && (
+              <>
+                <button
+                  onClick={() => {
+                    setEditing(!editing);
+                    setEditError(null);
+                  }}
+                  className="flex items-center gap-1.5 text-[11px] font-medium text-primary-soft hover:text-primary"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  {editing ? "Cancel" : "Edit"}
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-1.5 text-[11px] font-medium text-red-400 hover:text-red-300"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </button>
+              </>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
@@ -316,7 +324,14 @@ function StudentDetail({
 
 // ─── Main Students Page ────────────────────────────────────────────────────
 
-export function AdminStudentsPage() {
+export function AdminStudentsPage({
+  viewOnly: viewOnlyProp,
+}: {
+  viewOnly?: boolean;
+} = {}) {
+  const outlet = useOutletContext<{ viewOnly?: boolean } | null>();
+  const viewOnly = viewOnlyProp ?? outlet?.viewOnly ?? false;
+
   const { users: allUsers, refresh } = useAdminUsers();
   const { registrations } = useAdminRegistrations();
   const { events } = useAllEvents();
@@ -406,7 +421,8 @@ export function AdminStudentsPage() {
           onClose={() => { setSelected(null); setSelectedEditing(false); }}
           onDeleted={handleUserDeleted}
           onUpdated={handleUserUpdated}
-          initialEditing={selectedEditing}
+          initialEditing={!viewOnly && selectedEditing}
+          viewOnly={viewOnly}
         />
       )}
 
@@ -556,24 +572,35 @@ export function AdminStudentsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
+                      {viewOnly ? (
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); openEditPanel(u); }}
-                          className="flex h-7 w-7 items-center justify-center rounded border border-white/10 text-muted transition-colors hover:text-primary-soft hover:border-primary/40 hover:bg-primary/10"
-                          title="Edit student"
+                          onClick={(e) => { e.stopPropagation(); setSelected(u); }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-white/10 text-muted transition-colors hover:text-foreground hover:bg-white/[0.05]"
+                          title="View student profile"
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Eye className="h-3.5 w-3.5" />
                         </button>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setConfirmingDelete(u); }}
-                          className="flex h-7 w-7 items-center justify-center rounded border border-red-500/20 text-red-400/70 transition-colors hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10"
-                          title="Delete student"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); openEditPanel(u); }}
+                            className="flex h-7 w-7 items-center justify-center rounded border border-white/10 text-muted transition-colors hover:text-primary-soft hover:border-primary/40 hover:bg-primary/10"
+                            title="Edit student"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setConfirmingDelete(u); }}
+                            className="flex h-7 w-7 items-center justify-center rounded border border-red-500/20 text-red-400/70 transition-colors hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10"
+                            title="Delete student"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))

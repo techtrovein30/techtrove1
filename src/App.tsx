@@ -43,6 +43,9 @@ const AdminLayout = lazy(() =>
 const AdminDashboardPage = lazy(() =>
   import("./pages/admin/AdminDashboardPage").then((m) => ({ default: m.AdminDashboardPage }))
 );
+const AdminRevenuePage = lazy(() =>
+  import("./pages/admin/AdminRevenuePage").then((m) => ({ default: m.AdminRevenuePage }))
+);
 const AdminStudentsPage = lazy(() =>
   import("./pages/admin/AdminStudentsPage").then((m) => ({ default: m.AdminStudentsPage }))
 );
@@ -129,6 +132,7 @@ export default function App() {
               </AdminRoute>
             }>
               <Route path="dashboard" element={<AdminDashboardPage />} />
+              <Route path="revenue" element={<AdminRevenuePage />} />
               <Route path="coordinators" element={<AdminCoordinatorsPage />} />
               <Route path="students" element={<AdminStudentsPage />} />
               <Route path="registrations" element={<AdminRegistrationsPage />} />
@@ -144,7 +148,28 @@ export default function App() {
             </Route>
           </Route>
 
+          {/* ── Faculty Admin Area (Strictly View-Only) ──────────── */}
+          <Route path="/tswc3020">
+            <Route index element={<AdminLoginPage facultyMode={true} />} />
+            
+            <Route element={
+              <AdminRoute loginPath="/tswc3020">
+                <AdminLayout viewOnly={true} basePath="/tswc3020" />
+              </AdminRoute>
+            }>
+              <Route path="dashboard" element={<AdminDashboardPage viewOnly={true} basePath="/tswc3020" />} />
+              <Route path="coordinators" element={<AdminCoordinatorsPage viewOnly={true} />} />
+              <Route path="students" element={<AdminStudentsPage viewOnly={true} />} />
+              <Route path="registrations" element={<AdminRegistrationsPage viewOnly={true} />} />
+              <Route path="teams" element={<AdminTeamsPage viewOnly={true} />} />
+              <Route path="events" element={<AdminEventsPage viewOnly={true} />} />
+
+              <Route path="*" element={<Navigate to="/tswc3020/dashboard" replace />} />
+            </Route>
+          </Route>
+
           {/* Admin Aliases */}
+          <Route path="/admin/revenue" element={<Navigate to="/wasd4381/revenue" replace />} />
           <Route path="/admin/coordinators" element={<Navigate to="/wasd4381/coordinators" replace />} />
           <Route path="/admin" element={<Navigate to="/wasd4381/dashboard" replace />} />
 

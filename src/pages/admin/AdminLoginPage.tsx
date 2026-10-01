@@ -33,11 +33,18 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
-export function AdminLoginPage() {
+export function AdminLoginPage({
+  facultyMode = false,
+}: {
+  facultyMode?: boolean;
+} = {}) {
   const { user, signOut, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const oauthMode = searchParams.get("oauth") === "google";
+
+  const dashboardPath = facultyMode ? "/tswc3020/dashboard" : "/wasd4381/dashboard";
+  const loginPath = facultyMode ? "/tswc3020" : "/wasd4381";
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -53,9 +60,9 @@ export function AdminLoginPage() {
   useEffect(() => {
     if (oauthMode) return;
     if (user?.role === "admin") {
-      navigate("/wasd4381/dashboard", { replace: true });
+      navigate(dashboardPath, { replace: true });
     }
-  }, [user, navigate, oauthMode]);
+  }, [user, navigate, oauthMode, dashboardPath]);
 
   // If logged in as a normal user, sign them out silently before showing
   // the admin login so we don't accidentally grant admin access.
@@ -87,21 +94,21 @@ export function AdminLoginPage() {
           // dashboard's AdminRoute sees the stale role and bounces to "/".
           await refreshUser();
           console.log("[admin-oauth] navigating to dashboard");
-          navigate("/wasd4381/dashboard", { replace: true });
+          navigate(dashboardPath, { replace: true });
           return;
         }
         adminSignOut();
         if (!cancelled) {
           setError("This Google account is not authorised for admin access.");
           setBusy(false);
-          navigate("/wasd4381", { replace: true });
+          navigate(loginPath, { replace: true });
         }
       } catch (err) {
         adminSignOut();
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Admin sign-in failed. Try again.");
           setBusy(false);
-          navigate("/wasd4381", { replace: true });
+          navigate(loginPath, { replace: true });
         }
       }
     })();
@@ -109,13 +116,14 @@ export function AdminLoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [oauthMode, navigate]);
+  }, [oauthMode, navigate, dashboardPath, loginPath, refreshUser]);
 
   async function handleGoogleSignIn() {
     setError(null);
     setBusy(true);
     try {
-      await adminSignInWithGoogle();
+      const redirectUrl = window.location.origin + (facultyMode ? "/tswc3020?oauth=google" : "/wasd4381?oauth=google");
+      await adminSignInWithGoogle(redirectUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign-in failed. Try again.");
       setBusy(false);
@@ -135,7 +143,7 @@ export function AdminLoginPage() {
       // Sync to AuthContext by triggering a page refresh — the restored
       // session will pick up the admin role automatically.
       void admin;
-      window.location.replace("/wasd4381/dashboard");
+      window.location.replace(dashboardPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid credentials.");
     } finally {
@@ -161,10 +169,17 @@ export function AdminLoginPage() {
           <ShieldCheck className="h-6 w-6 text-primary-soft" />
         </div>
 
-        <p className="eyebrow text-center">TechTrove 3.0</p>
+        <p className="eyebrow text-center">
+          {facultyMode ? "TechTrove 3.0 · Faculty Portal" : "TechTrove 3.0"}
+        </p>
         <h1 className="display mt-2 text-center text-3xl text-foreground">
-          Control Panel
+          {facultyMode ? "Faculty View" : "Control Panel"}
         </h1>
+        {facultyMode && (
+          <p className="mt-1 text-center text-xs text-muted">
+            Strictly view-only operational oversight
+          </p>
+        )}
         <hr className="rule-line mx-auto mt-4 w-24" />
 
         {showVerifying ? (
