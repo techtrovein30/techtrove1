@@ -9,7 +9,6 @@ import {
   Plus,
   UsersRound,
   TrendingUp,
-  Eye,
   CalendarDays,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
@@ -83,27 +82,14 @@ export function AdminDashboardPage({
 
   return (
     <div className="space-y-8">
-      {/* Faculty Notice */}
-      {viewOnly && (
-        <div className="flex items-center gap-3 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-xs text-sky-300">
-          <Eye className="h-4 w-4 shrink-0 text-sky-400" />
-          <div>
-            <p className="font-semibold text-sky-200">Faculty Read-Only Mode</p>
-            <p className="text-[11px] text-sky-300/80">
-              Viewing live operational and event statistics. Financial modifications and review actions are restricted.
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-5">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary-soft mb-1">
-            {viewOnly ? "Faculty Oversight" : "Command Center"}
+            Command Center
           </p>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Welcome back, {user?.fullName?.split(" ")[0] ?? (viewOnly ? "Faculty" : "Admin")}
+            Welcome back, {user?.fullName?.split(" ")[0] ?? "Admin"}
           </h1>
           <p className="mt-2 text-sm text-muted">
             Here's what's happening with TechTrove 3.0 today.

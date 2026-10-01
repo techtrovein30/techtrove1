@@ -89,12 +89,13 @@ export function AdminLoginPage({
         const admin = await adminResolveOAuthAccess();
         console.log("[admin-oauth] resolved admin view →", admin);
         if (admin) {
-          // Role was promoted by ensure_admin_access. Re-fetch the profile so
-          // AuthContext reflects role='admin', THEN navigate — otherwise the
-          // dashboard's AdminRoute sees the stale role and bounces to "/".
+          // Role was promoted by ensure_admin_access or recognized as existing admin.
+          // Re-fetch profile so AuthContext reflects role='admin', THEN navigate.
           await refreshUser();
           console.log("[admin-oauth] navigating to dashboard");
-          navigate(dashboardPath, { replace: true });
+          const target = sessionStorage.getItem("admin_target_portal") || dashboardPath;
+          sessionStorage.removeItem("admin_target_portal");
+          navigate(target, { replace: true });
           return;
         }
         adminSignOut();
@@ -122,7 +123,14 @@ export function AdminLoginPage({
     setError(null);
     setBusy(true);
     try {
-      const redirectUrl = window.location.origin + (facultyMode ? "/tswc3020?oauth=google" : "/wasd4381?oauth=google");
+      // Store desired destination in sessionStorage
+      if (facultyMode) {
+        sessionStorage.setItem("admin_target_portal", "/tswc3020/dashboard");
+      } else {
+        sessionStorage.setItem("admin_target_portal", "/wasd4381/dashboard");
+      }
+      // Always redirect to /wasd4381?oauth=google which is whitelisted in Supabase redirect URLs
+      const redirectUrl = window.location.origin + "/wasd4381?oauth=google";
       await adminSignInWithGoogle(redirectUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign-in failed. Try again.");
@@ -169,17 +177,10 @@ export function AdminLoginPage({
           <ShieldCheck className="h-6 w-6 text-primary-soft" />
         </div>
 
-        <p className="eyebrow text-center">
-          {facultyMode ? "TechTrove 3.0 · Faculty Portal" : "TechTrove 3.0"}
-        </p>
+        <p className="eyebrow text-center">TechTrove 3.0</p>
         <h1 className="display mt-2 text-center text-3xl text-foreground">
-          {facultyMode ? "Faculty View" : "Control Panel"}
+          Control Panel
         </h1>
-        {facultyMode && (
-          <p className="mt-1 text-center text-xs text-muted">
-            Strictly view-only operational oversight
-          </p>
-        )}
         <hr className="rule-line mx-auto mt-4 w-24" />
 
         {showVerifying ? (

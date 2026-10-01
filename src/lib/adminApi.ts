@@ -173,10 +173,24 @@ export async function adminResolveOAuthAccess(): Promise<AdminView | null> {
     return null;
   }
 
+  // 1. If this participant is already an admin in either table, grant immediate access
+  const existingProfile = await getParticipantById(session.user.id);
+  if (existingProfile?.role === "admin") {
+    console.log("[admin-oauth] existing admin recognized:", existingProfile.email);
+    return participantToView(existingProfile);
+  }
+
   const { data, error } = await supabase.rpc("ensure_admin_access");
   console.log("[admin-oauth] ensure_admin_access →", { data, error: error?.message });
   if (error) throw friendlyError(error, "Could not verify admin access.");
-  if (!data) return null;
+  if (!data) {
+    // Double check profile in case RPC returned false but role is already admin
+    const recheck = await getParticipantById(session.user.id);
+    if (recheck?.role === "admin") {
+      return participantToView(recheck);
+    }
+    return null;
+  }
 
   // Re-fetch the profile to confirm the role is actually 'admin'.
   const profile = await getParticipantById(session.user.id);

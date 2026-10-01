@@ -230,6 +230,10 @@ function RegistrationDetail({
         <ProofModal
           isOpen={showProofModal}
           onClose={() => setShowProofModal(false)}
+          onDone={() => {
+            setShowProofModal(false);
+            onClose();
+          }}
           path={screenshotPath}
           title={`Payment Proof · ${registration.teamName}`}
           subtitle={`Registration ${registration.registrationCode} · ${event?.name ?? registration.eventId}`}

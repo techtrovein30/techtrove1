@@ -144,7 +144,7 @@ export function AdminCoordinatorsPage({
               </h1>
               <p className="text-xs text-muted">
                 {viewOnly
-                  ? "Faculty oversight: view assigned event coordinators, contact information, and real-time attendance."
+                  ? "View assigned event coordinators, contact information, and real-time attendance."
                   : "Manage single-coordinator assignments, monitor live event attendance & permissions"}
               </p>
             </div>

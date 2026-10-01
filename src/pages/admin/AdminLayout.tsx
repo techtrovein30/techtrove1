@@ -15,7 +15,6 @@ import {
   UsersRound,
   UserCheck,
   TrendingUp,
-  Eye,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { adminSignOut } from "../../lib/adminApi";
@@ -139,19 +138,15 @@ export function AdminLayout({
     <div className="flex h-full flex-col">
       {/* Brand */}
       <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-white/[0.06] px-4">
-        <div className={`flex h-7 w-7 items-center justify-center ${viewOnly ? "bg-sky-500/20 text-sky-400" : "bg-primary/20 text-primary-soft"}`}>
-          {viewOnly ? (
-            <Eye className="h-3.5 w-3.5" aria-hidden />
-          ) : (
-            <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-          )}
+        <div className="flex h-7 w-7 items-center justify-center bg-primary/20 text-primary-soft">
+          <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
         </div>
         <div className="min-w-0">
           <p className="truncate text-[13px] font-semibold text-foreground">
             TechTrove 3.0
           </p>
-          <p className={`text-[10px] uppercase tracking-[0.14em] font-semibold ${viewOnly ? "text-sky-400" : "text-muted"}`}>
-            {viewOnly ? "Faculty View" : "Admin Panel"}
+          <p className="text-[10px] uppercase tracking-[0.14em] font-semibold text-muted">
+            Control Panel
           </p>
         </div>
       </div>
@@ -175,10 +170,10 @@ export function AdminLayout({
         <div className="rounded-lg border border-white/[0.05] bg-[#161616] p-3 text-xs transition-colors hover:border-white/[0.1]">
           <div className="flex items-center gap-2 font-semibold text-emerald-400">
             <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
-            {viewOnly ? "FACULTY READ-ONLY" : "SYSTEM ACTIVE"}
+            SYSTEM ACTIVE
           </div>
           <p className="mt-1 text-[10px] text-muted">
-            {viewOnly ? "Observation & Audit Portal" : "Event Command Center"}
+            Event Command Center
           </p>
           <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-muted/70">
             build {__APP_VERSION__}
@@ -189,8 +184,8 @@ export function AdminLayout({
       {/* Admin user + sign-out */}
       <div className="shrink-0 border-t border-white/[0.06] p-3">
         <div className="mb-2 flex items-center gap-2.5 rounded-lg bg-surface px-3 py-2.5">
-          <div className={`flex h-7 w-7 shrink-0 items-center justify-center text-[10px] font-bold uppercase ${viewOnly ? "bg-sky-500/20 text-sky-400" : "bg-primary/20 text-primary-soft"}`}>
-            {(user?.fullName ?? "F")
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center bg-primary/20 text-[10px] font-bold uppercase text-primary-soft">
+            {(user?.fullName ?? "A")
               .trim()
               .split(/\s+/)
               .map((w) => w[0])
@@ -200,10 +195,10 @@ export function AdminLayout({
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[12px] font-semibold text-foreground">
-              {user?.fullName ?? (viewOnly ? "Faculty Admin" : "Admin")}
+              {user?.fullName ?? "Admin"}
             </p>
-            <p className={`text-[10px] uppercase tracking-[0.12em] ${viewOnly ? "text-sky-400" : "text-primary-soft"}`}>
-              {viewOnly ? "Faculty (View Only)" : "Administrator"}
+            <p className="text-[10px] uppercase tracking-[0.12em] text-primary-soft">
+              Administrator
             </p>
           </div>
         </div>
@@ -254,10 +249,10 @@ export function AdminLayout({
           <div className="flex-1 flex items-center">
             <div className="hidden sm:block">
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-                {viewOnly ? "Faculty Oversight" : "Admin Console"}
+                Admin Console
               </p>
               <p className="text-sm font-semibold text-foreground">
-                {viewOnly ? "Read-Only Dashboard" : "Command Center"}
+                Command Center
               </p>
             </div>
           </div>

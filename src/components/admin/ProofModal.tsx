@@ -18,6 +18,8 @@ import type { PaymentStatus } from "../../lib/api";
 interface ProofModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onDone?: () => void;
+  doneLabel?: string;
   path: string | null | undefined;
   title?: string;
   subtitle?: string;
@@ -33,6 +35,8 @@ interface ProofModalProps {
 export function ProofModal({
   isOpen,
   onClose,
+  onDone,
+  doneLabel = "Done",
   path,
   title = "Payment Proof",
   subtitle,
@@ -308,19 +312,19 @@ export function ProofModal({
 
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="rounded border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                  onClick={onDone ?? onClose}
+                  className="rounded border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.08] hover:text-white"
                 >
-                  Close
+                  {doneLabel}
                 </button>
               </>
             ) : (
               <button
                 type="button"
-                onClick={onClose}
+                onClick={onDone ?? onClose}
                 className="rounded bg-primary px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-soft"
               >
-                Done
+                {doneLabel}
               </button>
             )}
           </div>
