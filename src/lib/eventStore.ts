@@ -199,9 +199,12 @@ function groupIntoDays(rows: EventRow[], dayMeta: DayMeta): Day[] {
 
 let _cachedDays: Day[] | null = null;
 
+const EVENT_PUBLIC_COLUMNS =
+  "id, day_id, name, category, description, venue, time, duration, coordinator, registration_fee, registration_type, eligibility, required_players, max_substitutes, registration_open, rules, prizes";
+
 async function fetchAndCacheDays(): Promise<Day[]> {
   const [eventsResult, daysResult] = await Promise.all([
-    supabase.from("events").select("*"),
+    supabase.from("events").select(EVENT_PUBLIC_COLUMNS),
     supabase.from("days").select("*")
   ]);
 
@@ -242,7 +245,7 @@ export async function seedEventsIfNeeded(): Promise<void> {
   await requireAdmin();
   const { count } = await supabase
     .from("events")
-    .select("*", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true });
 
   if (count && count > 0) {
     // The table is already populated. Reconcile the static seed events so
@@ -339,7 +342,7 @@ export async function adminUpdateEvent(
     .from("events")
     .update(updateRow)
     .eq("id", eventId)
-    .select()
+    .select(EVENT_PUBLIC_COLUMNS)
     .single();
 
   if (error || !data) throw friendlyError(error, "Could not update the event.");

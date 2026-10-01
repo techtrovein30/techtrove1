@@ -575,6 +575,19 @@ export async function ensureEventAttendanceToken(eventId: string): Promise<strin
     return localTokens[eventId];
   }
 
+  // Prefer the secure coordinator RPC so attendance tokens are never exposed in public catalog queries
+  try {
+    const { data: rpcToken, error: rpcErr } = await supabase.rpc("get_event_attendance_token", {
+      p_event_id: eventId,
+    });
+    if (!rpcErr && rpcToken) {
+      saveLocalEventToken(eventId, rpcToken);
+      return rpcToken;
+    }
+  } catch {
+    // Graceful fallback to cached event row or local generation below
+  }
+
   const days = await getDaysAsync();
   const event = days.flatMap((d) => d.events).find((e) => e.id === eventId);
   if (event?.attendanceToken) {
@@ -587,7 +600,7 @@ export async function ensureEventAttendanceToken(eventId: string): Promise<strin
   try {
     await adminUpdateEvent(eventId, { attendanceToken: newToken });
   } catch {
-    // If table doesn't have column yet, cache locally
+    // If table doesn't have column yet or caller is coordinator, cache locally
   }
   return newToken;
 }

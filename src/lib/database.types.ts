@@ -571,6 +571,37 @@ export interface Database {
         Args: Record<string, never>;
         Returns: boolean;
       };
+      get_event_attendance_token: {
+        Args: {
+          p_event_id: string;
+        };
+        Returns: string;
+      };
+      check_utr_exists: {
+        Args: {
+          p_utr: string;
+          p_exclude_code?: string;
+        };
+        Returns: boolean;
+      };
+      username_is_taken: {
+        Args: {
+          p_username: string;
+        };
+        Returns: boolean;
+      };
+      update_own_full_name: {
+        Args: {
+          p_full_name: string;
+        };
+        Returns: void;
+      };
+      update_own_college: {
+        Args: {
+          p_college: string;
+        };
+        Returns: void;
+      };
       email_queue_claim: {
         Args: {
           p_limit: number;
