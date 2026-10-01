@@ -472,7 +472,10 @@ export async function checkUtrExists(
       };
     }
 
-    // 2. Fallback check: direct query against registrations_external
+    // 2. Fallback check: direct query against registrations_external.
+    // Only external registrations carry a UTR - internal (SIMATS) entries are
+    // free and the table has no utr_number column, so querying it here only
+    // produced `column registrations_internal.utr_number does not exist`.
     let queryExt = supabase
       .from("registrations_external")
       .select("registration_code, utr_number")
@@ -487,25 +490,6 @@ export async function checkUtrExists(
       return {
         exists: true,
         existingCode: extRows[0].registration_code,
-        message: "This Transaction ID / UTR has already been used for another registration.",
-      };
-    }
-
-    // 2. Check registrations_internal (in case an internal record has a UTR)
-    let queryInt = supabase
-      .from("registrations_internal")
-      .select("registration_code, utr_number")
-      .ilike("utr_number", cleanUtr);
-
-    if (excludeRegistrationCode) {
-      queryInt = queryInt.neq("registration_code", excludeRegistrationCode);
-    }
-
-    const { data: intRows, error: intError } = await queryInt.limit(1);
-    if (!intError && intRows && intRows.length > 0) {
-      return {
-        exists: true,
-        existingCode: intRows[0].registration_code,
         message: "This Transaction ID / UTR has already been used for another registration.",
       };
     }

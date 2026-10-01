@@ -66,4 +66,21 @@ describe("checkUtrExists", () => {
       p_exclude_code: "TT-L8K2-A4FG9Z",
     });
   });
+
+  it("never queries registrations_internal, which has no utr_number column", async () => {
+    // RPC unavailable -> the PostgREST fallback runs. Scanning
+    // registrations_internal there fails with SQLSTATE 42703
+    // ("column registrations_internal.utr_number does not exist"), so only the
+    // external table may be touched.
+    vi.mocked(supabase.rpc).mockResolvedValueOnce({
+      data: null,
+      error: { message: "function not found" },
+    } as any);
+
+    await checkUtrExists("192524381123");
+
+    const queried = vi.mocked(supabase.from).mock.calls.map((c) => c[0]);
+    expect(queried).toContain("registrations_external");
+    expect(queried).not.toContain("registrations_internal");
+  });
 });
