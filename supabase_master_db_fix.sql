@@ -292,6 +292,7 @@ $$;
 grant execute on function public.is_event_admin(text) to authenticated;
 
 -- 2F. ensure_admin_access()
+drop function if exists public.ensure_admin_access();
 create or replace function public.ensure_admin_access()
 returns boolean
 language plpgsql
@@ -337,6 +338,7 @@ $$;
 grant execute on function public.ensure_admin_access() to authenticated;
 
 -- 2G. username_is_taken(p_username)
+drop function if exists public.username_is_taken(text);
 create or replace function public.username_is_taken(p_username text)
 returns boolean
 language sql
@@ -354,6 +356,8 @@ $$;
 grant execute on function public.username_is_taken(text) to anon, authenticated;
 
 -- 2H. check_utr_exists(p_utr, p_exclude_code)
+drop function if exists public.check_utr_exists(text, text);
+drop function if exists public.check_utr_exists(text);
 create or replace function public.check_utr_exists(
   p_utr text,
   p_exclude_code text default null
@@ -389,6 +393,7 @@ $$;
 grant execute on function public.check_utr_exists(text, text) to anon, authenticated, service_role;
 
 -- 2I. Profile self-update RPCs
+drop function if exists public.update_own_full_name(text);
 create or replace function public.update_own_full_name(p_full_name text)
 returns void
 language plpgsql
@@ -413,6 +418,7 @@ $$;
 
 grant execute on function public.update_own_full_name(text) to authenticated;
 
+drop function if exists public.update_own_college(text);
 create or replace function public.update_own_college(p_college text)
 returns void
 language plpgsql
@@ -502,6 +508,7 @@ grant execute on function public.participant_update_screenshot(text, text, text)
 -- ─── 3. COORDINATOR & ATTENDANCE RPCS ───────────────────────────────────────
 
 -- 3A. get_event_attendance_token(p_event_id)
+drop function if exists public.get_event_attendance_token(text);
 create or replace function public.get_event_attendance_token(p_event_id text)
 returns text
 language plpgsql
@@ -531,6 +538,7 @@ $$;
 grant execute on function public.get_event_attendance_token(text) to authenticated;
 
 -- 3B. admin_assign_event_coordinator
+drop function if exists public.admin_assign_event_coordinator(text, text, text, text);
 create or replace function public.admin_assign_event_coordinator(
   p_event_id text,
   p_name     text,
@@ -606,6 +614,7 @@ $$;
 grant execute on function public.admin_assign_event_coordinator(text, text, text, text) to authenticated;
 
 -- 3C. admin_remove_event_coordinator
+drop function if exists public.admin_remove_event_coordinator(text);
 create or replace function public.admin_remove_event_coordinator(p_event_id text)
 returns jsonb
 language plpgsql
@@ -626,6 +635,7 @@ $$;
 grant execute on function public.admin_remove_event_coordinator(text) to authenticated;
 
 -- 3D. admin_set_event_attendance_open
+drop function if exists public.admin_set_event_attendance_open(text, boolean);
 create or replace function public.admin_set_event_attendance_open(
   p_event_id text,
   p_open     boolean
@@ -660,6 +670,7 @@ $$;
 grant execute on function public.admin_set_event_attendance_open(text, boolean) to authenticated;
 
 -- 3E. mark_event_attendance (Self-service scan by participant)
+drop function if exists public.mark_event_attendance(text);
 create or replace function public.mark_event_attendance(p_token text)
 returns jsonb
 language plpgsql
@@ -723,16 +734,18 @@ begin
    limit 1;
 
   if v_member.id is null then
-    select r.id::text, r.registration_code
+    select t.id, t.registration_code
       into v_reg_id, v_reg_code
-      from public.registrations_internal r
-     where r.event_id = v_event.id and r.user_id::text = v_uid::text
-     union all
-    select r.id::text, r.registration_code
-      into v_reg_id, v_reg_code
-      from public.registrations_external r
-     where r.event_id = v_event.id and r.user_id::text = v_uid::text
-     limit 1;
+      from (
+        select r.id::text as id, r.registration_code
+          from public.registrations_internal r
+         where r.event_id = v_event.id and r.user_id::text = v_uid::text
+        union all
+        select r.id::text as id, r.registration_code
+          from public.registrations_external r
+         where r.event_id = v_event.id and r.user_id::text = v_uid::text
+      ) t
+      limit 1;
 
     if v_reg_id is null then
       return jsonb_build_object('ok', false, 'reason', 'not_registered', 'message', 'You are not registered for this event.');
@@ -789,6 +802,7 @@ $$;
 grant execute on function public.mark_event_attendance(text) to authenticated;
 
 -- 3F. admin_mark_event_attendance (Manual override by coordinator/admin)
+drop function if exists public.admin_mark_event_attendance(text, text, boolean);
 create or replace function public.admin_mark_event_attendance(
   p_event_id       text,
   p_participant_id text,
@@ -868,6 +882,7 @@ $$;
 grant execute on function public.admin_mark_event_attendance(text, text, boolean) to authenticated;
 
 -- 3G. claim_coordinator_links
+drop function if exists public.claim_coordinator_links();
 create or replace function public.claim_coordinator_links()
 returns integer
 language plpgsql
@@ -898,13 +913,17 @@ grant execute on function public.claim_coordinator_links() to authenticated;
 
 -- ─── 4. CHECK-IN QR RPCS ───────────────────────────────────────────────────
 
+drop function if exists public.my_checkin_token();
+drop function if exists public.my_checkin_tokens();
+
 -- 4A. my_checkin_tokens
 create or replace function public.my_checkin_tokens()
 returns table (
   token            text,
   email            text,
   display_name     text,
-  participant_type text
+  participant_type text,
+  is_self          boolean
 )
 language plpgsql
 security definer
@@ -964,8 +983,9 @@ begin
           updated_at   = now()
     returning t.token, t.email, t.display_name, t.participant_type
   )
-  select u.token, u.email, u.display_name, u.participant_type
-    from upserted u;
+  select u.token, u.email, u.display_name, u.participant_type, (u.email = v_email)
+    from upserted u
+   order by (u.email = v_email) desc, u.display_name;
 end;
 $$;
 
@@ -977,7 +997,8 @@ returns table (
   token            text,
   email            text,
   display_name     text,
-  participant_type text
+  participant_type text,
+  is_self          boolean
 )
 language sql
 stable
@@ -988,6 +1009,9 @@ as $$
 $$;
 
 grant execute on function public.my_checkin_token() to authenticated;
+
+drop function if exists public.admin_scan_checkin(text, text);
+drop function if exists public.admin_scan_checkin(text);
 
 -- 4B. admin_scan_checkin
 create or replace function public.admin_scan_checkin(
@@ -1093,6 +1117,8 @@ grant execute on function public.admin_scan_checkin(text, text) to authenticated
 -- ─── 5. EMAIL QUEUE RPCS ────────────────────────────────────────────────────
 
 -- 5A. email_queue_set_paused
+drop function if exists public.email_queue_set_paused(boolean);
+
 create or replace function public.email_queue_set_paused(p_paused boolean)
 returns boolean
 language plpgsql
@@ -1117,6 +1143,9 @@ $$;
 grant execute on function public.email_queue_set_paused(boolean) to authenticated;
 
 -- 5B. email_queue_retry
+drop function if exists public.email_queue_retry(bigint);
+drop function if exists public.email_queue_retry(integer);
+
 create or replace function public.email_queue_retry(p_id bigint)
 returns boolean
 language plpgsql
@@ -1143,6 +1172,9 @@ $$;
 grant execute on function public.email_queue_retry(bigint) to authenticated;
 
 -- 5C. email_queue_claim (used by edge worker)
+drop function if exists public.email_queue_claim(integer);
+drop function if exists public.email_queue_claim();
+
 create or replace function public.email_queue_claim(p_limit integer default 10)
 returns table (
   id                bigint,
