@@ -161,20 +161,31 @@ export function AdminPaymentsPage() {
     let totalRevenue = 0;
     let pendingRevenue = 0;
 
-    // Revenue is per batch (each flat pass is billed once), so dedupe by code.
-    // Internal registrations are free + auto-confirmed — excluded from payment
-    // revenue/stats entirely.
-    const external = registrations.filter(isExternal);
-    const seen = new Set<string>();
-    for (const r of external) {
-      if (seen.has(r.registrationCode)) continue;
-      seen.add(r.registrationCode);
-      if (r.paymentStatus === "recorded") {
+    // Sum ALL row fees per code — the trigger already zeros out duplicate
+    // day-2 event fees at insert time (already_charged > 0 → fee = 0), so
+    // summing is safe for flat-pass codes (only one row carries a non-zero fee).
+    // The old first-row approach missed money whenever the ₹0 row had a lower
+    // DB id than the ₹75 row. Internal registrations are excluded via isExternal.
+    const codeStats = new Map<string, { status: string; feeSum: number }>();
+    for (const r of registrations) {
+      if (!isExternal(r)) continue;
+      const existing = codeStats.get(r.registrationCode);
+      if (existing) {
+        existing.feeSum += r.fee ?? 0;
+      } else {
+        codeStats.set(r.registrationCode, {
+          status: r.paymentStatus ?? "",
+          feeSum: r.fee ?? 0,
+        });
+      }
+    }
+    for (const { status, feeSum } of codeStats.values()) {
+      if (status === "recorded") {
         recordedCount++;
-        totalRevenue += r.fee;
+        totalRevenue += feeSum;
       } else {
         pendingCount++;
-        pendingRevenue += r.fee;
+        pendingRevenue += feeSum;
       }
     }
 
