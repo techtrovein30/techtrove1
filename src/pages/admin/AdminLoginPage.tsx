@@ -9,6 +9,7 @@ import {
   adminSignInWithGoogle,
   adminResolveOAuthAccess,
 } from "../../lib/adminApi";
+import { isCoreAdminUser } from "../../lib/adminGuard";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -55,12 +56,23 @@ export function AdminLoginPage({
   const oauthAttempted = useRef(false);
 
   // If already authenticated as admin, redirect immediately.
-  // Skipped during the post-Google round-trip — the OAuth resolution below
-  // handles navigation so a not-yet-promoted admin isn't bounced away.
+  // Core admins go to /wasd4381/dashboard (or facultyMode portal if requested).
+  // Non-core admins are routed strictly to /tswc3020/dashboard.
   useEffect(() => {
     if (oauthMode) return;
     if (user?.role === "admin") {
-      navigate(dashboardPath, { replace: true });
+      let cancelled = false;
+      isCoreAdminUser(user.email).then((isCore) => {
+        if (cancelled) return;
+        if (!isCore) {
+          navigate("/tswc3020/dashboard", { replace: true });
+        } else {
+          navigate(dashboardPath, { replace: true });
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [user, navigate, oauthMode, dashboardPath]);
 
@@ -93,8 +105,14 @@ export function AdminLoginPage({
           // Re-fetch profile so AuthContext reflects role='admin', THEN navigate.
           await refreshUser();
           console.log("[admin-oauth] navigating to dashboard");
-          const target = sessionStorage.getItem("admin_target_portal") || dashboardPath;
+          const isCore = await isCoreAdminUser(admin.email);
+          let target = sessionStorage.getItem("admin_target_portal");
           sessionStorage.removeItem("admin_target_portal");
+          if (!isCore) {
+            target = "/tswc3020/dashboard";
+          } else if (!target) {
+            target = dashboardPath;
+          }
           navigate(target, { replace: true });
           return;
         }
@@ -148,10 +166,10 @@ export function AdminLoginPage({
     setBusy(true);
     try {
       const admin = await adminSignIn(identifier.trim(), password);
-      // Sync to AuthContext by triggering a page refresh — the restored
-      // session will pick up the admin role automatically.
-      void admin;
-      window.location.replace(dashboardPath);
+      // Determine if core or faculty
+      const isCore = await isCoreAdminUser(admin.email);
+      const target = (!isCore || facultyMode) ? "/tswc3020/dashboard" : "/wasd4381/dashboard";
+      window.location.replace(target);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid credentials.");
     } finally {

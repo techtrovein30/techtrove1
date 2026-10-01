@@ -11,7 +11,12 @@
 import { supabase } from "./supabase";
 import type { User, Registration, RegistrationMember, PaymentStatus } from "./api";
 import { resolveEmailByIdentifier } from "./api";
-import { requireAdmin as guard, participantToView, type AdminView } from "./adminGuard";
+import {
+  requireAdmin as guard,
+  requireCoreAdmin,
+  participantToView,
+  type AdminView,
+} from "./adminGuard";
 import {
   ALL_REGISTRATION_TABLES,
   getParticipantById,
@@ -76,6 +81,19 @@ function rowToRegistration(r: RegistrationRow): Registration {
 /** Throws if the currently signed-in user is not an admin. */
 async function requireAdmin(): Promise<User> {
   const admin = await guard();
+  return {
+    id: admin.id,
+    username: admin.username,
+    fullName: admin.fullName,
+    email: admin.email,
+    participantType: "internal",
+    role: admin.role,
+  };
+}
+
+/** Throws if the currently signed-in user is not a core admin. */
+async function requireCoreAdminUser(): Promise<User> {
+  const admin = await requireCoreAdmin();
   return {
     id: admin.id,
     username: admin.username,
@@ -501,7 +519,7 @@ export async function adminUpdateUser(userId: string, patch: AdminUserPatch): Pr
 }
 
 export async function adminDeleteUser(userId: string): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCoreAdminUser();
   if (admin.id === userId) throw new Error("You cannot delete your own admin account.");
 
   // Delete registrations first (FK constraint) from both registration tables
@@ -551,7 +569,7 @@ export async function adminUpdateRegistration(
   regId: string,
   patch: AdminRegistrationPatch
 ): Promise<Registration> {
-  await requireAdmin();
+  await requireCoreAdmin();
 
   const table = await findRegistrationTableById(regId);
   if (!table) throw new Error("Registration not found.");
@@ -587,7 +605,7 @@ export async function adminUpdateRegistrationStatusByCode(
   registrationCode: string,
   status: "pending" | "recorded"
 ): Promise<{ updated: number }> {
-  await requireAdmin();
+  await requireCoreAdmin();
 
   if (!registrationCode.trim()) throw new Error("Registration code is required.");
 
@@ -632,7 +650,7 @@ export async function adminRequestPaymentReupload(
   regId: string,
   req: AdminReuploadRequest
 ): Promise<Registration> {
-  await requireAdmin();
+  await requireCoreAdmin();
 
   // ── Step A: find which table owns this registration ───────────────────────
   const table = await findRegistrationTableById(regId);
@@ -747,7 +765,7 @@ export async function adminRequestPaymentReupload(
 }
 
 export async function adminDeleteRegistration(regId: string): Promise<void> {
-  await requireAdmin();
+  await requireCoreAdmin();
   const table = await findRegistrationTableById(regId);
   if (!table) throw new Error("Registration not found.");
   const { error } = await supabase.from(table).delete().eq("id", regId);

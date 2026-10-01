@@ -1,37 +1,39 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { requireAdmin } from "../../lib/adminGuard";
+import { isCoreAdminUser, requireAdmin } from "../../lib/adminGuard";
 
 /**
  * AdminRoute
  * ----------
- * Protects all /wasd4381/* management pages.
+ * Protects management pages (/wasd4381/* and /tswc3020/*).
  *
  * - Loading → show nothing (prevents flash).
- * - No session → redirect to /wasd4381 (admin login).
+ * - No session → redirect to loginPath.
  * - Session exists but role !== 'admin' → verify once more straight from the
- *   DB before bouncing. This covers the Google-OAuth race where the role was
- *   just promoted by ensure_admin_access() but AuthContext still holds the
- *   pre-promotion role (otherwise a legit admin gets silently kicked to "/").
- * - Role confirmed 'admin' (directly or after re-check) → render children.
+ *   DB before bouncing.
+ * - If requireCore is true (/wasd4381/*): checks admin_allowlist.
+ *   Non-core admins (Faculty Admins) are automatically redirected to /tswc3020/dashboard.
+ * - Role confirmed 'admin' (and core if required) → render children.
  */
 export function AdminRoute({
   children,
   loginPath = "/wasd4381",
+  requireCore = false,
 }: {
   children?: React.ReactNode;
   loginPath?: string;
+  requireCore?: boolean;
 }) {
   const { user, loading, refreshUser } = useAuth();
   const [rechecking, setRechecking] = useState(false);
   const [recheckOk, setRecheckOk] = useState(false);
+  const [coreChecking, setCoreChecking] = useState(requireCore);
+  const [isCore, setIsCore] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (loading || !user || user.role === "admin" || recheckOk) return;
     let cancelled = false;
-    // Defer into a microtask so no state is set synchronously inside the
-    // effect body (react-hooks/set-state-in-effect).
     void Promise.resolve().then(() => {
       if (cancelled) return;
       setRechecking(true);
@@ -39,7 +41,6 @@ export function AdminRoute({
         .then(() => {
           if (cancelled) return;
           setRecheckOk(true);
-          // Sync the context so the rest of the app sees role='admin' too.
           refreshUser();
         })
         .catch(() => {
@@ -55,8 +56,31 @@ export function AdminRoute({
     };
   }, [loading, user, refreshUser, recheckOk]);
 
-  if (loading) {
-    // Prevent flash of unauthenticated content while session restores
+  useEffect(() => {
+    if (!requireCore || !user || (user.role !== "admin" && !recheckOk)) {
+      setCoreChecking(false);
+      return;
+    }
+    let cancelled = false;
+    isCoreAdminUser(user.email)
+      .then((res) => {
+        if (!cancelled) {
+          setIsCore(res);
+          setCoreChecking(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsCore(false);
+          setCoreChecking(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requireCore, user, recheckOk]);
+
+  if (loading || (requireCore && coreChecking)) {
     return null;
   }
 
@@ -65,11 +89,15 @@ export function AdminRoute({
   }
 
   if (user.role !== "admin" && !recheckOk) {
-    // Verify against the DB before bouncing — a stale role here is usually
-    // the OAuth-promotion race, not an actual lack of permissions.
     if (rechecking) return null;
     console.warn("[admin-oauth] AdminRoute bounce: user role =", user.role);
     return <Navigate to="/" replace />;
+  }
+
+  // If this route strictly requires Core Admin, bounce non-core faculty admins to /tswc3020/dashboard
+  if (requireCore && isCore === false) {
+    console.warn("[admin-route] Non-core admin redirected to /tswc3020/dashboard");
+    return <Navigate to="/tswc3020/dashboard" replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;

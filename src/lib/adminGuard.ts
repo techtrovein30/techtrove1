@@ -36,6 +36,34 @@ export async function requireAdmin(): Promise<AdminView> {
   return participantToView(profile);
 }
 
+/** Check if an email is present in the core admin allowlist (admin_allowlist table). */
+export async function isCoreAdminUser(email?: string): Promise<boolean> {
+  if (!email) return false;
+  const cleanEmail = email.trim().toLowerCase();
+  try {
+    const { data, error } = await supabase
+      .from("admin_allowlist")
+      .select("email")
+      .eq("email", cleanEmail)
+      .maybeSingle();
+
+    if (error || !data) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Throws if the currently signed-in user is not a core admin. */
+export async function requireCoreAdmin(): Promise<AdminView> {
+  const admin = await requireAdmin();
+  const isCore = await isCoreAdminUser(admin.email);
+  if (!isCore) {
+    throw new Error("Insufficient permissions: account does not have core admin privileges.");
+  }
+  return admin;
+}
+
 export function participantToView(p: ParticipantRow): AdminView {
   return {
     id: p.id,

@@ -17,7 +17,7 @@
  */
 
 import { supabase } from "./supabase";
-import { requireAdmin } from "./adminGuard";
+import { requireAdmin, requireCoreAdmin } from "./adminGuard";
 import { days as staticDays } from "../data/techtrove";
 import type { Day, TechEvent } from "../data/techtrove";
 import { eventRulesMap } from "../data/eventRules";
@@ -319,7 +319,7 @@ export async function adminUpdateEvent(
   eventId: string,
   patch: Partial<TechEvent>
 ): Promise<TechEvent> {
-  await requireAdmin();
+  await requireCoreAdmin();
   const updateRow: Partial<EventRow> = {};
   if (patch.name !== undefined) updateRow.name = patch.name;
   if (patch.category !== undefined) updateRow.category = patch.category ?? null;
@@ -351,7 +351,7 @@ export async function adminUpdateEvent(
 }
 
 export async function adminToggleRegistration(eventId: string): Promise<TechEvent> {
-  await requireAdmin();
+  await requireCoreAdmin();
   // Fetch current state first
   const { data: current, error: fetchError } = await supabase
     .from("events")
@@ -384,7 +384,7 @@ export async function adminAddEvent(
   dayId: string,
   event: Omit<TechEvent, "id" | "dayId">
 ): Promise<TechEvent> {
-  await requireAdmin();
+  await requireCoreAdmin();
   const newEvent: TechEvent = {
     ...event,
     id: makeEventId(),
@@ -403,7 +403,7 @@ export async function adminAddEvent(
 }
 
 export async function adminDeleteEvent(eventId: string): Promise<void> {
-  await requireAdmin();
+  await requireCoreAdmin();
   // Guard: check if registrations exist in either table to prevent catastrophic cascade deletion
   const [internalCheck, externalCheck] = await Promise.all([
     supabase.from("registrations_internal").select("id", { count: "exact", head: true }).eq("event_id", eventId),
@@ -426,7 +426,7 @@ export async function adminUpdateDay(
   dayId: string,
   patch: Partial<Omit<Day, "id" | "events">>
 ): Promise<Day> {
-  await requireAdmin();
+  await requireCoreAdmin();
   const { data: current } = await supabase.from("days").select("*").eq("id", dayId).single();
   const updateData = {
     id: dayId,

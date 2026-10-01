@@ -127,7 +127,7 @@ export default function App() {
             <Route index element={<AdminLoginPage />} />
             
             <Route element={
-              <AdminRoute>
+              <AdminRoute requireCore={true} loginPath="/wasd4381">
                 <AdminLayout />
               </AdminRoute>
             }>
