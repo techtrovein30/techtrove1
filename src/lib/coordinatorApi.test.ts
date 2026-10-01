@@ -55,11 +55,13 @@ import {
   markEventAttendance,
   adminAssignCoordinator,
   adminRemoveCoordinator,
+  adminGetCoordinatorSummaries,
   getAssignedCoordinatorEvent,
   parseAttendanceToken,
 } from "./coordinatorApi";
 import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
+import { getAllRegistrations } from "./db";
 import type { User } from "./api";
 
 const rpc = supabase.rpc as unknown as ReturnType<typeof vi.fn>;
@@ -367,5 +369,129 @@ describe("getAssignedCoordinatorEvent", () => {
     const impostor = { ...APPOINTEE, email: "impostor@example.com", fullName: "Prof. Carol" };
     const assigned = await getAssignedCoordinatorEvent(impostor);
     expect(assigned).toBeNull();
+  });
+});
+
+describe("adminGetCoordinatorSummaries headcount", () => {
+  const DAY = [
+    {
+      id: "day-1",
+      title: "Day 1",
+      events: [
+        { id: "kabaddi", name: "Kabaddi" },
+        { id: "hackathon", name: "Hackathon" },
+        { id: "flat", name: "Flat Pass" },
+      ],
+    },
+  ];
+
+  const member = (eventId: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `${eventId}-m${i}`,
+      event_id: eventId,
+      registration_id: `${eventId}-r0`,
+      member_name: `Player ${i}`,
+      email: `${eventId}-p${i}@example.com`,
+      attended: false,
+    }));
+
+  const reg = (eventId: string, id: string, members: unknown) => ({
+    id,
+    registration_code: id.toUpperCase(),
+    event_id: eventId,
+    user_id: `usr-${id}`,
+    team_name: "T",
+    captain_name: "C",
+    fee: 0,
+    payment_status: "recorded",
+    terms_accepted: true,
+    members,
+    created_at: "2026-09-15T00:00:00Z",
+  });
+
+  async function summarise(regs: unknown[], members: unknown[], attendance: unknown[] = []) {
+    const { getDaysAsync } = await import("./eventStore");
+    vi.mocked(getDaysAsync).mockResolvedValue(DAY as never);
+    vi.mocked(getAllRegistrations).mockResolvedValue(regs as never);
+
+    const from = supabase.from as unknown as ReturnType<typeof vi.fn>;
+    from.mockImplementation((table: string) => {
+      const rows = table === "registration_members" ? members : table === "attendance" ? attendance : [];
+      const builder: Record<string, unknown> = {};
+      const chain = () => builder;
+      for (const method of ["select", "eq", "order"]) builder[method] = vi.fn(chain);
+      builder.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
+      return builder;
+    });
+
+    const summaries = await adminGetCoordinatorSummaries();
+    return Object.fromEntries(summaries.map((s) => [s.event.id, s]));
+  }
+
+  beforeEach(() => {
+    vi.mocked(getAllRegistrations).mockResolvedValue([] as never);
+  });
+
+  it("counts every person in a team, not the one registration row", async () => {
+    // One Kabaddi registration with 12 members is 12 students, so a coordinator
+    // marking the whole squad in reaches 12/12. Counting the row gave 12/1 = 1200%.
+    const rows = [
+      { ...reg("kabaddi", "kabaddi-r0", [{ name: "A" }, { name: "B" }, { name: "C" }]) },
+    ];
+    const map = await summarise(rows, member("kabaddi", 3), member("kabaddi", 3).map((m) => ({ ...m, attended: true })));
+
+    expect(map.kabaddi.totalParticipants).toBe(3);
+    expect(map.kabaddi.attendedCount).toBe(3);
+    expect(map.kabaddi.attendancePercentage).toBe(100);
+  });
+
+  it("does not let a partial registration_members table shrink the roster", async () => {
+    // registration_members is trigger-populated, so it can lag or miss rows. The
+    // old `members.length > 0 ? members.length : regs` rule threw the registrations
+    // away for any event that had even one row, reporting 3 of 14 students.
+    const regs = Array.from({ length: 14 }, (_, i) => reg("hackathon", `hackathon-r${i}`, [{ name: `S${i}` }]));
+    const map = await summarise(regs, member("hackathon", 3));
+
+    expect(map.hackathon.totalParticipants).toBe(14);
+  });
+
+  it("ignores member rows whose registration was deleted", async () => {
+    // Orphan rows survive a registration delete. They are not people who plan to
+    // arrive, so they must not inflate the roster or the attendance percentage.
+    const orphans = [
+      ...member("kabaddi", 12),
+      { id: "orphan", event_id: "kabaddi", registration_id: "gone", member_name: "Ghost", email: "ghost@example.com" },
+    ];
+    const map = await summarise([reg("kabaddi", "kabaddi-r0", [{ name: "A" }, { name: "B" }])], orphans);
+
+    expect(map.kabaddi.totalParticipants).toBe(2);
+  });
+
+  it("counts a registration with no members array as one student", async () => {
+    // 4330 of 4396 rows are single-member flat passes, and a flat pass covering
+    // several events is one row per event.
+    const map = await summarise(
+      [reg("flat", "flat-r0", []), reg("flat", "flat-r1", null), reg("flat", "flat-r2", undefined)],
+      [],
+    );
+
+    expect(map.flat.totalParticipants).toBe(3);
+  });
+
+  it("never reports more arrivals than the roster, even with duplicate scans", async () => {
+    const regs = [reg("kabaddi", "kabaddi-r0", [{ name: "A" }, { name: "B" }])];
+    const scans = Array.from({ length: 9 }, (_, i) => ({ event_id: "kabaddi", participant_id: `x${i}` }));
+    const map = await summarise(regs, member("kabaddi", 2), scans);
+
+    expect(map.kabaddi.totalParticipants).toBe(2);
+    expect(map.kabaddi.attendedCount).toBe(2);
+    expect(map.kabaddi.attendancePercentage).toBe(100);
+  });
+
+  it("reports 0% rather than dividing by zero for an event nobody registered for", async () => {
+    const map = await summarise([], []);
+
+    expect(map.flat.totalParticipants).toBe(0);
+    expect(map.flat.attendancePercentage).toBe(0);
   });
 });

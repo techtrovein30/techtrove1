@@ -380,13 +380,23 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
     const eventMembers = allMembers.filter((m) => m.event_id === event.id);
     const eventRegs = registrations.filter((r) => r.event_id === event.id);
 
-    // Total participants count
-    const totalParticipants = eventMembers.length > 0
-      ? eventMembers.length
-      : eventRegs.reduce((sum, r) => {
-          const count = Array.isArray(r.members) ? r.members.length : 1;
-          return sum + count;
-        }, 0);
+    // Expected people for this event, derived from the registrations themselves:
+    // sum the members[] JSON array (captain + team), counting 1 when it is empty.
+    //
+    // This deliberately does NOT prefer registration_members even though that
+    // table currently agrees row for row. It is trigger-populated, so it can only
+    // ever be as complete as the trigger was, and it keeps rows for registrations
+    // that were later deleted. The old code did the opposite -- `members.length
+    // > 0 ? members.length : <count registrations>` -- which threw the roster away
+    // for any event that had even one stale member row.
+    const peopleFromRegs = eventRegs.reduce((sum, r) => {
+      const members = Array.isArray(r.members) ? r.members : [];
+      return sum + (members.length > 0 ? members.length : 1);
+    }, 0);
+
+    // registration_members is only a backstop for events that have no
+    // registration rows at all, which should not happen but must not read as 0.
+    const totalParticipants = peopleFromRegs > 0 ? peopleFromRegs : eventMembers.length;
 
     const attendedCount = Math.min(
       attendedByEvent.get(event.id) ?? 0,

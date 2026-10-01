@@ -256,14 +256,35 @@ export async function getAdminStats(): Promise<AdminStats> {
   // deleting or un-recording a registration reflects reality immediately
   // (19k collected + 6k pending = ~25k, no double counting). Deletion history
   // remains available on the Deleted History page for audit purposes.
-  const seenCodes = new Set<string>();
+  // Sum ALL row fees per code instead of reading the first row only.
+  //
+  // Why: the trigger zeros out duplicate day-2 event fees at insert time
+  // (already_charged > 0 → fee = 0), so summing all rows is safe for day-2
+  // (only one row carries a non-zero fee). For day-1 each event row carries
+  // its own fee, so summing gives the correct total. The old "first-row wins"
+  // approach missed ₹10,725 because for 143 codes the ₹0 row had a lower id
+  // and was picked as the representative row.
+  //
+  // payment_status: the query confirmed n_status = 0 (no code has rows that
+  // disagree on status), so any row's status is representative — we use the
+  // first one we encounter per code.
+  const codeStats = new Map<string, { status: string; feeSum: number }>();
   for (const r of registrations) {
     if (isInternalRow(r)) continue;
-    if (seenCodes.has(r.registration_code)) continue;
-    seenCodes.add(r.registration_code);
-    if (r.payment_status === "recorded") {
+    const existing = codeStats.get(r.registration_code);
+    if (existing) {
+      existing.feeSum += r.fee ?? 0;
+    } else {
+      codeStats.set(r.registration_code, {
+        status: r.payment_status ?? "",
+        feeSum: r.fee ?? 0,
+      });
+    }
+  }
+  for (const { status, feeSum } of codeStats.values()) {
+    if (status === "recorded") {
       recorded++;
-      revenue += r.fee ?? 0;
+      revenue += feeSum;
     } else {
       pending++;
     }
