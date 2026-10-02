@@ -203,9 +203,13 @@ export async function adminKickEmailBatch(): Promise<EmailBatchKickResult> {
           const text = await cloned.text();
           try {
             const parsed = JSON.parse(text);
-            const msg = parsed.error || parsed.message || parsed.msg;
-            if (msg) detail = `${msg}${status}`;
-            else if (text.trim()) detail = `${text.trim()}${status}`;
+            const errName = parsed.error || parsed.message || parsed.msg || "";
+            const errDetail = parsed.detail || parsed.details || parsed.hint || "";
+            const fullMsg =
+              errName && errDetail
+                ? `${errName} — ${errDetail}`
+                : errName || errDetail || text.trim();
+            detail = `${fullMsg}${status}`;
           } catch {
             if (text.trim()) detail = `${text.trim()}${status}`;
             else if (status) detail = `${error.message}${status}`;
