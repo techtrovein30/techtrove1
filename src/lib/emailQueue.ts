@@ -192,6 +192,31 @@ export async function adminKickEmailBatch(): Promise<EmailBatchKickResult> {
   const { data, error } = await supabase.functions.invoke("admin-kick-email-worker", {
     body: {},
   });
-  if (error) throw friendlyError(error, "Could not trigger the email batch.");
+  if (error) {
+    let detail = error.message || "Could not trigger the email batch.";
+    if ("context" in error && error.context) {
+      try {
+        const ctx = (error as { context?: Response }).context;
+        if (ctx) {
+          const status = ctx.status ? ` (HTTP ${ctx.status})` : "";
+          const cloned = typeof ctx.clone === "function" ? ctx.clone() : ctx;
+          const text = await cloned.text();
+          try {
+            const parsed = JSON.parse(text);
+            const msg = parsed.error || parsed.message || parsed.msg;
+            if (msg) detail = `${msg}${status}`;
+            else if (text.trim()) detail = `${text.trim()}${status}`;
+          } catch {
+            if (text.trim()) detail = `${text.trim()}${status}`;
+            else if (status) detail = `${error.message}${status}`;
+          }
+        }
+      } catch {
+        // retain default detail
+      }
+    }
+    console.error("[emailQueue] Could not trigger the email batch:", detail, error);
+    throw new Error(detail);
+  }
   return (data ?? {}) as EmailBatchKickResult;
 }
