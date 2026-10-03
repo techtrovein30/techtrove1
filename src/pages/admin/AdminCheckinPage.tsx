@@ -578,11 +578,42 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       ? typedPlayers
       : typedPlayers.filter((p) => statusFor(p) === statusFilter);
 
-  const total = filteredPlayers.length;
-  const attendedCount = filteredPlayers.filter((p) => p.attended).length;
   const eventNamesById = new Map(events.map((ev) => [ev.id, ev.name]));
   const eventNameFor = (member: CheckinMember) =>
     member.eventName ?? eventNamesById.get(member.eventId) ?? "";
+
+  // Global aggregate stats across all events
+  const { globalTotalRegistrations, globalTotalAttended } = useMemo(() => {
+    let regSum = 0;
+    let attSum = 0;
+    const countedEvents = new Set<string>();
+
+    for (const ev of events) {
+      const clean = ev.id.replace(/^(tech-|nontech-|sport-)/, "");
+      if (countedEvents.has(clean)) continue;
+      countedEvents.add(clean);
+
+      const s =
+        attendanceStats[ev.id] ||
+        attendanceStats[clean] ||
+        attendanceStats[`sport-${clean}`];
+      if (s) {
+        regSum += s.total;
+        attSum += s.attended;
+      }
+    }
+
+    const effectiveTotal = Math.max(regSum, players.length);
+    const effectiveAttended = Math.max(
+      attSum,
+      players.filter((p) => p.attended).length
+    );
+
+    return {
+      globalTotalRegistrations: effectiveTotal,
+      globalTotalAttended: effectiveAttended,
+    };
+  }, [events, attendanceStats, players]);
 
   async function toggle(player: (typeof filteredPlayers)[number]) {
     setBusy(player.key);
@@ -645,8 +676,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
               Total Checked In
             </p>
             <p className="text-xl font-bold text-emerald-400">
-              {attendedCount}
-              <span className="text-sm font-medium text-muted"> / {total}</span>
+              {globalTotalAttended}
+              <span className="text-sm font-medium text-muted"> / {globalTotalRegistrations}</span>
             </p>
           </div>
           <button

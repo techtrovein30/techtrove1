@@ -12,6 +12,7 @@ import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
 import { useCallback, useEffect, useState } from "react";
 import { validateEmail } from "./validation";
+import { getAllRegistrations, type RegistrationRow } from "./db";
 
 /**
  * Sanitizes free-text search input before it is embedded into a PostgREST
@@ -114,7 +115,78 @@ export async function adminListCheckinMembers(opts?: {
       .select("event_id, participant_email, participant_id, participant_name, registration_code, status"),
   ]);
 
-  if (membersRes.error) throw new Error(membersRes.error.message || "Could not load check-in list.");
+  let rawMemberRows = membersRes.data ?? [];
+
+  if (rawMemberRows.length === 0) {
+    const allRegs = await getAllRegistrations().catch(() => [] as RegistrationRow[]);
+    const synth: Record<string, unknown>[] = [];
+    for (const r of allRegs) {
+      if (opts?.eventId) {
+        const cleanReq = opts.eventId.replace(/^(tech-|nontech-|sport-)/, "").toLowerCase();
+        const cleanEv = (r.event_id || "").replace(/^(tech-|nontech-|sport-)/, "").toLowerCase();
+        if (r.event_id !== opts.eventId && cleanEv !== cleanReq) continue;
+      }
+      const members = Array.isArray(r.members) ? (r.members as any[]) : [];
+      const isInternal = (members[0]?.participantType === "internal");
+      if (members.length > 0) {
+        members.forEach((m, idx) => {
+          synth.push({
+            id: `${r.id}_${idx}`,
+            registration_id: r.id,
+            registration_code: r.registration_code,
+            user_id: r.user_id,
+            event_id: r.event_id,
+            team_name: r.team_name,
+            captain_name: r.captain_name,
+            participant_type: m.participantType ?? (isInternal ? "internal" : "external"),
+            payment_status: r.payment_status || "confirmed",
+            member_name: m.name || r.captain_name,
+            member_role: m.role || (idx === 0 ? "captain" : "player"),
+            position: m.position ?? idx,
+            email: m.email || (idx === 0 ? r.captain_name : ""),
+            reg_number: m.regNumber || null,
+            phone: m.phone || null,
+            college: m.college || null,
+            attended: false,
+          });
+        });
+      } else {
+        synth.push({
+          id: r.id,
+          registration_id: r.id,
+          registration_code: r.registration_code,
+          user_id: r.user_id,
+          event_id: r.event_id,
+          team_name: r.team_name,
+          captain_name: r.captain_name,
+          participant_type: isInternal ? "internal" : "external",
+          payment_status: r.payment_status || "confirmed",
+          member_name: r.captain_name,
+          member_role: "captain",
+          position: 0,
+          email: "",
+          reg_number: null,
+          phone: null,
+          college: null,
+          attended: false,
+        });
+      }
+    }
+
+    if (safeTerm) {
+      const termLower = safeTerm.toLowerCase();
+      rawMemberRows = synth.filter(
+        (m: any) =>
+          String(m.member_name || "").toLowerCase().includes(termLower) ||
+          String(m.team_name || "").toLowerCase().includes(termLower) ||
+          String(m.captain_name || "").toLowerCase().includes(termLower) ||
+          String(m.registration_code || "").toLowerCase().includes(termLower) ||
+          String(m.email || "").toLowerCase().includes(termLower)
+      );
+    } else {
+      rawMemberRows = synth;
+    }
+  }
 
   const attPresentSet = new Set<string>();
   if (attRes.data) {
@@ -152,7 +224,7 @@ export async function adminListCheckinMembers(opts?: {
   }
 
   const registeredKeys = new Set<string>();
-  const list: CheckinMember[] = (membersRes.data ?? []).map((row) => {
+  const list: CheckinMember[] = rawMemberRows.map((row) => {
     const m = toCheckinMember(row);
     const email = (m.email || "").trim().toLowerCase();
     const uid = (m.userId || "").trim().toLowerCase();
