@@ -606,61 +606,53 @@ export async function ensureEventAttendanceToken(eventId: string): Promise<strin
 }
 
 export const UNIFIED_SPORTS_TOKEN_KEY = "techtrove_sports_attendance_token";
+export const UNIFIED_SPORTS_TOKEN = "ba31a6b79aa1bf173badbd6f62236556";
+
+export const CANONICAL_EVENT_TOKENS: Record<string, string> = {
+  // Master Unified Sports Token
+  "sports-unified-master": UNIFIED_SPORTS_TOKEN,
+  // Tech Events
+  "hackathon": "c2d785c6556130288b23bc5930e0c897",
+  "debugging": "290956874150306ca19811783dc6e939",
+  "paper-presentation": "a40b6e47c70ce8a2da3cb7868cc01327",
+  "tech-maze": "d343f64181baadd8c18d1445e5f5dcc9",
+  "quiz": "598f2afc0c67c72c24c7313e0734daba",
+  // Non-Tech Events
+  "dance": "048c0b5cea0eb38ab212c9897ad107ff",
+  "singing": "3b872130193c85708506bc2d8bbc1fb0",
+  "gaming": "20575a9e9755fc64694258c938f8c1dc",
+  "ramp-walk": "3cc0ccc344defb6d48a3b5b59ec6bc88",
+  "treasure-hunt": "42afcf562a175493cf013832357b9b48",
+  "connexion": "4582ab70dce31f3dc148e2893284532e",
+  "adaptune": "b4b2fec065183af2ea1afaefa2a1d1ea",
+  "tunetopia": "7df7ca111c8fb6ebc37bed39fa5bf19e",
+  "logo-making": "487449ffe383208b37ebb6ea11a0586d",
+  // Individual Sports
+  "cricket": "42f72b973a4435f9aef271a8fe028992",
+  "football": "ab30b6937266257e63ba609931840c68",
+  "volleyball": "1aa8125cc6422b40182407d3cb802c2d",
+  "kabaddi": "a4589e9420537421ae5343bbff9bcf40",
+  "sport-khokho-girls": "18631d75d480ce4c8f0979a200d3e08e",
+  "sport-throwball-girls": "87cb2c00f1f675db80174d5af7caaf54",
+  "sport-chess-girls": "e08dfc0be793e4b9d70dc9aa9beca60b",
+  "sport-carrom-girls": "6fb1e0984a6a4ba1ede4f6459869a0f4",
+};
+
+export const CANONICAL_TOKEN_TO_EVENT: Record<string, string> = Object.entries(
+  CANONICAL_EVENT_TOKENS
+).reduce((acc, [evId, tok]) => {
+  acc[tok] = evId;
+  return acc;
+}, {} as Record<string, string>);
 
 /**
  * Ensures all Day 1 sports events share a single unified attendance token.
  */
-export async function ensureSportsAttendanceToken(sportsEvents?: TechEvent[]): Promise<string> {
-  // 1. Check local storage cache
+export async function ensureSportsAttendanceToken(_sportsEvents?: TechEvent[]): Promise<string> {
   try {
-    const cached = localStorage.getItem(UNIFIED_SPORTS_TOKEN_KEY);
-    if (cached && /^[0-9a-f]{32}$/i.test(cached.trim())) {
-      return cached.trim().toLowerCase();
-    }
+    localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, UNIFIED_SPORTS_TOKEN);
   } catch {}
-
-  // 2. Check if any sports event already has an attendance token
-  let list = sportsEvents;
-  if (!list || list.length === 0) {
-    const days = await getDaysAsync();
-    list = days
-      .flatMap((d) => d.events)
-      .filter(
-        (e) =>
-          e.dayId === "day-1" ||
-          (e.category ?? "").toLowerCase().startsWith("sport")
-      );
-  }
-
-  for (const ev of list) {
-    if (ev.attendanceToken && /^[0-9a-f]{32}$/i.test(ev.attendanceToken)) {
-      const tok = ev.attendanceToken.trim().toLowerCase();
-      try {
-        localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, tok);
-      } catch {}
-      return tok;
-    }
-  }
-
-  // 3. Try to get token from the first sports event via secure RPC
-  if (list.length > 0) {
-    try {
-      const tok = await ensureEventAttendanceToken(list[0].id);
-      if (tok && /^[0-9a-f]{32}$/i.test(tok)) {
-        try {
-          localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, tok.trim().toLowerCase());
-        } catch {}
-        return tok.trim().toLowerCase();
-      }
-    } catch {}
-  }
-
-  // 4. Fallback to generating a fresh secure token
-  const newToken = generateSecureAttendanceToken();
-  try {
-    localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, newToken);
-  } catch {}
-  return newToken;
+  return UNIFIED_SPORTS_TOKEN;
 }
 
 /**
@@ -844,7 +836,7 @@ export async function markEventAttendance(
   const res = (rpcData ?? {}) as Record<string, unknown>;
   const reason = String(res.reason ?? (res.ok ? "success" : "error")) as MarkAttendanceResult["reason"];
 
-  // If RPC returned not_registered or invalid_qr on the sports pass, check client fallback
+  // If RPC returned not_registered or invalid_qr on the sports pass or canonical card tokens, check client fallback
   if (!res.ok && (reason === "not_registered" || reason === "invalid_qr")) {
     const cachedSportsToken = (() => {
       try {
@@ -854,62 +846,93 @@ export async function markEventAttendance(
       }
     })();
 
-    if (cachedSportsToken && cleanToken === cachedSportsToken) {
+    const isSportsPass = cleanToken === UNIFIED_SPORTS_TOKEN || (cachedSportsToken && cleanToken === cachedSportsToken);
+    const targetCanonicalEventId = CANONICAL_TOKEN_TO_EVENT[cleanToken];
+
+    if (isSportsPass || targetCanonicalEventId) {
       try {
         const days = await getDaysAsync();
-        const sportsList = days
-          .flatMap((d) => d.events)
-          .filter(
+        const allEvList = days.flatMap((d) => d.events);
+
+        if (isSportsPass) {
+          const sportsList = allEvList.filter(
             (e) =>
               e.dayId === "day-1" ||
               (e.category ?? "").toLowerCase().startsWith("sport")
           );
-        const sportEventIds = new Set(sportsList.map((e) => e.id));
-        const email = user.email.trim().toLowerCase();
+          const sportEventIds = new Set(sportsList.map((e) => e.id));
+          const email = user.email.trim().toLowerCase();
 
-        const { data: memberRows } = await supabase
-          .from("registration_members")
-          .select("event_id, event_name")
-          .ilike("email", email);
+          const { data: memberRows } = await supabase
+            .from("registration_members")
+            .select("event_id, event_name")
+            .ilike("email", email);
 
-        const registeredSports = (memberRows ?? []).filter((m) =>
-          sportEventIds.has(m.event_id)
-        );
+          const registeredSports = (memberRows ?? []).filter((m) =>
+            sportEventIds.has(m.event_id)
+          );
 
-        if (registeredSports.length > 0) {
-          for (const reg of registeredSports) {
-            const matched = sportsList.find((e) => e.id === reg.event_id);
-            if (matched?.attendanceToken && matched.attendanceToken !== cleanToken) {
-              const { data: subRpc } = await supabase.rpc("mark_event_attendance", {
-                p_token: matched.attendanceToken,
-              });
-              const subRes = (subRpc ?? {}) as Record<string, unknown>;
-              if (subRes.ok) {
-                emitRealtimeAttendance(matched.id);
-                return {
-                  ok: true,
-                  reason: "success",
-                  message: `✅ Attendance Marked for ${matched.name}!`,
-                  eventName: matched.name,
-                  markedAt: String(subRes.marked_at || new Date().toISOString()),
-                };
-              } else if (subRes.reason === "already_attended") {
-                return {
-                  ok: false,
-                  reason: "already_attended",
-                  message: `✓ Attendance already marked for ${matched.name}.`,
-                  eventName: matched.name,
-                  markedAt: String(subRes.marked_at || ""),
-                };
+          if (registeredSports.length > 0) {
+            for (const reg of registeredSports) {
+              const matched = sportsList.find((e) => e.id === reg.event_id);
+              if (matched?.attendanceToken && matched.attendanceToken !== cleanToken) {
+                const { data: subRpc } = await supabase.rpc("mark_event_attendance", {
+                  p_token: matched.attendanceToken,
+                });
+                const subRes = (subRpc ?? {}) as Record<string, unknown>;
+                if (subRes.ok) {
+                  emitRealtimeAttendance(matched.id);
+                  return {
+                    ok: true,
+                    reason: "success",
+                    message: `✅ Attendance Marked for ${matched.name}!`,
+                    eventName: matched.name,
+                    markedAt: String(subRes.marked_at || new Date().toISOString()),
+                  };
+                } else if (subRes.reason === "already_attended") {
+                  return {
+                    ok: false,
+                    reason: "already_attended",
+                    message: `✓ Attendance already marked for ${matched.name}.`,
+                    eventName: matched.name,
+                    markedAt: String(subRes.marked_at || ""),
+                  };
+                }
               }
             }
+          } else {
+            return {
+              ok: false,
+              reason: "not_registered",
+              message: "❌ You are not registered for any sports event.",
+            };
           }
-        } else {
-          return {
-            ok: false,
-            reason: "not_registered",
-            message: "❌ You are not registered for any sports event.",
-          };
+        } else if (targetCanonicalEventId) {
+          const matched = allEvList.find((e) => e.id === targetCanonicalEventId);
+          if (matched?.attendanceToken && matched.attendanceToken !== cleanToken) {
+            const { data: subRpc } = await supabase.rpc("mark_event_attendance", {
+              p_token: matched.attendanceToken,
+            });
+            const subRes = (subRpc ?? {}) as Record<string, unknown>;
+            if (subRes.ok) {
+              emitRealtimeAttendance(matched.id);
+              return {
+                ok: true,
+                reason: "success",
+                message: `✅ Attendance Marked for ${matched.name}!`,
+                eventName: matched.name,
+                markedAt: String(subRes.marked_at || new Date().toISOString()),
+              };
+            } else if (subRes.reason === "already_attended") {
+              return {
+                ok: false,
+                reason: "already_attended",
+                message: `✓ Attendance already marked for ${matched.name}.`,
+                eventName: matched.name,
+                markedAt: String(subRes.marked_at || ""),
+              };
+            }
+          }
         }
       } catch {
         // Fall back to RPC response

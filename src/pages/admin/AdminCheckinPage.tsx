@@ -35,7 +35,10 @@ import {
 import { adminScanCheckin, type ScanResult } from "../../lib/checkinQr";
 import {
   getAttendanceEventStats,
+  CANONICAL_EVENT_TOKENS,
+  UNIFIED_SPORTS_TOKEN,
 } from "../../lib/coordinatorApi";
+import { adminUpdateEvent } from "../../lib/eventStore";
 import { buildEventQrPayload } from "../../lib/qrToken";
 import { QrScanner } from "../../components/qr/QrScanner";
 import { ScanErrorPanel, ScanResultPanel } from "../../components/qr/ScanResultPanel";
@@ -189,8 +192,11 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     }
   }, []);
 
-  // Resolve token for an event without mutating Supabase
+  // Resolve token for an event matching the verified generated cards
   const resolveToken = useCallback((ev: TechEvent): string => {
+    if (CANONICAL_EVENT_TOKENS[ev.id]) {
+      return CANONICAL_EVENT_TOKENS[ev.id];
+    }
     if (ev.attendanceToken && /^[0-9a-f]{32}$/i.test(ev.attendanceToken.trim())) {
       return ev.attendanceToken.trim().toLowerCase();
     }
@@ -200,42 +206,13 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       if (cached && /^[0-9a-f]{32}$/i.test(cached.trim())) {
         return cached.trim().toLowerCase();
       }
-      const bytes = new Uint8Array(16);
-      crypto.getRandomValues(bytes);
-      const fresh = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-      localStorage.setItem(cacheKey, fresh);
-      return fresh;
-    } catch {
-      return "00000000000000000000000000000000";
-    }
+    } catch {}
+    return "00000000000000000000000000000000";
   }, []);
 
   // Resolve the single master token for sports
-  const resolveSports = useCallback((sports: TechEvent[]): string => {
-    try {
-      const cached = localStorage.getItem("techtrove_sports_attendance_token");
-      if (cached && /^[0-9a-f]{32}$/i.test(cached.trim())) {
-        return cached.trim().toLowerCase();
-      }
-    } catch {}
-
-    for (const s of sports) {
-      if (s.attendanceToken && /^[0-9a-f]{32}$/i.test(s.attendanceToken.trim())) {
-        const tok = s.attendanceToken.trim().toLowerCase();
-        try {
-          localStorage.setItem("techtrove_sports_attendance_token", tok);
-        } catch {}
-        return tok;
-      }
-    }
-
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    const fresh = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-    try {
-      localStorage.setItem("techtrove_sports_attendance_token", fresh);
-    } catch {}
-    return fresh;
+  const resolveSports = useCallback((_sports: TechEvent[]): string => {
+    return UNIFIED_SPORTS_TOKEN;
   }, []);
 
   // Fast, non-blocking QR initialization (runs purely in-memory)
@@ -450,6 +427,16 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     async (raw: string) => {
       setScanning(true);
       setScanError(null);
+
+      // Check if user accidentally scanned an Event Attendance QR Code instead of a student pass
+      if (raw.includes("TTE1:") || raw.includes("tte1:") || raw.includes("/attendance?token=")) {
+        setScanError(
+          "⚠️ That is an Event Attendance QR Code (for students to scan with their mobile phone cameras). For Desk Check-in, please scan the student's personal check-in pass (starts with TTQ1 from their profile page)."
+        );
+        setScanning(false);
+        return;
+      }
+
       try {
         const result = await adminScanCheckin(raw);
         setScanResult(result);
@@ -470,6 +457,36 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     },
     [refresh, loadStats, toast]
   );
+
+  // Sync all verified QR tokens to the Supabase database
+  const [syncingDb, setSyncingDb] = useState(false);
+  const handleSyncTokensToDb = async () => {
+    setSyncingDb(true);
+    try {
+      let updatedCount = 0;
+      for (const ev of events) {
+        const isSport = ev.dayId === "day-1" || (ev.category ?? "").toLowerCase().startsWith("sport");
+        const canonicalToken = isSport ? UNIFIED_SPORTS_TOKEN : CANONICAL_EVENT_TOKENS[ev.id];
+        if (canonicalToken && ev.attendanceToken !== canonicalToken) {
+          await adminUpdateEvent(ev.id, { attendanceToken: canonicalToken });
+          updatedCount++;
+        }
+      }
+      toast.success(
+        updatedCount > 0
+          ? `Synced ${updatedCount} event tokens to database successfully!`
+          : "All event tokens in the database are already up to date!"
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to sync tokens to database. Please run the SQL migration."
+      );
+    } finally {
+      setSyncingDb(false);
+    }
+  };
 
   // Participant Desk Roster calculations
   const statusFor = (player: (typeof players)[number]) =>
@@ -556,6 +573,16 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
               <span className="text-sm font-medium text-muted"> / {total}</span>
             </p>
           </div>
+          <button
+            type="button"
+            onClick={handleSyncTokensToDb}
+            disabled={syncingDb}
+            className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-3 text-xs font-semibold text-primary-soft hover:bg-primary/20 transition-colors disabled:opacity-50"
+            title="Sync all verified QR card tokens directly to Supabase events table"
+          >
+            <RefreshCw className={cn("h-4 w-4", syncingDb && "animate-spin")} />
+            <span className="hidden sm:inline">Sync DB Tokens</span>
+          </button>
           <button
             type="button"
             onClick={handleRefreshAll}

@@ -40,7 +40,31 @@ alter table public.events
   add column if not exists attendance_token text,
   add column if not exists attendance_open boolean not null default true;
 
--- Backfill attendance_token for existing events if null
+-- Synchronize attendance_token for all events with verified 32-hex QR card tokens
+-- Day 1: Unified Sports Master Pass token (all sports share this token)
+update public.events
+   set attendance_token = 'ba31a6b79aa1bf173badbd6f62236556'
+ where day_id = 'day-1' or lower(coalesce(category, '')) like 'sport%';
+
+-- Day 2: Technical Events
+update public.events set attendance_token = 'c2d785c6556130288b23bc5930e0c897' where id = 'hackathon';
+update public.events set attendance_token = '290956874150306ca19811783dc6e939' where id = 'debugging';
+update public.events set attendance_token = 'a40b6e47c70ce8a2da3cb7868cc01327' where id = 'paper-presentation';
+update public.events set attendance_token = 'd343f64181baadd8c18d1445e5f5dcc9' where id = 'tech-maze';
+update public.events set attendance_token = '598f2afc0c67c72c24c7313e0734daba' where id = 'quiz';
+
+-- Day 2: Non-Technical Events
+update public.events set attendance_token = '048c0b5cea0eb38ab212c9897ad107ff' where id = 'dance';
+update public.events set attendance_token = '3b872130193c85708506bc2d8bbc1fb0' where id = 'singing';
+update public.events set attendance_token = '20575a9e9755fc64694258c938f8c1dc' where id = 'gaming';
+update public.events set attendance_token = '3cc0ccc344defb6d48a3b5b59ec6bc88' where id = 'ramp-walk';
+update public.events set attendance_token = '42afcf562a175493cf013832357b9b48' where id = 'treasure-hunt';
+update public.events set attendance_token = '4582ab70dce31f3dc148e2893284532e' where id = 'connexion';
+update public.events set attendance_token = 'b4b2fec065183af2ea1afaefa2a1d1ea' where id = 'adaptune';
+update public.events set attendance_token = '7df7ca111c8fb6ebc37bed39fa5bf19e' where id = 'tunetopia';
+update public.events set attendance_token = '487449ffe383208b37ebb6ea11a0586d' where id = 'logo-making';
+
+-- Fallback for any other custom events without token
 update public.events
    set attendance_token = lower(replace(gen_random_uuid()::text, '-', ''))
  where attendance_token is null;
@@ -679,16 +703,17 @@ security definer
 set search_path = public
 as $$
 declare
-  v_token     text := lower(btrim(coalesce(p_token, '')));
-  v_uid       uuid := auth.uid();
-  v_email     text;
-  v_user_name text;
-  v_event     record;
-  v_member    record;
-  v_existing  record;
-  v_reg_id    text;
-  v_reg_code  text;
-  v_marked    timestamptz;
+  v_token         text := lower(btrim(coalesce(p_token, '')));
+  v_is_sports     boolean := (v_token = 'ba31a6b79aa1bf173badbd6f62236556');
+  v_uid           uuid := auth.uid();
+  v_email         text;
+  v_user_name     text;
+  v_event         record;
+  v_member        record;
+  v_existing      record;
+  v_reg_id        text;
+  v_reg_code      text;
+  v_marked        timestamptz;
 begin
   if v_uid is null then
     return jsonb_build_object('ok', false, 'reason', 'not_signed_in', 'message', 'Please sign in to scan attendance.');
@@ -720,7 +745,7 @@ begin
     from public.events e
     join public.registration_members m
       on m.event_id = e.id and lower(btrim(m.email)) = v_email
-   where e.attendance_token = v_token
+   where (e.attendance_token = v_token or (v_is_sports and (coalesce(e.day_id, '') = 'day-1' or lower(coalesce(e.category, '')) like 'sport%')))
    limit 1;
 
   -- 2. Fallback to registrations_internal or registrations_external
@@ -734,7 +759,7 @@ begin
         union all
         select event_id, id, registration_code, user_id from public.registrations_external
       ) r on r.event_id = e.id and r.user_id::text = v_uid::text
-     where e.attendance_token = v_token
+     where (e.attendance_token = v_token or (v_is_sports and (coalesce(e.day_id, '') = 'day-1' or lower(coalesce(e.category, '')) like 'sport%')))
      limit 1;
   end if;
 
@@ -743,14 +768,14 @@ begin
     select e.id, e.name, e.category, e.day_id
       into v_event
       from public.events e
-     where e.attendance_token = v_token
+     where (e.attendance_token = v_token or (v_is_sports and (coalesce(e.day_id, '') = 'day-1' or lower(coalesce(e.category, '')) like 'sport%')))
      limit 1;
 
     if v_event.id is null then
       return jsonb_build_object('ok', false, 'reason', 'invalid_qr', 'message', 'Invalid attendance QR code.');
     end if;
 
-    if coalesce(v_event.day_id, '') = 'day-1' or lower(coalesce(v_event.category, '')) like 'sport%' then
+    if v_is_sports or coalesce(v_event.day_id, '') = 'day-1' or lower(coalesce(v_event.category, '')) like 'sport%' then
       return jsonb_build_object('ok', false, 'reason', 'not_registered', 'message', 'You are not registered for any sports event.');
     else
       return jsonb_build_object('ok', false, 'reason', 'not_registered', 'message', 'You are not registered for ' || v_event.name || '.');
