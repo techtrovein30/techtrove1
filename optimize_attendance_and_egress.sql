@@ -57,20 +57,20 @@ create index if not exists reg_members_event_email_idx
 
 -- ─── 3. ROW LEVEL SECURITY (RLS) OPTIMIZATION ────────────────────────────────
 -- Wrapping auth.uid() and is_admin() in (select ...) allows Postgres to evaluate
--- the condition once per query rather than once per row scanned, dramatically
--- reducing CPU and eliminating slow query WAL logs.
+-- the condition once per query rather than once per row scanned.
+-- Explicitly casting both sides as ::text avoids 42883 (uuid = text) errors.
 
 -- 3A. registrations_internal
 drop policy if exists "reg_internal_select" on public.registrations_internal;
 create policy "reg_internal_select" on public.registrations_internal
   for select to authenticated
-  using (user_id = (select auth.uid())::text or (select public.is_admin()));
+  using (user_id::text = (select auth.uid())::text or (select public.is_admin()));
 
 -- 3B. registrations_external
 drop policy if exists "reg_external_select" on public.registrations_external;
 create policy "reg_external_select" on public.registrations_external
   for select to authenticated
-  using (user_id = (select auth.uid())::text or (select public.is_admin()));
+  using (user_id::text = (select auth.uid())::text or (select public.is_admin()));
 
 -- 3C. registration_members
 drop policy if exists "registration_members_select" on public.registration_members;
@@ -78,7 +78,7 @@ create policy "registration_members_select" on public.registration_members
   for select to authenticated
   using (
     lower(btrim(email)) = (select public.current_user_email())
-    or user_id = (select auth.uid())::text
+    or user_id::text = (select auth.uid())::text
     or (select public.is_admin())
     or public.is_event_coordinator(event_id)
   );
@@ -88,7 +88,7 @@ drop policy if exists "attendance_select" on public.attendance;
 create policy "attendance_select" on public.attendance
   for select to authenticated
   using (
-    participant_id = (select auth.uid())::text
+    participant_id::text = (select auth.uid())::text
     or lower(btrim(participant_email)) = (select public.current_user_email())
     or (select public.is_admin())
     or public.is_event_coordinator(event_id)
@@ -116,9 +116,9 @@ begin
 
   select count(*) into v_users_count
     from (
-      select id from public.internal_participants where role <> 'admin'
+      select id from public.internal_participants where coalesce(role, 'user') <> 'admin'
       union all
-      select id from public.external_participants where role <> 'admin'
+      select id from public.external_participants where coalesce(role, 'user') <> 'admin'
     ) u;
 
   select count(*) into v_internal_regs from public.registrations_internal;
