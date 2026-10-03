@@ -111,7 +111,7 @@ export async function adminListCheckinMembers(opts?: {
     query,
     supabase
       .from("attendance")
-      .select("event_id, participant_email, participant_id, status"),
+      .select("event_id, participant_email, participant_id, participant_name, registration_code, status"),
   ]);
 
   if (membersRes.error) throw new Error(membersRes.error.message || "Could not load check-in list.");
@@ -124,35 +124,117 @@ export async function adminListCheckinMembers(opts?: {
       const uid = (a.participant_id || "").trim().toLowerCase();
       const ev = (a.event_id || "").trim().toLowerCase();
       const cleanEv = ev.replace(/^(tech-|nontech-|sport-)/, "");
+      const isSport =
+        ev === "sports-unified-master" ||
+        ev === "sports-unified" ||
+        ev.startsWith("sport-") ||
+        [
+          "cricket", "football", "volleyball", "kabaddi", "khokho",
+          "khokho-girls", "throwball-girls", "chess", "chess-girls",
+          "carrom", "carrom-girls"
+        ].includes(cleanEv);
+
       if (email) {
         attPresentSet.add(`${email}::${ev}`);
         attPresentSet.add(`${email}::${cleanEv}`);
+        if (isSport) {
+          attPresentSet.add(`${email}::sports`);
+        }
       }
       if (uid) {
         attPresentSet.add(`${uid}::${ev}`);
         attPresentSet.add(`${uid}::${cleanEv}`);
+        if (isSport) {
+          attPresentSet.add(`${uid}::sports`);
+        }
       }
     }
   }
 
-  return (membersRes.data ?? []).map((row) => {
+  const registeredKeys = new Set<string>();
+  const list: CheckinMember[] = (membersRes.data ?? []).map((row) => {
     const m = toCheckinMember(row);
     const email = (m.email || "").trim().toLowerCase();
     const uid = (m.userId || "").trim().toLowerCase();
     const ev = (m.eventId || "").trim().toLowerCase();
     const cleanEv = ev.replace(/^(tech-|nontech-|sport-)/, "");
+    const isSport =
+      ev.startsWith("sport-") ||
+      [
+        "cricket", "football", "volleyball", "kabaddi", "khokho",
+        "khokho-girls", "throwball-girls", "chess", "chess-girls",
+        "carrom", "carrom-girls"
+      ].includes(cleanEv);
+
     const isAttended =
       m.attended ||
       attPresentSet.has(`${email}::${ev}`) ||
       attPresentSet.has(`${email}::${cleanEv}`) ||
       attPresentSet.has(`${uid}::${ev}`) ||
-      attPresentSet.has(`${uid}::${cleanEv}`);
+      attPresentSet.has(`${uid}::${cleanEv}`) ||
+      (isSport && (attPresentSet.has(`${email}::sports`) || attPresentSet.has(`${uid}::sports`)));
+
+    if (email) {
+      registeredKeys.add(`${email}::${ev}`);
+      registeredKeys.add(`${email}::${cleanEv}`);
+    }
+    if (uid) {
+      registeredKeys.add(`${uid}::${ev}`);
+      registeredKeys.add(`${uid}::${cleanEv}`);
+    }
 
     return {
       ...m,
       attended: Boolean(isAttended),
     };
   });
+
+  // If there are attendance records in public.attendance that don't have a matching
+  // registration_members row, include them so they are visible under "Checked In"
+  if (attRes.data) {
+    for (const a of attRes.data) {
+      if (a.status && a.status !== "present") continue;
+      const email = (a.participant_email || "").trim().toLowerCase();
+      const uid = (a.participant_id || "").trim().toLowerCase();
+      const ev = (a.event_id || "").trim().toLowerCase();
+      const cleanEv = ev.replace(/^(tech-|nontech-|sport-)/, "");
+      if (!email && !uid) continue;
+
+      if (
+        (email && (registeredKeys.has(`${email}::${ev}`) || registeredKeys.has(`${email}::${cleanEv}`))) ||
+        (uid && (registeredKeys.has(`${uid}::${ev}`) || registeredKeys.has(`${uid}::${cleanEv}`)))
+      ) {
+        continue;
+      }
+
+      registeredKeys.add(`${email}::${ev}`);
+      list.push({
+        id: a.participant_id || a.participant_email || `att_${Math.random()}`,
+        registrationId: a.registration_code || "SCAN",
+        registrationCode: a.registration_code || "ATT-SCAN",
+        userId: a.participant_id || "",
+        eventId: a.event_id,
+        eventName: a.event_id,
+        teamName: "Individual",
+        captainName: a.participant_email || "Attendee",
+        participantType: "internal",
+        paymentStatus: "confirmed",
+        memberName: a.participant_email || "Attendee",
+        memberRole: "participant",
+        position: 0,
+        email: a.participant_email || "",
+        regNumber: null,
+        phone: null,
+        college: null,
+        attended: true,
+        certificateId: null,
+        certificateUrl: null,
+        certificateIssuedAt: null,
+      });
+    }
+  }
+
+  return list;
 }
 
 /** Toggle check-in for a single member. Returns the updated member. */
