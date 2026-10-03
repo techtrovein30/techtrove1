@@ -605,6 +605,109 @@ export async function ensureEventAttendanceToken(eventId: string): Promise<strin
   return newToken;
 }
 
+export const UNIFIED_SPORTS_TOKEN_KEY = "techtrove_sports_attendance_token";
+
+/**
+ * Ensures all Day 1 sports events share a single unified attendance token.
+ */
+export async function ensureSportsAttendanceToken(sportsEvents?: TechEvent[]): Promise<string> {
+  // 1. Check local storage cache
+  try {
+    const cached = localStorage.getItem(UNIFIED_SPORTS_TOKEN_KEY);
+    if (cached && /^[0-9a-f]{32}$/i.test(cached.trim())) {
+      return cached.trim().toLowerCase();
+    }
+  } catch {}
+
+  // 2. Check if any sports event already has an attendance token
+  let list = sportsEvents;
+  if (!list || list.length === 0) {
+    const days = await getDaysAsync();
+    list = days
+      .flatMap((d) => d.events)
+      .filter(
+        (e) =>
+          e.dayId === "day-1" ||
+          (e.category ?? "").toLowerCase().startsWith("sport")
+      );
+  }
+
+  for (const ev of list) {
+    if (ev.attendanceToken && /^[0-9a-f]{32}$/i.test(ev.attendanceToken)) {
+      const tok = ev.attendanceToken.trim().toLowerCase();
+      try {
+        localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, tok);
+      } catch {}
+      return tok;
+    }
+  }
+
+  // 3. Try to get token from the first sports event via secure RPC
+  if (list.length > 0) {
+    try {
+      const tok = await ensureEventAttendanceToken(list[0].id);
+      if (tok && /^[0-9a-f]{32}$/i.test(tok)) {
+        try {
+          localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, tok.trim().toLowerCase());
+        } catch {}
+        return tok.trim().toLowerCase();
+      }
+    } catch {}
+  }
+
+  // 4. Fallback to generating a fresh secure token
+  const newToken = generateSecureAttendanceToken();
+  try {
+    localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, newToken);
+  } catch {}
+  return newToken;
+}
+
+/**
+ * Syncs the unified sports attendance token to all sports events.
+ */
+export async function syncUnifiedSportsToken(token: string, sportsEvents: TechEvent[]): Promise<void> {
+  try {
+    localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, token);
+  } catch {}
+
+  for (const ev of sportsEvents) {
+    if (ev.attendanceToken !== token) {
+      try {
+        await adminUpdateEvent(ev.id, { attendanceToken: token });
+      } catch {
+        // Unique constraint or permissions - handled gracefully
+      }
+    }
+  }
+}
+
+/**
+ * Aggregates live attendee and registration counts per event.
+ */
+export async function getAttendanceEventStats(): Promise<
+  Record<string, { total: number; attended: number }>
+> {
+  const stats: Record<string, { total: number; attended: number }> = {};
+  try {
+    const { data: members, error } = await supabase
+      .from("registration_members")
+      .select("event_id, attended");
+
+    if (!error && members) {
+      for (const m of members) {
+        if (!m.event_id) continue;
+        if (!stats[m.event_id]) stats[m.event_id] = { total: 0, attended: 0 };
+        stats[m.event_id].total++;
+        if (m.attended) stats[m.event_id].attended++;
+      }
+    }
+  } catch {
+    // Graceful fallback
+  }
+  return stats;
+}
+
 /**
  * Extracts a clean event attendance token from a raw scanned value.
  *
@@ -666,6 +769,71 @@ export async function markEventAttendance(
   });
 
   if (rpcError) {
+    // Check if participant is scanning the unified sports pass token
+    const cachedSportsToken = (() => {
+      try {
+        return localStorage.getItem(UNIFIED_SPORTS_TOKEN_KEY)?.trim().toLowerCase() ?? "";
+      } catch {
+        return "";
+      }
+    })();
+
+    if (cachedSportsToken && cleanToken === cachedSportsToken) {
+      try {
+        const days = await getDaysAsync();
+        const sportsList = days
+          .flatMap((d) => d.events)
+          .filter(
+            (e) =>
+              e.dayId === "day-1" ||
+              (e.category ?? "").toLowerCase().startsWith("sport")
+          );
+        const sportEventIds = new Set(sportsList.map((e) => e.id));
+        const email = user.email.trim().toLowerCase();
+
+        const { data: memberRows } = await supabase
+          .from("registration_members")
+          .select("event_id, event_name")
+          .ilike("email", email);
+
+        const registeredSports = (memberRows ?? []).filter((m) =>
+          sportEventIds.has(m.event_id)
+        );
+
+        if (registeredSports.length > 0) {
+          for (const reg of registeredSports) {
+            const matched = sportsList.find((e) => e.id === reg.event_id);
+            if (matched?.attendanceToken && matched.attendanceToken !== cleanToken) {
+              const { data: subRpc } = await supabase.rpc("mark_event_attendance", {
+                p_token: matched.attendanceToken,
+              });
+              const subRes = (subRpc ?? {}) as Record<string, unknown>;
+              if (subRes.ok) {
+                emitRealtimeAttendance(matched.id);
+                return {
+                  ok: true,
+                  reason: "success",
+                  message: `✅ Attendance Marked for ${matched.name}!`,
+                  eventName: matched.name,
+                  markedAt: String(subRes.marked_at || new Date().toISOString()),
+                };
+              } else if (subRes.reason === "already_attended") {
+                return {
+                  ok: false,
+                  reason: "already_attended",
+                  message: `✓ Attendance already marked for ${matched.name}.`,
+                  eventName: matched.name,
+                  markedAt: String(subRes.marked_at || ""),
+                };
+              }
+            }
+          }
+        }
+      } catch {
+        // Fall back to rpc error
+      }
+    }
+
     return {
       ok: false,
       reason: "error",
@@ -675,6 +843,79 @@ export async function markEventAttendance(
 
   const res = (rpcData ?? {}) as Record<string, unknown>;
   const reason = String(res.reason ?? (res.ok ? "success" : "error")) as MarkAttendanceResult["reason"];
+
+  // If RPC returned not_registered or invalid_qr on the sports pass, check client fallback
+  if (!res.ok && (reason === "not_registered" || reason === "invalid_qr")) {
+    const cachedSportsToken = (() => {
+      try {
+        return localStorage.getItem(UNIFIED_SPORTS_TOKEN_KEY)?.trim().toLowerCase() ?? "";
+      } catch {
+        return "";
+      }
+    })();
+
+    if (cachedSportsToken && cleanToken === cachedSportsToken) {
+      try {
+        const days = await getDaysAsync();
+        const sportsList = days
+          .flatMap((d) => d.events)
+          .filter(
+            (e) =>
+              e.dayId === "day-1" ||
+              (e.category ?? "").toLowerCase().startsWith("sport")
+          );
+        const sportEventIds = new Set(sportsList.map((e) => e.id));
+        const email = user.email.trim().toLowerCase();
+
+        const { data: memberRows } = await supabase
+          .from("registration_members")
+          .select("event_id, event_name")
+          .ilike("email", email);
+
+        const registeredSports = (memberRows ?? []).filter((m) =>
+          sportEventIds.has(m.event_id)
+        );
+
+        if (registeredSports.length > 0) {
+          for (const reg of registeredSports) {
+            const matched = sportsList.find((e) => e.id === reg.event_id);
+            if (matched?.attendanceToken && matched.attendanceToken !== cleanToken) {
+              const { data: subRpc } = await supabase.rpc("mark_event_attendance", {
+                p_token: matched.attendanceToken,
+              });
+              const subRes = (subRpc ?? {}) as Record<string, unknown>;
+              if (subRes.ok) {
+                emitRealtimeAttendance(matched.id);
+                return {
+                  ok: true,
+                  reason: "success",
+                  message: `✅ Attendance Marked for ${matched.name}!`,
+                  eventName: matched.name,
+                  markedAt: String(subRes.marked_at || new Date().toISOString()),
+                };
+              } else if (subRes.reason === "already_attended") {
+                return {
+                  ok: false,
+                  reason: "already_attended",
+                  message: `✓ Attendance already marked for ${matched.name}.`,
+                  eventName: matched.name,
+                  markedAt: String(subRes.marked_at || ""),
+                };
+              }
+            }
+          }
+        } else {
+          return {
+            ok: false,
+            reason: "not_registered",
+            message: "❌ You are not registered for any sports event.",
+          };
+        }
+      } catch {
+        // Fall back to RPC response
+      }
+    }
+  }
 
   // `already_attended` is a SUCCESS from the student's point of view and is
   // rendered as such, so surface the time they were originally marked.

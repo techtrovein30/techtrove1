@@ -163,6 +163,7 @@ export default function App() {
               <Route path="registrations" element={<AdminRegistrationsPage viewOnly={true} />} />
               <Route path="teams" element={<AdminTeamsPage viewOnly={true} />} />
               <Route path="events" element={<AdminEventsPage viewOnly={true} />} />
+              <Route path="checkin" element={<AdminCheckinPage />} />
 
               <Route path="*" element={<Navigate to="/tswc3020/dashboard" replace />} />
             </Route>

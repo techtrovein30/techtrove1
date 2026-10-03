@@ -15,6 +15,7 @@ import {
   UsersRound,
   UserCheck,
   TrendingUp,
+  QrCode,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { adminSignOut } from "../../lib/adminApi";
@@ -30,6 +31,7 @@ interface AdminNavItemDef {
 const ALL_NAV_DEFS: AdminNavItemDef[] = [
   { page: "dashboard", label: "Dashboard", icon: BarChart3 },
   { page: "revenue", label: "Revenue", icon: TrendingUp },
+  { page: "checkin", label: "Check-in Desk", icon: QrCode },
   { page: "coordinators", label: "Coordinators", icon: UserCheck },
   { page: "students", label: "Students", icon: Users },
   { page: "registrations", label: "Registrations", icon: ClipboardList },
@@ -41,7 +43,7 @@ const ALL_NAV_DEFS: AdminNavItemDef[] = [
   { page: "events", label: "Events", icon: CalendarDays },
 ];
 
-const FACULTY_PAGES = new Set(["dashboard", "coordinators", "students", "registrations", "teams", "events"]);
+const FACULTY_PAGES = new Set(["dashboard", "checkin", "coordinators", "students", "registrations", "teams", "events"]);
 
 function NavItem({
   to,

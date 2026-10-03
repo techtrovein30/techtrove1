@@ -45,7 +45,8 @@ update public.events
    set attendance_token = lower(replace(gen_random_uuid()::text, '-', ''))
  where attendance_token is null;
 
-create unique index if not exists events_attendance_token_key
+drop index if exists public.events_attendance_token_key;
+create index if not exists events_attendance_token_idx
   on public.events (attendance_token)
   where attendance_token is not null;
 
@@ -711,57 +712,69 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'no_profile', 'message', 'No participant profile found for your account.');
   end if;
 
-  select e.id, e.name, e.attendance_open, e.registration_open
+  -- 1. Check if user is registered in registration_members for ANY event matching this token
+  -- (If this is the unified sports token, it matches the specific sport the participant registered for)
+  select e.id, e.name, e.attendance_open, e.registration_open,
+         m.registration_id, m.registration_code, coalesce(m.member_name, v_user_name) as member_name
     into v_event
     from public.events e
+    join public.registration_members m
+      on m.event_id = e.id and lower(btrim(m.email)) = v_email
    where e.attendance_token = v_token
    limit 1;
 
+  -- 2. Fallback to registrations_internal or registrations_external
   if v_event.id is null then
-    return jsonb_build_object('ok', false, 'reason', 'invalid_qr', 'message', 'Invalid attendance QR code.');
-  end if;
-
-  if coalesce(v_event.attendance_open, true) is not true
-     or coalesce(v_event.registration_open, true) is false then
-    return jsonb_build_object('ok', false, 'reason', 'event_disabled', 'message', 'Attendance is currently closed for this event.');
-  end if;
-
-  select m.*
-    into v_member
-    from public.registration_members m
-   where m.event_id = v_event.id
-     and lower(btrim(m.email)) = v_email
-   limit 1;
-
-  if v_member.id is null then
-    select t.id, t.registration_code
-      into v_reg_id, v_reg_code
-      from (
-        select r.id::text as id, r.registration_code
-          from public.registrations_internal r
-         where r.event_id = v_event.id and r.user_id::text = v_uid::text
+    select e.id, e.name, e.attendance_open, e.registration_open,
+           r.id::text as registration_id, r.registration_code, v_user_name as member_name
+      into v_event
+      from public.events e
+      join (
+        select event_id, id, registration_code, user_id from public.registrations_internal
         union all
-        select r.id::text as id, r.registration_code
-          from public.registrations_external r
-         where r.event_id = v_event.id and r.user_id::text = v_uid::text
-      ) t
-      limit 1;
+        select event_id, id, registration_code, user_id from public.registrations_external
+      ) r on r.event_id = e.id and r.user_id::text = v_uid::text
+     where e.attendance_token = v_token
+     limit 1;
+  end if;
 
-    if v_reg_id is null then
-      return jsonb_build_object('ok', false, 'reason', 'not_registered', 'message', 'You are not registered for this event.');
+  -- 3. If still null, check if any event exists with this token to provide an informative error
+  if v_event.id is null then
+    select e.id, e.name, e.category, e.day_id
+      into v_event
+      from public.events e
+     where e.attendance_token = v_token
+     limit 1;
+
+    if v_event.id is null then
+      return jsonb_build_object('ok', false, 'reason', 'invalid_qr', 'message', 'Invalid attendance QR code.');
     end if;
 
-    v_user_name := coalesce(v_user_name, v_email);
-  else
-    v_reg_id     := v_member.registration_id;
-    v_reg_code   := v_member.registration_code;
-    v_user_name  := coalesce(v_member.member_name, v_user_name);
+    if coalesce(v_event.day_id, '') = 'day-1' or lower(coalesce(v_event.category, '')) like 'sport%' then
+      return jsonb_build_object('ok', false, 'reason', 'not_registered', 'message', 'You are not registered for any sports event.');
+    else
+      return jsonb_build_object('ok', false, 'reason', 'not_registered', 'message', 'You are not registered for ' || v_event.name || '.');
+    end if;
   end if;
 
+  -- Verify attendance is open
+  if coalesce(v_event.attendance_open, true) is not true
+     or coalesce(v_event.registration_open, true) is false then
+    return jsonb_build_object('ok', false, 'reason', 'event_disabled', 'message', 'Attendance is currently closed for ' || v_event.name || '.');
+  end if;
+
+  v_reg_id := v_event.registration_id;
+  v_reg_code := v_event.registration_code;
+  if v_event.member_name is not null then
+    v_user_name := v_event.member_name;
+  end if;
+
+  -- Check payment confirmation
   if v_reg_code is not null and not public.checkin_code_is_paid(v_reg_code) then
-    return jsonb_build_object('ok', false, 'reason', 'not_paid', 'message', 'Your registration payment is not confirmed for this event.');
+    return jsonb_build_object('ok', false, 'reason', 'not_paid', 'message', 'Your registration payment is not confirmed for ' || v_event.name || '.');
   end if;
 
+  -- Check duplicate attendance
   select a.id, a.marked_at
     into v_existing
     from public.attendance a
@@ -772,13 +785,14 @@ begin
   if v_existing.id is not null then
     return jsonb_build_object(
       'ok', false,
-      'reason', 'already_marked',
-      'message', 'Attendance already recorded for this event.',
+      'reason', 'already_attended',
+      'message', 'Attendance already recorded for ' || v_event.name || '.',
       'event_name', v_event.name,
       'marked_at', v_existing.marked_at
     );
   end if;
 
+  -- Mark attendance
   insert into public.attendance (
     event_id, participant_id, participant_email, participant_name,
     registration_id, registration_code, marked_at, status, source
@@ -788,10 +802,16 @@ begin
   )
   returning attendance.marked_at into v_marked;
 
+  -- Also update registration_members attended flag
+  update public.registration_members
+     set attended = true
+   where event_id = v_event.id
+     and lower(btrim(email)) = v_email;
+
   return jsonb_build_object(
     'ok', true,
     'reason', 'ok',
-    'message', 'Attendance successfully marked!',
+    'message', 'Attendance successfully marked for ' || v_event.name || '!',
     'event_id', v_event.id,
     'event_name', v_event.name,
     'marked_at', v_marked
