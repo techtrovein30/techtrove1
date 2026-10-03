@@ -68,15 +68,31 @@ export function AdminRevenuePage() {
 
   useEffect(() => {
     loadStats();
+    window.addEventListener("focus", loadStats);
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedLoad = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(loadStats, 500);
+    };
 
     const channel = supabase
       .channel("admin-revenue-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "registrations_external" }, () => { loadStats(); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "registrations_internal" }, () => { loadStats(); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "registration_members" }, () => { loadStats(); })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "registrations_external" },
+        debouncedLoad
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "registrations_internal" },
+        debouncedLoad
+      )
       .subscribe();
 
     return () => {
+      window.removeEventListener("focus", loadStats);
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -111,20 +127,22 @@ export function AdminRevenuePage() {
   // Per-event revenue breakdown computation
   const eventRevenueData = useMemo(() => {
     if (!events.length || !stats) return [];
-    return events.map((ev) => {
-      const regCount = stats.perEvent[ev.id] ?? 0;
-      // An approximation based on recorded registrations for this event
-      const estimatedRevenue = regCount * (ev.registrationFee || 0);
-      return {
-        id: ev.id,
-        name: ev.name,
-        category: ev.category,
-        fee: ev.registrationFee,
-        registrations: regCount,
-        estimatedRevenue,
-        open: ev.registrationOpen,
-      };
-    }).sort((a, b) => b.registrations - a.registrations);
+    return events
+      .map((ev) => {
+        const regCount = stats.perEvent[ev.id] ?? 0;
+        // An approximation based on recorded registrations for this event
+        const estimatedRevenue = regCount * (ev.registrationFee || 0);
+        return {
+          id: ev.id,
+          name: ev.name,
+          category: ev.category,
+          fee: ev.registrationFee,
+          registrations: regCount,
+          estimatedRevenue,
+          open: ev.registrationOpen,
+        };
+      })
+      .sort((a, b) => b.registrations - a.registrations);
   }, [events, stats]);
 
   if (loading && !stats) {
@@ -173,7 +191,8 @@ export function AdminRevenuePage() {
             Revenue & UTR Audit
           </h1>
           <p className="mt-1.5 text-sm text-muted">
-            Track total revenue collected, monitor pending collections, and resolve duplicate transaction UTRs.
+            Track total revenue collected, monitor pending collections, and resolve duplicate
+            transaction UTRs.
           </p>
         </div>
 
@@ -184,7 +203,9 @@ export function AdminRevenuePage() {
             disabled={refreshing}
             className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3.5 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.06] disabled:opacity-50"
           >
-            <RefreshCcw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-primary-soft" : "text-muted"}`} />
+            <RefreshCcw
+              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-primary-soft" : "text-muted"}`}
+            />
             Refresh
           </button>
           <Link
@@ -276,10 +297,12 @@ export function AdminRevenuePage() {
                 </span>
                 <div>
                   <h3 className="text-sm font-bold text-foreground">
-                    Attention: {stats.repeatedUtrs.length} Duplicate UTR {stats.repeatedUtrs.length === 1 ? "Group" : "Groups"} Flagged
+                    Attention: {stats.repeatedUtrs.length} Duplicate UTR{" "}
+                    {stats.repeatedUtrs.length === 1 ? "Group" : "Groups"} Flagged
                   </h3>
                   <p className="text-xs text-muted">
-                    {totalFlaggedRegistrations} registrations share reused transaction IDs ({formatFee(totalFeeAtRisk)} at risk).
+                    {totalFlaggedRegistrations} registrations share reused transaction IDs (
+                    {formatFee(totalFeeAtRisk)} at risk).
                   </p>
                 </div>
               </div>
@@ -305,9 +328,7 @@ export function AdminRevenuePage() {
                   Registrations and potential fee generation across all active festival events.
                 </p>
               </div>
-              <span className="text-xs font-mono text-muted">
-                {events.length} Total Events
-              </span>
+              <span className="text-xs font-mono text-muted">{events.length} Total Events</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -335,7 +356,11 @@ export function AdminRevenuePage() {
                       </td>
                       <td className="py-3 px-4 text-muted capitalize">{ev.category}</td>
                       <td className="py-3 px-4 text-right font-mono text-foreground">
-                        {ev.fee ? formatFee(ev.fee) : <span className="text-emerald-400">Free</span>}
+                        {ev.fee ? (
+                          formatFee(ev.fee)
+                        ) : (
+                          <span className="text-emerald-400">Free</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-medium text-foreground">
                         {ev.registrations}
@@ -383,7 +408,8 @@ export function AdminRevenuePage() {
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted max-w-xl">
-                      Zero duplicate transaction IDs detected across all registrations in the database. Every recorded and pending UTR is verified unique.
+                      Zero duplicate transaction IDs detected across all registrations in the
+                      database. Every recorded and pending UTR is verified unique.
                     </p>
                   </div>
                 </div>
@@ -408,14 +434,17 @@ export function AdminRevenuePage() {
                         Duplicate Transaction UTRs Detected
                       </h2>
                       <span className="rounded-full border border-amber-500/40 bg-amber-500/20 px-2.5 py-0.5 text-xs font-mono font-bold text-amber-300">
-                        {stats.repeatedUtrs.length} {stats.repeatedUtrs.length === 1 ? "group" : "groups"} · {totalFlaggedRegistrations} registrations
+                        {stats.repeatedUtrs.length}{" "}
+                        {stats.repeatedUtrs.length === 1 ? "group" : "groups"} ·{" "}
+                        {totalFlaggedRegistrations} registrations
                       </span>
                       <span className="rounded-full border border-red-500/40 bg-red-500/20 px-2.5 py-0.5 text-xs font-mono font-bold text-red-300">
                         {formatFee(totalFeeAtRisk)} at risk
                       </span>
                     </div>
                     <p className="mt-0.5 text-xs text-muted">
-                      These UTR / Transaction IDs were submitted across 2 or more different registrations. Review immediately to prevent duplicate payment approvals.
+                      These UTR / Transaction IDs were submitted across 2 or more different
+                      registrations. Review immediately to prevent duplicate payment approvals.
                     </p>
                   </div>
                 </div>
@@ -516,7 +545,9 @@ export function AdminRevenuePage() {
                               </p>
                             )}
                             <div className="mt-2 flex items-center justify-between border-t border-white/[0.04] pt-1.5 text-[11px] text-muted">
-                              <span className="font-medium text-foreground">{formatFee(reg.totalFee)}</span>
+                              <span className="font-medium text-foreground">
+                                {formatFee(reg.totalFee)}
+                              </span>
                               <div className="flex items-center gap-2">
                                 <span>{new Date(reg.createdAt).toLocaleDateString()}</span>
                                 {reg.paymentScreenshotPath && (

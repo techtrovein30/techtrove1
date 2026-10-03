@@ -95,56 +95,56 @@ function getEventUnitLabel(ev?: TechEvent): string {
 const STATIC_QR_MAP: Record<string, string> = {
   // Master Unified Sports Pass
   "sports-unified-master": "/checkin%20qr's/sports-pass.png",
-  
+
   // Technical Events
-  "hackathon": "/checkin%20qr's/hackathon.png",
+  hackathon: "/checkin%20qr's/hackathon.png",
   "tech-hackathon": "/checkin%20qr's/hackathon.png",
-  "debugging": "/checkin%20qr's/debugging.png",
+  debugging: "/checkin%20qr's/debugging.png",
   "tech-debugging": "/checkin%20qr's/debugging.png",
   "paper-presentation": "/checkin%20qr's/paper-presentation.png",
   "tech-paper-presentation": "/checkin%20qr's/paper-presentation.png",
   "tech-maze": "/checkin%20qr's/tech-maze.png",
-  "quiz": "/checkin%20qr's/quiz.png",
+  quiz: "/checkin%20qr's/quiz.png",
   "tech-quiz": "/checkin%20qr's/quiz.png",
   "logo-making": "/checkin%20qr's/logo-making.png",
   "tech-logo-making": "/checkin%20qr's/logo-making.png",
 
   // Non-Technical Events
-  "dance": "/checkin%20qr's/dance.png",
+  dance: "/checkin%20qr's/dance.png",
   "nontech-dance": "/checkin%20qr's/dance.png",
-  "singing": "/checkin%20qr's/singing.png",
+  singing: "/checkin%20qr's/singing.png",
   "nontech-singing": "/checkin%20qr's/singing.png",
-  "gaming": "/checkin%20qr's/gaming.png",
+  gaming: "/checkin%20qr's/gaming.png",
   "nontech-mobile-gaming": "/checkin%20qr's/gaming.png",
   "ramp-walk": "/checkin%20qr's/ramp-walk.png",
   "nontech-ramp-walk": "/checkin%20qr's/ramp-walk.png",
   "treasure-hunt": "/checkin%20qr's/treasure-hunt.png",
   "nontech-treasure-hunt": "/checkin%20qr's/treasure-hunt.png",
-  "connexion": "/checkin%20qr's/connexion.png",
+  connexion: "/checkin%20qr's/connexion.png",
   "nontech-connexion": "/checkin%20qr's/connexion.png",
-  "adaptune": "/checkin%20qr's/adaptune.png",
+  adaptune: "/checkin%20qr's/adaptune.png",
   "nontech-adaptune": "/checkin%20qr's/adaptune.png",
-  "tunetopia": "/checkin%20qr's/tunetopia.png",
+  tunetopia: "/checkin%20qr's/tunetopia.png",
   "nontech-tunetopia": "/checkin%20qr's/tunetopia.png",
 
   // Sports Events
-  "cricket": "/checkin%20qr's/cricket.png",
+  cricket: "/checkin%20qr's/cricket.png",
   "sport-cricket": "/checkin%20qr's/cricket.png",
-  "football": "/checkin%20qr's/football.png",
+  football: "/checkin%20qr's/football.png",
   "sport-football": "/checkin%20qr's/football.png",
-  "volleyball": "/checkin%20qr's/volleyball.png",
+  volleyball: "/checkin%20qr's/volleyball.png",
   "sport-volleyball": "/checkin%20qr's/volleyball.png",
-  "kabaddi": "/checkin%20qr's/kabaddi.png",
+  kabaddi: "/checkin%20qr's/kabaddi.png",
   "sport-kabaddi": "/checkin%20qr's/kabaddi.png",
   "kho-kho": "/checkin%20qr's/kho-kho.png",
   "sport-khokho": "/checkin%20qr's/kho-kho.png",
   "sport-khokho-girls": "/checkin%20qr's/kho-kho.png",
-  "throwball": "/checkin%20qr's/throwball.png",
+  throwball: "/checkin%20qr's/throwball.png",
   "sport-throwball-girls": "/checkin%20qr's/throwball.png",
-  "chess": "/checkin%20qr's/chess.png",
+  chess: "/checkin%20qr's/chess.png",
   "sport-chess": "/checkin%20qr's/chess.png",
   "sport-chess-girls": "/checkin%20qr's/chess.png",
-  "carrom": "/checkin%20qr's/carrom.png",
+  carrom: "/checkin%20qr's/carrom.png",
   "sport-carrom": "/checkin%20qr's/carrom.png",
   "sport-carrom-girls": "/checkin%20qr's/carrom.png",
 };
@@ -188,10 +188,11 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  const { players, loading: playersLoading, refresh } = useCheckinMembers(
-    eventId || undefined,
-    search
-  );
+  const {
+    players,
+    loading: playersLoading,
+    refresh,
+  } = useCheckinMembers(eventId || undefined, search);
 
   // Categorize events
   const { sportsEvents, techEvents, nonTechEvents } = useMemo(() => {
@@ -255,19 +256,27 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
 
   // Live realtime sync: update stats and attendee list whenever attendance or registrations change
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedSync = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadStats();
+        refresh();
+      }, 250);
+    };
+
     const channel = supabase
       .channel("admin-checkin-attendance-stats-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, () => {
-        loadStats();
-        refresh();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "registration_members" }, () => {
-        loadStats();
-        refresh();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, debouncedSync)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "registration_members" },
+        debouncedSync
+      )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [loadStats, refresh]);
@@ -291,7 +300,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
         return cached.trim().toLowerCase();
       }
     } catch {}
-    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    let h1 = 0xdeadbeef,
+      h2 = 0x41c6ce57;
     for (let i = 0; i < cleanId.length; i++) {
       const ch = cleanId.charCodeAt(i);
       h1 = Math.imul(h1 ^ ch, 2654435761);
@@ -366,7 +376,16 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     return () => {
       cancelled = true;
     };
-  }, [events, sportsEvents, techEvents, nonTechEvents, resolveSports, resolveToken, generateQrData, loadStats]);
+  }, [
+    events,
+    sportsEvents,
+    techEvents,
+    nonTechEvents,
+    resolveSports,
+    resolveToken,
+    generateQrData,
+    loadStats,
+  ]);
 
   const handleRefreshAll = async () => {
     setRefreshing(true);
@@ -402,9 +421,15 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
   // Fullscreen presentation toggle
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+      document.documentElement
+        .requestFullscreen()
+        .then(() => setIsFullscreen(true))
+        .catch(() => {});
     } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+      document
+        .exitFullscreen()
+        .then(() => setIsFullscreen(false))
+        .catch(() => {});
     }
   };
 
@@ -423,7 +448,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
 
   // Aggregate Sports Stats
   const sportsStats = useMemo(() => {
-    if (attendanceStats["sports-unified-master"] && attendanceStats["sports-unified-master"].total > 0) {
+    if (
+      attendanceStats["sports-unified-master"] &&
+      attendanceStats["sports-unified-master"].total > 0
+    ) {
       return attendanceStats["sports-unified-master"];
     }
     let total = 0;
@@ -436,9 +464,7 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       countedEvents.add(clean);
 
       const s =
-        attendanceStats[ev.id] ||
-        attendanceStats[clean] ||
-        attendanceStats[`sport-${clean}`];
+        attendanceStats[ev.id] || attendanceStats[clean] || attendanceStats[`sport-${clean}`];
       if (s) {
         total += s.total;
         attended += s.attended;
@@ -519,7 +545,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     if (!eventSearch.trim()) return techItems;
     const q = eventSearch.toLowerCase();
     return techItems.filter(
-      (item) => item.name.toLowerCase().includes(q) || (item.venue && item.venue.toLowerCase().includes(q))
+      (item) =>
+        item.name.toLowerCase().includes(q) || (item.venue && item.venue.toLowerCase().includes(q))
     );
   }, [techItems, eventSearch]);
 
@@ -528,7 +555,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     if (!eventSearch.trim()) return nonTechItems;
     const q = eventSearch.toLowerCase();
     return nonTechItems.filter(
-      (item) => item.name.toLowerCase().includes(q) || (item.venue && item.venue.toLowerCase().includes(q))
+      (item) =>
+        item.name.toLowerCase().includes(q) || (item.venue && item.venue.toLowerCase().includes(q))
     );
   }, [nonTechItems, eventSearch]);
 
@@ -566,7 +594,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     if (!eventSearch.trim()) return sportsItems;
     const q = eventSearch.toLowerCase();
     return sportsItems.filter(
-      (item) => item.name.toLowerCase().includes(q) || (item.venue && item.venue.toLowerCase().includes(q))
+      (item) =>
+        item.name.toLowerCase().includes(q) || (item.venue && item.venue.toLowerCase().includes(q))
     );
   }, [sportsItems, eventSearch]);
 
@@ -613,7 +642,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     try {
       let updatedCount = 0;
       for (const ev of events) {
-        const isSport = ev.dayId === "day-1" || (ev.category ?? "").toLowerCase().startsWith("sport");
+        const isSport =
+          ev.dayId === "day-1" || (ev.category ?? "").toLowerCase().startsWith("sport");
         const canonicalToken = isSport ? UNIFIED_SPORTS_TOKEN : CANONICAL_EVENT_TOKENS[ev.id];
         if (canonicalToken && ev.attendanceToken !== canonicalToken) {
           await adminUpdateEvent(ev.id, { attendanceToken: canonicalToken });
@@ -637,8 +667,7 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
   };
 
   // Participant Desk Roster calculations
-  const statusFor = (player: (typeof players)[number]) =>
-    player.attended ? "checked" : "pending";
+  const statusFor = (player: (typeof players)[number]) => (player.attended ? "checked" : "pending");
 
   const typedPlayers =
     typeFilter === "all"
@@ -666,9 +695,7 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       countedEvents.add(clean);
 
       const s =
-        attendanceStats[ev.id] ||
-        attendanceStats[clean] ||
-        attendanceStats[`sport-${clean}`];
+        attendanceStats[ev.id] || attendanceStats[clean] || attendanceStats[`sport-${clean}`];
       if (s) {
         regSum += s.total;
         attSum += s.attended;
@@ -676,10 +703,7 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     }
 
     const effectiveTotal = Math.max(regSum, players.length);
-    const effectiveAttended = Math.max(
-      attSum,
-      players.filter((p) => p.attended).length
-    );
+    const effectiveAttended = Math.max(attSum, players.filter((p) => p.attended).length);
 
     return {
       globalTotalRegistrations: effectiveTotal,
@@ -694,7 +718,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       await refresh();
       await loadStats();
       toast.success(
-        player.attended ? `Check-in undone for ${player.playerName}` : `${player.playerName} checked in`
+        player.attended
+          ? `Check-in undone for ${player.playerName}`
+          : `${player.playerName} checked in`
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Check-in failed.");
@@ -735,9 +761,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
             Check-in & QR Passes
           </h1>
           <p className="mt-1.5 text-sm text-muted max-w-2xl leading-relaxed">
-            One unified QR pass for all <span className="text-amber-400 font-medium">Day 1 Sports</span>, and
-            individual dedicated QR passes for each <span className="text-sky-400 font-medium">Technical</span> and{" "}
-            <span className="text-purple-400 font-medium">Non-Technical</span> event.
+            One unified QR pass for all{" "}
+            <span className="text-amber-400 font-medium">Day 1 Sports</span>, and individual
+            dedicated QR passes for each <span className="text-sky-400 font-medium">Technical</span>{" "}
+            and <span className="text-purple-400 font-medium">Non-Technical</span> event.
           </p>
         </div>
 
@@ -830,7 +857,11 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
             <div className="flex flex-wrap items-center gap-1.5">
               {(
                 [
-                  ["all", `All Events (${1 + sportsEvents.length + techEvents.length + nonTechEvents.length})`, Layers],
+                  [
+                    "all",
+                    `All Events (${1 + sportsEvents.length + techEvents.length + nonTechEvents.length})`,
+                    Layers,
+                  ],
                   ["sports", `🏆 Sports (${sportsEvents.length})`, Trophy],
                   ["technical", `💻 Technical (${techEvents.length})`, Cpu],
                   ["non_technical", `🎭 Non-Technical (${nonTechEvents.length})`, Sparkles],
@@ -868,7 +899,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
           {loadingQrs || eventsLoading ? (
             <div className="flex h-56 flex-col items-center justify-center gap-3 rounded-2xl border border-white/[0.06] bg-[#141414] text-muted">
               <Loader2 className="h-8 w-8 animate-spin text-primary-soft" />
-              <p className="text-xs uppercase tracking-widest text-muted">Generating cryptographic QR passes…</p>
+              <p className="text-xs uppercase tracking-widest text-muted">
+                Generating cryptographic QR passes…
+              </p>
             </div>
           ) : (
             <div className="space-y-10">
@@ -884,7 +917,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                         Day 1 · All Sports Events (1 Unified QR Pass)
                       </h2>
                       <p className="text-xs text-muted">
-                        All 8+ sports events share this single official QR code. Participants registered for any sport scan here.
+                        All 8+ sports events share this single official QR code. Participants
+                        registered for any sport scan here.
                       </p>
                     </div>
                     <span className="hidden sm:inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-300">
@@ -912,8 +946,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                             All Sports Events Check-in
                           </h3>
                           <p className="mt-2 text-xs sm:text-sm text-neutral-300 leading-relaxed max-w-xl">
-                            Athletes participating in Football, Cricket, Volleyball, Kabaddi, Kho-Kho, Throwball, Chess,
-                            or Carrom only need to scan this one QR code. Their attendance is automatically matched to their registered sports team!
+                            Athletes participating in Football, Cricket, Volleyball, Kabaddi,
+                            Kho-Kho, Throwball, Chess, or Carrom only need to scan this one QR code.
+                            Their attendance is automatically matched to their registered sports
+                            team!
                           </p>
                         </div>
 
@@ -924,11 +960,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                           </p>
                           <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
                             {sportsEvents.map((sp) => {
-                              const s =
-                                attendanceStats[sp.id] ||
+                              const s = attendanceStats[sp.id] ||
                                 attendanceStats[sp.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
-                                attendanceStats[`sport-${sp.id}`] ||
-                                { total: 0, attended: 0 };
+                                attendanceStats[`sport-${sp.id}`] || { total: 0, attended: 0 };
                               const unit = getEventUnitLabel(sp);
                               return (
                                 <span
@@ -948,7 +982,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                         {/* Live sports attendance stat bar */}
                         <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 backdrop-blur-sm">
                           <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="text-muted font-medium">Sports Athletes Attendance</span>
+                            <span className="text-muted font-medium">
+                              Sports Athletes Attendance
+                            </span>
                             <span className="font-semibold text-emerald-400">
                               {sportsStats.attended} / {sportsStats.total} Checked In
                             </span>
@@ -959,7 +995,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                               style={{
                                 width: `${
                                   sportsStats.total > 0
-                                    ? Math.min(100, Math.round((sportsStats.attended / sportsStats.total) * 100))
+                                    ? Math.min(
+                                        100,
+                                        Math.round((sportsStats.attended / sportsStats.total) * 100)
+                                      )
                                     : 0
                                 }%`,
                               }}
@@ -1026,7 +1065,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                             <p className="text-[10px] font-extrabold uppercase tracking-widest text-neutral-800">
                               TechTrove 3.0 · Sports Pass
                             </p>
-                            <p className="text-[9px] text-neutral-500 font-mono">SCAN WITH PHONE CAMERA</p>
+                            <p className="text-[9px] text-neutral-500 font-mono">
+                              SCAN WITH PHONE CAMERA
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -1047,7 +1088,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                         Day 1 · Individual Sports Event Passes ({filteredSports.length} Sports)
                       </h2>
                       <p className="text-xs text-muted">
-                        Each sport has its own dedicated event pass with live team / player counts and check-in tracking.
+                        Each sport has its own dedicated event pass with live team / player counts
+                        and check-in tracking.
                       </p>
                     </div>
                     <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300">
@@ -1063,11 +1105,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {filteredSports.map((item) => {
                         const rawEv = sportsEvents.find((e) => e.id === item.id);
-                        const stat =
-                          attendanceStats[item.id] ||
+                        const stat = attendanceStats[item.id] ||
                           attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
-                          attendanceStats[`sport-${item.id}`] ||
-                          { total: 0, attended: 0 };
+                          attendanceStats[`sport-${item.id}`] || { total: 0, attended: 0 };
                         const unit = getEventUnitLabel(rawEv);
                         return (
                           <EventCard
@@ -1101,7 +1141,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                         Day 2 · Technical Events (Separate QR per Event)
                       </h2>
                       <p className="text-xs text-muted">
-                        Each technical competition has its own dedicated QR code. Display at respective lab/venue entrances.
+                        Each technical competition has its own dedicated QR code. Display at
+                        respective lab/venue entrances.
                       </p>
                     </div>
                     <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-sky-300">
@@ -1117,11 +1158,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {filteredTech.map((item) => {
                         const rawEv = techEvents.find((e) => e.id === item.id);
-                        const stat =
-                          attendanceStats[item.id] ||
+                        const stat = attendanceStats[item.id] ||
                           attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
-                          attendanceStats[`tech-${item.id}`] ||
-                          { total: 0, attended: 0 };
+                          attendanceStats[`tech-${item.id}`] || { total: 0, attended: 0 };
                         const unit = getEventUnitLabel(rawEv);
                         return (
                           <EventCard
@@ -1155,7 +1194,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                         Day 2 · Non-Technical Events (Separate QR per Event)
                       </h2>
                       <p className="text-xs text-muted">
-                        Each non-technical event has its own dedicated QR code. Display at respective auditorium/hall entrances.
+                        Each non-technical event has its own dedicated QR code. Display at
+                        respective auditorium/hall entrances.
                       </p>
                     </div>
                     <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-purple-300">
@@ -1171,11 +1211,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {filteredNonTech.map((item) => {
                         const rawEv = nonTechEvents.find((e) => e.id === item.id);
-                        const stat =
-                          attendanceStats[item.id] ||
+                        const stat = attendanceStats[item.id] ||
                           attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
-                          attendanceStats[`nontech-${item.id}`] ||
-                          { total: 0, attended: 0 };
+                          attendanceStats[`nontech-${item.id}`] || { total: 0, attended: 0 };
                         const unit = getEventUnitLabel(rawEv);
                         return (
                           <EventCard
@@ -1225,8 +1263,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
 
                 {!scanResult && !scanError && (
                   <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] p-4 text-xs leading-relaxed text-muted">
-                    Point the camera at the participant&apos;s digital pass QR code. The system verifies their
-                    ticket, displays registered events, and checks them in instantaneously.
+                    Point the camera at the participant&apos;s digital pass QR code. The system
+                    verifies their ticket, displays registered events, and checks them in
+                    instantaneously.
                   </div>
                 )}
               </div>
@@ -1289,7 +1328,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                   onClick={() => setStatusFilter(val)}
                   className={cn(
                     "px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.13em] transition-colors",
-                    statusFilter === val ? "bg-emerald-500/90 text-white" : "text-muted hover:text-foreground"
+                    statusFilter === val
+                      ? "bg-emerald-500/90 text-white"
+                      : "text-muted hover:text-foreground"
                   )}
                 >
                   {label}
@@ -1309,7 +1350,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
               <UserCheck className="h-10 w-10 text-muted" aria-hidden />
               <p className="mt-4 text-sm font-medium text-foreground">No attendees found</p>
               <p className="mt-1 text-xs text-muted">
-                {search ? "No participant or team matches your search query." : "Registered participants will appear here."}
+                {search
+                  ? "No participant or team matches your search query."
+                  : "Registered participants will appear here."}
               </p>
             </div>
           ) : (
@@ -1323,11 +1366,16 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                 );
 
                 return (
-                  <div key={player.key} className="rounded-xl border border-white/[0.07] bg-[#161616]">
+                  <div
+                    key={player.key}
+                    className="rounded-xl border border-white/[0.07] bg-[#161616]"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.05] p-4">
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-foreground">{player.playerName}</p>
+                          <p className="truncate text-sm font-semibold text-foreground">
+                            {player.playerName}
+                          </p>
                           {isCaptain && (
                             <span className="shrink-0 border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary-soft">
                               Captain
@@ -1404,8 +1452,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                                   {member.position === 1
                                     ? "Captain"
                                     : member.memberRole === "substitute"
-                                    ? `Sub ${member.position}`
-                                    : `Player ${String(member.position).padStart(2, "0")}`}
+                                      ? `Sub ${member.position}`
+                                      : `Player ${String(member.position).padStart(2, "0")}`}
                                 </span>
                               </p>
                               <p className="truncate text-[11px] text-muted">
@@ -1461,7 +1509,11 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                 className="rounded-full bg-white/5 p-2 text-muted hover:bg-white/10 hover:text-white transition-all"
                 title="Toggle Fullscreen"
               >
-                {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                {isFullscreen ? (
+                  <Minimize2 className="h-5 w-5" />
+                ) : (
+                  <Maximize2 className="h-5 w-5" />
+                )}
               </button>
               <button
                 type="button"
@@ -1485,7 +1537,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
               >
                 {presentItem.category}
               </span>
-              <span className="text-xs text-muted font-mono">{presentItem.dayId.toUpperCase()}</span>
+              <span className="text-xs text-muted font-mono">
+                {presentItem.dayId.toUpperCase()}
+              </span>
             </div>
 
             <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-white mb-2">
@@ -1494,7 +1548,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
 
             <p className="text-sm text-neutral-300 max-w-md mb-6 leading-relaxed">
               Scan with your phone camera or visit{" "}
-              <span className="font-semibold text-white underline underline-offset-4">techtrove.live/attendance</span>
+              <span className="font-semibold text-white underline underline-offset-4">
+                techtrove.live/attendance
+              </span>
             </p>
 
             {/* Giant QR Frame */}
@@ -1534,9 +1590,7 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       {/* ═════════════════════════════════════════════════════════════════ */}
       {/* ── MODAL 2: PRINTABLE OFFICIAL POSTER                           ── */}
       {/* ═════════════════════════════════════════════════════════════════ */}
-      {printItem && (
-        <PrintPosterModal item={printItem} onClose={() => setPrintItem(null)} />
-      )}
+      {printItem && <PrintPosterModal item={printItem} onClose={() => setPrintItem(null)} />}
 
       {/* ═════════════════════════════════════════════════════════════════ */}
       {/* ── MODAL 3: BATCH PRINT ALL POSTERS                             ── */}
@@ -1590,8 +1644,8 @@ function EventCard({
         accentColor === "sky"
           ? "border-sky-500/20 hover:border-sky-500/40"
           : accentColor === "amber"
-          ? "border-amber-500/20 hover:border-amber-500/40"
-          : "border-purple-500/20 hover:border-purple-500/40"
+            ? "border-amber-500/20 hover:border-amber-500/40"
+            : "border-purple-500/20 hover:border-purple-500/40"
       )}
     >
       <div>
@@ -1603,8 +1657,8 @@ function EventCard({
               accentColor === "sky"
                 ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
                 : accentColor === "amber"
-                ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                : "border-purple-500/30 bg-purple-500/10 text-purple-300"
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                  : "border-purple-500/30 bg-purple-500/10 text-purple-300"
             )}
           >
             {item.category}
@@ -1634,7 +1688,11 @@ function EventCard({
         {/* QR Preview Display */}
         <div className="mt-4 flex items-center justify-center rounded-xl bg-white p-3 shadow-inner">
           {item.qrDataUrl ? (
-            <img src={item.qrDataUrl} alt={item.name} className="h-36 w-36 object-contain rounded" />
+            <img
+              src={item.qrDataUrl}
+              alt={item.name}
+              className="h-36 w-36 object-contain rounded"
+            />
           ) : (
             <div className="flex h-36 w-36 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-black" />
@@ -1657,8 +1715,8 @@ function EventCard({
                 accentColor === "sky"
                   ? "bg-sky-400"
                   : accentColor === "amber"
-                  ? "bg-amber-400"
-                  : "bg-purple-400"
+                    ? "bg-amber-400"
+                    : "bg-purple-400"
               )}
               style={{ width: `${Math.min(100, percentage)}%` }}
             />
@@ -1701,7 +1759,11 @@ function EventCard({
           className="flex flex-col items-center justify-center rounded-lg py-1.5 text-[10px] font-semibold text-muted hover:bg-white/[0.06] hover:text-foreground transition-colors"
           title="Copy Link"
         >
-          {isCopied ? <Check className="h-4 w-4 mb-0.5 text-emerald-400" /> : <Copy className="h-4 w-4 mb-0.5" />}
+          {isCopied ? (
+            <Check className="h-4 w-4 mb-0.5 text-emerald-400" />
+          ) : (
+            <Copy className="h-4 w-4 mb-0.5" />
+          )}
           Link
         </button>
       </div>
@@ -1763,9 +1825,7 @@ function PrintPosterModal({ item, onClose }: { item: EventQrItem; onClose: () =>
           </p>
 
           <div className="my-5 border-y-2 border-neutral-900 py-3">
-            <h2 className="text-2xl font-black tracking-tight text-neutral-900">
-              {item.name}
-            </h2>
+            <h2 className="text-2xl font-black tracking-tight text-neutral-900">{item.name}</h2>
             <p className="text-xs font-semibold text-neutral-600 mt-1 uppercase tracking-wider">
               {item.category} {item.venue ? `· Venue: ${item.venue}` : ""}
             </p>
@@ -1773,7 +1833,11 @@ function PrintPosterModal({ item, onClose }: { item: EventQrItem; onClose: () =>
 
           <div className="my-4 flex justify-center">
             {item.qrDataUrl && (
-              <img src={item.qrDataUrl} alt={item.name} className="h-64 w-64 object-contain border-4 border-neutral-900 p-2 rounded-xl" />
+              <img
+                src={item.qrDataUrl}
+                alt={item.name}
+                className="h-64 w-64 object-contain border-4 border-neutral-900 p-2 rounded-xl"
+              />
             )}
           </div>
 
@@ -1781,7 +1845,9 @@ function PrintPosterModal({ item, onClose }: { item: EventQrItem; onClose: () =>
             <p className="font-bold uppercase tracking-wider text-center text-neutral-900 mb-1">
               Instructions for Attendees:
             </p>
-            <p>1. Open your phone camera or visit <strong>techtrove.live/attendance</strong></p>
+            <p>
+              1. Open your phone camera or visit <strong>techtrove.live/attendance</strong>
+            </p>
             <p>2. Point camera at this QR code to mark your attendance</p>
             <p>3. Sign in with your registered email to record verified attendance</p>
           </div>
@@ -1812,7 +1878,9 @@ function BatchPrintModal({
   nonTechItems: EventQrItem[];
   onClose: () => void;
 }) {
-  const [selectedBatch, setSelectedBatch] = useState<"all" | "sports" | "technical" | "non_technical">("all");
+  const [selectedBatch, setSelectedBatch] = useState<
+    "all" | "sports" | "technical" | "non_technical"
+  >("all");
 
   const itemsToPrint = useMemo(() => {
     if (selectedBatch === "sports") return [sportsItem, ...sportsItems];
@@ -1889,7 +1957,11 @@ function BatchPrintModal({
             >
               <div className="flex items-center gap-3">
                 {item.qrDataUrl && (
-                  <img src={item.qrDataUrl} alt={item.name} className="h-12 w-12 rounded bg-white p-0.5 object-contain" />
+                  <img
+                    src={item.qrDataUrl}
+                    alt={item.name}
+                    className="h-12 w-12 rounded bg-white p-0.5 object-contain"
+                  />
                 )}
                 <div>
                   <p className="font-bold text-foreground">{item.name}</p>

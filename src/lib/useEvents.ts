@@ -13,7 +13,6 @@
  */
 
 import { useState, useEffect } from "react";
-import { supabase } from "./supabase";
 import { getDaysAsync } from "./eventStore";
 import type { Day, TechEvent } from "./eventStore";
 
@@ -63,47 +62,16 @@ export function useEvents(): UseEventsResult {
     };
   }, [tick]);
 
-  // ── Supabase Realtime subscription ────────────────────────────────────
-  // Listens for any change on the `events` AND `days` tables and re-fetches
-  // the full day+event tree.  This makes admin edits appear instantly
-  // everywhere (public pages, admin pages, and the user profile).
-  useEffect(() => {
-    // Use a unique channel name per subscription so re-mounts (React StrictMode
-    // double-invokes effects in dev) never collide on the same channel, which
-    // otherwise throws "cannot add postgres_changes callbacks after subscribe()".
-    const rand = new Uint32Array(4);
-    crypto.getRandomValues(rand);
-    const channel = supabase
-      .channel(`events-realtime-${Array.from(rand, (n) => n.toString(36)).join("")}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "events" },
-        () => {
-          // Re-fetch from Supabase when any event row changes
-          getDaysAsync()
-            .then(setDays)
-            .catch(() => {}); // silently ignore — we still have cached data
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "days" },
-        () => {
-          // Also re-fetch when an admin edits a day's title/time/status so
-          // open tabs pick up the label change without a manual refresh.
-          getDaysAsync()
-            .then(setDays)
-            .catch(() => {});
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []); // only once per mount
-
-  return { days, loading, error, reload: () => { setLoading(true); setError(null); setTick((t) => t + 1); } };
+  return {
+    days,
+    loading,
+    error,
+    reload: () => {
+      setLoading(true);
+      setError(null);
+      setTick((t) => t + 1);
+    },
+  };
 }
 
 // ─── useAllEvents ────────────────────────────────────────────────────────────
@@ -142,9 +110,7 @@ interface UseEventResult {
 export function useEvent(eventId: string | undefined): UseEventResult {
   const { days, loading, error } = useEvents();
 
-  const event = eventId
-    ? days.flatMap((d) => d.events).find((e) => e.id === eventId)
-    : undefined;
+  const event = eventId ? days.flatMap((d) => d.events).find((e) => e.id === eventId) : undefined;
 
   const day = event ? days.find((d) => d.id === event.dayId) : undefined;
 

@@ -325,7 +325,9 @@ export async function getEventCoordinator(eventId: string): Promise<EventCoordin
 /**
  * Get attendance statistics for a single event.
  */
-export async function getEventAttendanceStats(eventId: string): Promise<{ totalParticipants: number; attendedCount: number }> {
+export async function getEventAttendanceStats(
+  eventId: string
+): Promise<{ totalParticipants: number; attendedCount: number }> {
   const parts = await getEventParticipants(eventId);
   const attended = parts.filter((p) => p.attended).length;
   return {
@@ -345,7 +347,10 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
   const [days, coordinators, registrations, membersRes, attendanceRes] = await Promise.all([
     getDaysAsync(),
     adminListCoordinators().catch((err: Error) => {
-      console.warn("[coordinatorApi] adminListCoordinators error (migration pending):", err.message);
+      console.warn(
+        "[coordinatorApi] adminListCoordinators error (migration pending):",
+        err.message
+      );
       return [] as EventCoordinator[];
     }),
     getAllRegistrations().catch(() => [] as RegistrationRow[]),
@@ -404,12 +409,13 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
       totalParticipants > 0 ? totalParticipants : Number.MAX_SAFE_INTEGER
     );
 
-    const attendancePercentage = totalParticipants > 0
-      ? Math.round((attendedCount / totalParticipants) * 100)
-      : 0;
+    const attendancePercentage =
+      totalParticipants > 0 ? Math.round((attendedCount / totalParticipants) * 100) : 0;
 
     const status: "Active" | "Pending" | "Unassigned" = coordinator
-      ? (attendedCount > 0 ? "Active" : "Pending")
+      ? attendedCount > 0
+        ? "Active"
+        : "Pending"
       : "Unassigned";
 
     return {
@@ -432,8 +438,13 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
   // registration_members.attended, which meant the roster a coordinator saw was
   // partly their own browser's history: one coordinator could see fewer people
   // marked than another, and a browser with no history saw none.
-  const [membersRes, attendanceRes, regs] = await Promise.all([
-    supabase.from("registration_members").select("*").eq("event_id", eventId),
+  const [membersRes, attendanceRes] = await Promise.all([
+    supabase
+      .from("registration_members")
+      .select(
+        "id, user_id, member_name, email, phone, registration_id, registration_code, team_name, attended, attended_at, participant_type"
+      )
+      .eq("event_id", eventId),
     (async () => {
       const { data } = await supabase
         .from("attendance")
@@ -441,14 +452,35 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
         .eq("event_id", eventId);
       return { data: data ?? [] };
     })(),
-    getAllRegistrations().catch(() => [] as RegistrationRow[]),
   ]);
 
-  let allRegs = regs;
-  if ((!allRegs || allRegs.length === 0) && typeof localStorage !== "undefined") {
+  // Fallback ONLY if registration_members has 0 rows for this event (lazy-load scoped by eventId)
+  let allRegs: RegistrationRow[] = [];
+  if (!membersRes.data || membersRes.data.length === 0) {
+    try {
+      const [intRes, extRes] = await Promise.all([
+        supabase.from("registrations_internal").select("*").eq("event_id", eventId),
+        supabase.from("registrations_external").select("*").eq("event_id", eventId),
+      ]);
+      allRegs = [...(intRes.data ?? []), ...(extRes.data ?? [])] as RegistrationRow[];
+    } catch {
+      allRegs = [];
+    }
+  }
+
+  if (
+    allRegs.length === 0 &&
+    (!membersRes.data || membersRes.data.length === 0) &&
+    typeof localStorage !== "undefined"
+  ) {
     try {
       const raw = localStorage.getItem("techtrove_registrations");
-      if (raw) allRegs = JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          allRegs = parsed.filter((r: any) => r.event_id === eventId || r.eventId === eventId);
+        }
+      }
     } catch {
       // ignore
     }
@@ -468,8 +500,12 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
 
   if (membersRes.data && membersRes.data.length > 0) {
     for (const m of membersRes.data) {
-      const email = String(m.email ?? "").trim().toLowerCase();
-      const uid = String(m.user_id ?? "").trim().toLowerCase();
+      const email = String(m.email ?? "")
+        .trim()
+        .toLowerCase();
+      const uid = String(m.user_id ?? "")
+        .trim()
+        .toLowerCase();
       const localMarked = attSet.get(uid) || attSet.get(email);
       const isAttended = Boolean(m.attended || localMarked);
 
@@ -482,7 +518,7 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
         registrationCode: String(m.registration_code || ""),
         teamName: String(m.team_name || "Individual"),
         attended: isAttended,
-        attendedAt: m.attended_at ? String(m.attended_at) : (localMarked || null),
+        attendedAt: m.attended_at ? String(m.attended_at) : localMarked || null,
         participantType: (m.participant_type as "internal" | "external") ?? "internal",
       });
     }
@@ -492,7 +528,9 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
     for (const r of eventRegs) {
       if (Array.isArray(r.members) && r.members.length > 0) {
         for (const m of r.members as any[]) {
-          const email = String(m.email ?? "").trim().toLowerCase();
+          const email = String(m.email ?? "")
+            .trim()
+            .toLowerCase();
           const localMarked = attSet.get(email) || attSet.get(r.user_id.toLowerCase());
           participants.push({
             id: email || r.id,
@@ -612,66 +650,69 @@ export const CANONICAL_EVENT_TOKENS: Record<string, string> = {
   // Master Unified Sports Token
   "sports-unified-master": UNIFIED_SPORTS_TOKEN,
   // Tech Events
-  "hackathon": "c2d785c6556130288b23bc5930e0c897",
+  hackathon: "c2d785c6556130288b23bc5930e0c897",
   "tech-hackathon": "c2d785c6556130288b23bc5930e0c897",
-  "debugging": "290956874150306ca19811783dc6e939",
+  debugging: "290956874150306ca19811783dc6e939",
   "tech-debugging": "290956874150306ca19811783dc6e939",
   "paper-presentation": "a40b6e47c70ce8a2da3cb7868cc01327",
   "tech-paper-presentation": "a40b6e47c70ce8a2da3cb7868cc01327",
   "tech-maze": "d343f64181baadd8c18d1445e5f5dcc9",
-  "quiz": "598f2afc0c67c72c24c7313e0734daba",
+  quiz: "598f2afc0c67c72c24c7313e0734daba",
   "tech-quiz": "598f2afc0c67c72c24c7313e0734daba",
   "logo-making": "487449ffe383208b37ebb6ea11a0586d",
   "tech-logo-making": "487449ffe383208b37ebb6ea11a0586d",
   // Non-Tech Events
-  "dance": "048c0b5cea0eb38ab212c9897ad107ff",
+  dance: "048c0b5cea0eb38ab212c9897ad107ff",
   "nontech-dance": "048c0b5cea0eb38ab212c9897ad107ff",
-  "singing": "3b872130193c85708506bc2d8bbc1fb0",
+  singing: "3b872130193c85708506bc2d8bbc1fb0",
   "nontech-singing": "3b872130193c85708506bc2d8bbc1fb0",
-  "gaming": "20575a9e9755fc64694258c938f8c1dc",
+  gaming: "20575a9e9755fc64694258c938f8c1dc",
   "nontech-mobile-gaming": "20575a9e9755fc64694258c938f8c1dc",
   "ramp-walk": "3cc0ccc344defb6d48a3b5b59ec6bc88",
   "nontech-ramp-walk": "3cc0ccc344defb6d48a3b5b59ec6bc88",
   "treasure-hunt": "42afcf562a175493cf013832357b9b48",
   "nontech-treasure-hunt": "42afcf562a175493cf013832357b9b48",
-  "connexion": "4582ab70dce31f3dc148e2893284532e",
+  connexion: "4582ab70dce31f3dc148e2893284532e",
   "nontech-connexion": "4582ab70dce31f3dc148e2893284532e",
-  "adaptune": "b4b2fec065183af2ea1afaefa2a1d1ea",
+  adaptune: "b4b2fec065183af2ea1afaefa2a1d1ea",
   "nontech-adaptune": "b4b2fec065183af2ea1afaefa2a1d1ea",
-  "tunetopia": "7df7ca111c8fb6ebc37bed39fa5bf19e",
+  tunetopia: "7df7ca111c8fb6ebc37bed39fa5bf19e",
   "nontech-tunetopia": "7df7ca111c8fb6ebc37bed39fa5bf19e",
   "squid-game": "a6316df246aa65c01aa4cd7f9fbe56c6",
   "nontech-squid-game": "a6316df246aa65c01aa4cd7f9fbe56c6",
   "pass-the-ball": "c182e151fb5cac13011dc2f9c9b1b04f",
   "nontech-pass-the-ball": "c182e151fb5cac13011dc2f9c9b1b04f",
   // Sports Events (Unified token + specific IDs)
-  "cricket": UNIFIED_SPORTS_TOKEN,
+  cricket: UNIFIED_SPORTS_TOKEN,
   "sport-cricket": UNIFIED_SPORTS_TOKEN,
-  "football": UNIFIED_SPORTS_TOKEN,
+  football: UNIFIED_SPORTS_TOKEN,
   "sport-football": UNIFIED_SPORTS_TOKEN,
-  "volleyball": UNIFIED_SPORTS_TOKEN,
+  volleyball: UNIFIED_SPORTS_TOKEN,
   "sport-volleyball": UNIFIED_SPORTS_TOKEN,
-  "kabaddi": UNIFIED_SPORTS_TOKEN,
+  kabaddi: UNIFIED_SPORTS_TOKEN,
   "sport-kabaddi": UNIFIED_SPORTS_TOKEN,
   "kho-kho": UNIFIED_SPORTS_TOKEN,
   "sport-khokho": UNIFIED_SPORTS_TOKEN,
   "sport-khokho-girls": UNIFIED_SPORTS_TOKEN,
-  "throwball": UNIFIED_SPORTS_TOKEN,
+  throwball: UNIFIED_SPORTS_TOKEN,
   "sport-throwball-girls": UNIFIED_SPORTS_TOKEN,
-  "chess": UNIFIED_SPORTS_TOKEN,
+  chess: UNIFIED_SPORTS_TOKEN,
   "sport-chess": UNIFIED_SPORTS_TOKEN,
   "sport-chess-girls": UNIFIED_SPORTS_TOKEN,
-  "carrom": UNIFIED_SPORTS_TOKEN,
+  carrom: UNIFIED_SPORTS_TOKEN,
   "sport-carrom": UNIFIED_SPORTS_TOKEN,
   "sport-carrom-girls": UNIFIED_SPORTS_TOKEN,
 };
 
 export const CANONICAL_TOKEN_TO_EVENT: Record<string, string> = Object.entries(
   CANONICAL_EVENT_TOKENS
-).reduce((acc, [evId, tok]) => {
-  acc[tok] = evId;
-  return acc;
-}, {} as Record<string, string>);
+).reduce(
+  (acc, [evId, tok]) => {
+    acc[tok] = evId;
+    return acc;
+  },
+  {} as Record<string, string>
+);
 
 /**
  * Ensures all Day 1 sports events share a single unified attendance token.
@@ -686,7 +727,10 @@ export async function ensureSportsAttendanceToken(_sportsEvents?: TechEvent[]): 
 /**
  * Syncs the unified sports attendance token to all sports events.
  */
-export async function syncUnifiedSportsToken(token: string, sportsEvents: TechEvent[]): Promise<void> {
+export async function syncUnifiedSportsToken(
+  token: string,
+  sportsEvents: TechEvent[]
+): Promise<void> {
   try {
     localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, token);
   } catch {}
@@ -712,7 +756,10 @@ export async function getAttendanceEventStats(): Promise<
 > {
   const stats: Record<string, { total: number; attended: number }> = {};
   const normalizeKey = (key: string): string => {
-    return key.trim().toLowerCase().replace(/^(tech-|nontech-|sport-)/, "");
+    return key
+      .trim()
+      .toLowerCase()
+      .replace(/^(tech-|nontech-|sport-)/, "");
   };
 
   const rpcData: Record<string, { total: number; attended: number }> = {};
@@ -720,7 +767,9 @@ export async function getAttendanceEventStats(): Promise<
   try {
     // 1. Try secure RPC first
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: rpcStats, error: rpcErr } = await (supabase.rpc as any)("get_attendance_hub_stats");
+    const { data: rpcStats, error: rpcErr } = await (supabase.rpc as any)(
+      "get_attendance_hub_stats"
+    );
     if (!rpcErr && rpcStats && typeof rpcStats === "object") {
       Object.assign(rpcData, rpcStats);
     }
@@ -837,8 +886,7 @@ export async function getAttendanceEventStats(): Promise<
 
         // Tally Day 1 Sports
         const isSport =
-          ev.day_id === "day-1" ||
-          (ev.category ?? "").toLowerCase().startsWith("sport");
+          ev.day_id === "day-1" || (ev.category ?? "").toLowerCase().startsWith("sport");
         if (isSport) {
           sportsTotal += summary.total;
           const evAttended = attendedSets[idLower] || attendedSets[clean];
@@ -943,9 +991,7 @@ export async function markEventAttendance(
         const sportsList = days
           .flatMap((d) => d.events)
           .filter(
-            (e) =>
-              e.dayId === "day-1" ||
-              (e.category ?? "").toLowerCase().startsWith("sport")
+            (e) => e.dayId === "day-1" || (e.category ?? "").toLowerCase().startsWith("sport")
           );
         const sportEventIds = new Set(sportsList.map((e) => e.id));
         const email = user.email.trim().toLowerCase();
@@ -955,9 +1001,7 @@ export async function markEventAttendance(
           .select("event_id, event_name")
           .ilike("email", email);
 
-        const registeredSports = (memberRows ?? []).filter((m) =>
-          sportEventIds.has(m.event_id)
-        );
+        const registeredSports = (memberRows ?? []).filter((m) => sportEventIds.has(m.event_id));
 
         if (registeredSports.length > 0) {
           for (const reg of registeredSports) {
@@ -1001,7 +1045,9 @@ export async function markEventAttendance(
   }
 
   const res = (rpcData ?? {}) as Record<string, unknown>;
-  const reason = String(res.reason ?? (res.ok ? "success" : "error")) as MarkAttendanceResult["reason"];
+  const reason = String(
+    res.reason ?? (res.ok ? "success" : "error")
+  ) as MarkAttendanceResult["reason"];
 
   // If RPC returned not_registered or invalid_qr on the sports pass or canonical card tokens, check client fallback
   if (!res.ok && (reason === "not_registered" || reason === "invalid_qr")) {
@@ -1013,7 +1059,9 @@ export async function markEventAttendance(
       }
     })();
 
-    const isSportsPass = cleanToken === UNIFIED_SPORTS_TOKEN || (cachedSportsToken && cleanToken === cachedSportsToken);
+    const isSportsPass =
+      cleanToken === UNIFIED_SPORTS_TOKEN ||
+      (cachedSportsToken && cleanToken === cachedSportsToken);
     const targetCanonicalEventId = CANONICAL_TOKEN_TO_EVENT[cleanToken];
 
     if (isSportsPass || targetCanonicalEventId) {
@@ -1023,9 +1071,7 @@ export async function markEventAttendance(
 
         if (isSportsPass) {
           const sportsList = allEvList.filter(
-            (e) =>
-              e.dayId === "day-1" ||
-              (e.category ?? "").toLowerCase().startsWith("sport")
+            (e) => e.dayId === "day-1" || (e.category ?? "").toLowerCase().startsWith("sport")
           );
           const sportEventIds = new Set(sportsList.map((e) => e.id));
           const email = user.email.trim().toLowerCase();
@@ -1035,24 +1081,30 @@ export async function markEventAttendance(
               .from("registration_members")
               .select("event_id, event_name")
               .ilike("email", email),
-            supabase
-              .from("registrations_internal")
-              .select("event_id")
-              .eq("user_id", user.id),
-            supabase
-              .from("registrations_external")
-              .select("event_id")
-              .eq("user_id", user.id),
+            supabase.from("registrations_internal").select("event_id").eq("user_id", user.id),
+            supabase.from("registrations_external").select("event_id").eq("user_id", user.id),
           ]);
 
           const userSportEvents = new Set<string>();
           for (const m of memberRowsRes.data ?? []) {
-            if (m.event_id && (sportEventIds.has(m.event_id) || m.event_id.startsWith("sport-") || m.event_id === "cricket" || m.event_id === "football")) {
+            if (
+              m.event_id &&
+              (sportEventIds.has(m.event_id) ||
+                m.event_id.startsWith("sport-") ||
+                m.event_id === "cricket" ||
+                m.event_id === "football")
+            ) {
               userSportEvents.add(m.event_id);
             }
           }
           for (const r of [...(intRegsRes.data ?? []), ...(extRegsRes.data ?? [])]) {
-            if (r.event_id && (sportEventIds.has(r.event_id) || r.event_id.startsWith("sport-") || r.event_id === "cricket" || r.event_id === "football")) {
+            if (
+              r.event_id &&
+              (sportEventIds.has(r.event_id) ||
+                r.event_id.startsWith("sport-") ||
+                r.event_id === "cricket" ||
+                r.event_id === "football")
+            ) {
               userSportEvents.add(r.event_id);
             }
           }
@@ -1130,20 +1182,20 @@ export async function markEventAttendance(
               .from("registration_members")
               .select("event_id, event_name")
               .ilike("email", userEmail),
-            supabase
-              .from("registrations_internal")
-              .select("event_id")
-              .eq("user_id", user.id),
-            supabase
-              .from("registrations_external")
-              .select("event_id")
-              .eq("user_id", user.id),
+            supabase.from("registrations_internal").select("event_id").eq("user_id", user.id),
+            supabase.from("registrations_external").select("event_id").eq("user_id", user.id),
           ]);
 
           const isRegistered =
-            (memberRowsRes.data ?? []).some((m) => (m.event_id ?? "").replace(/^(tech-|nontech-|sport-)/, "") === cleanTarget) ||
-            (intRegsRes.data ?? []).some((r) => (r.event_id ?? "").replace(/^(tech-|nontech-|sport-)/, "") === cleanTarget) ||
-            (extRegsRes.data ?? []).some((r) => (r.event_id ?? "").replace(/^(tech-|nontech-|sport-)/, "") === cleanTarget);
+            (memberRowsRes.data ?? []).some(
+              (m) => (m.event_id ?? "").replace(/^(tech-|nontech-|sport-)/, "") === cleanTarget
+            ) ||
+            (intRegsRes.data ?? []).some(
+              (r) => (r.event_id ?? "").replace(/^(tech-|nontech-|sport-)/, "") === cleanTarget
+            ) ||
+            (extRegsRes.data ?? []).some(
+              (r) => (r.event_id ?? "").replace(/^(tech-|nontech-|sport-)/, "") === cleanTarget
+            );
 
           if (!isRegistered) {
             return {
@@ -1226,8 +1278,7 @@ export async function markEventAttendance(
     ok: Boolean(res.ok),
     reason,
     message: String(
-      res.message ||
-        (res.ok ? "✅ Attendance Marked Successfully" : "Could not mark attendance.")
+      res.message || (res.ok ? "✅ Attendance Marked Successfully" : "Could not mark attendance.")
     ),
     eventName: res.event_name ? String(res.event_name) : undefined,
     markedAt: res.marked_at ? String(res.marked_at) : undefined,
@@ -1276,24 +1327,54 @@ export async function getStudentAttendanceHistory(
  */
 export function subscribeToAttendanceUpdates(
   eventId: string | undefined,
-  callback: () => void
+  callback: (payload?: Record<string, unknown>) => void
 ): () => void {
   const handler = (e: Event) => {
     const detail = (e as CustomEvent).detail;
     if (!eventId || !detail?.eventId || detail.eventId === eventId) {
-      callback();
+      callback(detail);
     }
   };
 
   window.addEventListener(REALTIME_EVENT_NAME, handler);
 
-  // Also subscribe to Supabase Postgres Changes
-  const channel = supabase
-    .channel(`attendance-realtime-${eventId || "all"}-${Math.random().toString(36).slice(2, 6)}`)
-    .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, () => callback())
-    .on("postgres_changes", { event: "*", schema: "public", table: "registration_members" }, () => callback())
-    .on("postgres_changes", { event: "*", schema: "public", table: "event_coordinators" }, () => callback())
-    .subscribe();
+  // Subscribe to Supabase Postgres Changes with eventId isolation
+  const channelName = `attendance-realtime-${eventId || "all"}`;
+  const channel = supabase.channel(channelName);
+
+  channel.on(
+    "postgres_changes",
+    {
+      event: "*",
+      schema: "public",
+      table: "attendance",
+      ...(eventId ? { filter: `event_id=eq.${eventId}` } : {}),
+    },
+    (payload) => {
+      const row = (payload.new ?? payload.old) as Record<string, unknown> | undefined;
+      if (!eventId || !row?.event_id || row.event_id === eventId) {
+        callback(row);
+      }
+    }
+  );
+
+  channel.on(
+    "postgres_changes",
+    {
+      event: "*",
+      schema: "public",
+      table: "registration_members",
+      ...(eventId ? { filter: `event_id=eq.${eventId}` } : {}),
+    },
+    (payload) => {
+      const row = (payload.new ?? payload.old) as Record<string, unknown> | undefined;
+      if (!eventId || !row?.event_id || row.event_id === eventId) {
+        callback(row);
+      }
+    }
+  );
+
+  channel.subscribe();
 
   return () => {
     window.removeEventListener(REALTIME_EVENT_NAME, handler);

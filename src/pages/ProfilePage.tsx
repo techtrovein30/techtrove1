@@ -26,12 +26,10 @@ import { useAllEvents } from "../lib/useEvents";
 import type { Day, TechEvent } from "../lib/eventStore";
 import { formatFee } from "../lib/utils";
 import { siteConfig } from "../data/techtrove";
-import { supabase } from "../lib/supabase";
 import { useToast } from "../components/ui/toastContext";
 import {
   getStudentAttendanceHistory,
   getAssignedCoordinatorEvent,
-  subscribeToAttendanceUpdates,
   type EventAttendanceRecord,
   type EventCoordinator,
 } from "../lib/coordinatorApi";
@@ -71,9 +69,7 @@ function batchPaymentState(rows: Registration[]) {
     return { internal: true as const, recorded: false, needsReupload: false };
   }
   const recorded = rows.every((r) => r.paymentStatus === "recorded");
-  const needsReupload = rows.some(
-    (r) => r.paymentStatus !== "recorded" && !!r.paymentReviewNote,
-  );
+  const needsReupload = rows.some((r) => r.paymentStatus !== "recorded" && !!r.paymentReviewNote);
   return { internal: false as const, recorded, needsReupload };
 }
 
@@ -96,16 +92,16 @@ function BatchStatusBadge({ rows }: { rows: Registration[] }) {
         (state.recorded
           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
           : state.needsReupload
-          ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
-          : "border-sky-500/40 bg-sky-500/10 text-sky-400")
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
+            : "border-sky-500/40 bg-sky-500/10 text-sky-400")
       }
     >
       <CreditCard className="h-3 w-3" aria-hidden />
       {state.recorded
         ? "Payment recorded"
         : state.needsReupload
-        ? "Re-upload requested"
-        : "Pending payment"}
+          ? "Re-upload requested"
+          : "Pending payment"}
     </span>
   );
 }
@@ -236,10 +232,12 @@ function RegistrationCard({
       const duplicate = await checkUtrExists(utr.trim(), first.registrationCode);
       if (duplicate.exists) {
         setUtrDuplicateError(
-          duplicate.message || "This Transaction ID / UTR is already in use by another registration."
+          duplicate.message ||
+            "This Transaction ID / UTR is already in use by another registration."
         );
         setUploadError(
-          duplicate.message || "This Transaction ID / UTR is already in use by another registration."
+          duplicate.message ||
+            "This Transaction ID / UTR is already in use by another registration."
         );
         return;
       }
@@ -249,9 +247,7 @@ function RegistrationCard({
       setSelectedFile(null);
       onChanged?.();
     } catch (err) {
-      setUploadError(
-        err instanceof Error ? err.message : "Re-upload failed. Please try again."
-      );
+      setUploadError(err instanceof Error ? err.message : "Re-upload failed. Please try again.");
     } finally {
       setUploadBusy(false);
     }
@@ -282,7 +278,9 @@ function RegistrationCard({
               {multi ? (
                 <>
                   <span>{firstDay?.label ?? "TechTrove"}</span>
-                  <span aria-hidden className="text-muted/50">·</span>
+                  <span aria-hidden className="text-muted/50">
+                    ·
+                  </span>
                   <span>one flat payment covers all selected events</span>
                 </>
               ) : (
@@ -290,7 +288,9 @@ function RegistrationCard({
                   {firstDay?.label && <span>{firstDay.label}</span>}
                   {firstEvent?.time && (
                     <>
-                      <span aria-hidden className="text-muted/50">·</span>
+                      <span aria-hidden className="text-muted/50">
+                        ·
+                      </span>
                       <span className="font-mono">{firstEvent.time}</span>
                     </>
                   )}
@@ -323,7 +323,11 @@ function RegistrationCard({
               aria-label="Copy registration code"
               className="flex h-6 w-6 items-center justify-center border border-edge text-muted transition-colors hover:border-primary hover:text-primary-soft"
             >
-              {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+              {copied ? (
+                <Check className="h-3 w-3 text-emerald-400" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
             </button>
           </div>
         </div>
@@ -423,12 +427,15 @@ function RegistrationCard({
                 className="mt-3 block w-full text-sm text-muted file:mr-4 file:border-0 file:bg-primary/20 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-wider file:text-primary-soft hover:file:bg-primary/30"
               />
               <p className="mt-2 text-[11px] leading-relaxed text-amber-200/80">
-                The screenshot must clearly show your UTR / transaction ID so the payment can be verified.
+                The screenshot must clearly show your UTR / transaction ID so the payment can be
+                verified.
               </p>
               <button
                 type="button"
                 onClick={handleReupload}
-                disabled={uploadBusy || !selectedFile || !!utrError || !!utrDuplicateError || utrChecking}
+                disabled={
+                  uploadBusy || !selectedFile || !!utrError || !!utrDuplicateError || utrChecking
+                }
                 className="clip-angle mt-3 inline-flex items-center gap-2 bg-primary px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-primary-soft disabled:opacity-50"
               >
                 {uploadBusy ? (
@@ -449,12 +456,18 @@ function RegistrationCard({
           )}
 
           {uploadError && (
-            <p role="alert" className="mt-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+            <p
+              role="alert"
+              className="mt-3 border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300"
+            >
               {uploadError}
             </p>
           )}
           {uploadDone && (
-            <p role="status" className="mt-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+            <p
+              role="status"
+              className="mt-3 border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300"
+            >
               Payment screenshot re-uploaded. Awaiting admin review again.
             </p>
           )}
@@ -491,7 +504,8 @@ function RegistrationCard({
                   </Link>
                   {(d?.label || e?.time) && (
                     <span className="text-[11px] text-muted">
-                      {d?.label}{e?.time ? ` · ${e.time}` : ""}
+                      {d?.label}
+                      {e?.time ? ` · ${e.time}` : ""}
                     </span>
                   )}
                 </li>
@@ -542,7 +556,10 @@ function RegistrationCard({
             className="group/link inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted transition-colors hover:text-primary-soft"
           >
             View event details
-            <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover/link:translate-x-1" aria-hidden />
+            <ArrowRight
+              className="h-3.5 w-3.5 transition-transform duration-300 group-hover/link:translate-x-1"
+              aria-hidden
+            />
           </Link>
         </div>
       )}
@@ -599,7 +616,9 @@ function StudentAttendanceSection({
     for (const r of registrations) {
       set.add(r.eventId);
     }
-    return Array.from(set).map((id) => eventById.get(id)).filter((e): e is TechEvent => !!e);
+    return Array.from(set)
+      .map((id) => eventById.get(id))
+      .filter((e): e is TechEvent => !!e);
   }, [registrations, eventById]);
 
   return (
@@ -649,9 +668,7 @@ function StudentAttendanceSection({
 
                   return (
                     <tr key={ev.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="py-3.5 px-4 font-semibold text-foreground">
-                        {ev.name}
-                      </td>
+                      <td className="py-3.5 px-4 font-semibold text-foreground">{ev.name}</td>
                       <td className="py-3.5 px-4 text-muted">
                         <span className="rounded bg-white/[0.05] px-2 py-0.5 text-[10px] font-mono mr-1.5">
                           {ev.dayId}
@@ -675,14 +692,12 @@ function StudentAttendanceSection({
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-muted font-mono">
-                        {record?.markedAt ? (
-                          new Date(record.markedAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        ) : (
-                          "—"
-                        )}
+                        {record?.markedAt
+                          ? new Date(record.markedAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "—"}
                       </td>
                     </tr>
                   );
@@ -703,7 +718,10 @@ export function ProfilePage() {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
   const [attendanceHistory, setAttendanceHistory] = useState<EventAttendanceRecord[]>([]);
-  const [coordinatorInfo, setCoordinatorInfo] = useState<{ coordinator: EventCoordinator; event: TechEvent } | null>(null);
+  const [coordinatorInfo, setCoordinatorInfo] = useState<{
+    coordinator: EventCoordinator;
+    event: TechEvent;
+  } | null>(null);
   const { days, events } = useAllEvents();
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -731,8 +749,8 @@ export function ProfilePage() {
 
   useEffect(() => {
     loadAttendance();
-    const unsub = subscribeToAttendanceUpdates(undefined, loadAttendance);
-    return unsub;
+    window.addEventListener("focus", loadAttendance);
+    return () => window.removeEventListener("focus", loadAttendance);
   }, [loadAttendance]);
 
   const loadRegistrations = useCallback(() => {
@@ -748,36 +766,6 @@ export function ProfilePage() {
     loadRegistrations();
     window.addEventListener("focus", loadRegistrations);
     return () => window.removeEventListener("focus", loadRegistrations);
-  }, [user, loadRegistrations]);
-
-  // Live-sync the signed-in user's registrations: when an admin updates a
-  // registration (payment recorded, team name changed, re-upload requested,
-  // row deleted) in another tab, this profile refreshes instantly.
-  useEffect(() => {
-    if (!user) return;
-    // Unique channel name per subscription so React StrictMode's double-mount
-    // never reuses a channel that already has callbacks registered.
-    const rand = new Uint32Array(4);
-    crypto.getRandomValues(rand);
-    const channel = supabase
-      .channel(`profile-registrations-sync-${user.id}-${Array.from(rand, (n) => n.toString(36)).join("")}`)
-      // RLS already confines the event stream to rows this user is allowed to
-      // select (their own registrations only); the filter narrows it further
-      // so unrelated rows in other tabs don't trigger refetches.
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "registrations_internal", filter: `user_id=eq.${user.id}` },
-        () => loadRegistrations()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "registrations_external", filter: `user_id=eq.${user.id}` },
-        () => loadRegistrations()
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [user, loadRegistrations]);
 
   // Group registrations by registration_code. A flat pass shares ONE code
@@ -867,9 +855,7 @@ export function ProfilePage() {
     ...(user.participantType === "internal" && user.regNumber
       ? [{ label: "Registration Number", value: user.regNumber, accent: true }]
       : []),
-    ...(user.phone
-      ? [{ label: "Phone", value: user.phone, accent: false }]
-      : []),
+    ...(user.phone ? [{ label: "Phone", value: user.phone, accent: false }] : []),
     {
       label: "Participant Type",
       value: user.participantType === "internal" ? "SIMATS Student" : "External Participant",
@@ -933,9 +919,7 @@ export function ProfilePage() {
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="display text-4xl text-foreground sm:text-5xl">
-                    {user.fullName}
-                  </h1>
+                  <h1 className="display text-4xl text-foreground sm:text-5xl">{user.fullName}</h1>
                   <button
                     type="button"
                     onClick={startEditName}
@@ -977,7 +961,8 @@ export function ProfilePage() {
                 SCAN TO MARK ATTENDANCE
               </h2>
               <p className="text-xs sm:text-sm text-muted max-w-lg leading-relaxed">
-                Welcome, <span className="font-semibold text-foreground">{user.fullName}</span>! Point your camera at the event coordinator&apos;s QR code to record your attendance.
+                Welcome, <span className="font-semibold text-foreground">{user.fullName}</span>!
+                Point your camera at the event coordinator&apos;s QR code to record your attendance.
               </p>
             </div>
 
@@ -1006,7 +991,8 @@ export function ProfilePage() {
                   {coordinatorInfo.event.name}
                 </h3>
                 <p className="text-xs text-muted">
-                  You are the assigned main coordinator. Start attendance or monitor participant scans.
+                  You are the assigned main coordinator. Start attendance or monitor participant
+                  scans.
                 </p>
               </div>
             </div>
@@ -1126,7 +1112,10 @@ export function ProfilePage() {
               className="group inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted transition-colors hover:text-primary-soft"
             >
               Browse all events
-              <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" aria-hidden />
+              <ArrowRight
+                className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1"
+                aria-hidden
+              />
             </Link>
           </div>
 
@@ -1212,9 +1201,7 @@ export function ProfilePage() {
             loading="lazy"
             className="h-14 w-auto"
           />
-          <p className="display mt-6 text-2xl text-foreground sm:text-3xl">
-            {siteConfig.tagline}
-          </p>
+          <p className="display mt-6 text-2xl text-foreground sm:text-3xl">{siteConfig.tagline}</p>
           <p className="mt-3 max-w-sm text-sm text-muted">
             {siteConfig.eventDate} · {siteConfig.venue}
           </p>

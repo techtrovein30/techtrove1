@@ -45,18 +45,42 @@ export function AdminDashboardPage({
 
   useEffect(() => {
     fetchStats();
+    window.addEventListener("focus", fetchStats);
 
-    // Listen to changes on participant and registration tables
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedFetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchStats, 500);
+    };
+
+    // Listen to changes on participant and registration tables only (not members/attendance)
     const channel = supabase
       .channel("admin-dashboard-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "internal_participants" }, fetchStats)
-      .on("postgres_changes", { event: "*", schema: "public", table: "external_participants" }, fetchStats)
-      .on("postgres_changes", { event: "*", schema: "public", table: "registrations_internal" }, fetchStats)
-      .on("postgres_changes", { event: "*", schema: "public", table: "registrations_external" }, fetchStats)
-      .on("postgres_changes", { event: "*", schema: "public", table: "registration_members" }, fetchStats)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "internal_participants" },
+        debouncedFetch
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "external_participants" },
+        debouncedFetch
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "registrations_internal" },
+        debouncedFetch
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "registrations_external" },
+        debouncedFetch
+      )
       .subscribe();
 
     return () => {
+      window.removeEventListener("focus", fetchStats);
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -74,9 +98,7 @@ export function AdminDashboardPage({
 
   if (!stats) {
     return (
-      <div className="flex h-64 items-center justify-center text-muted">
-        Loading statistics...
-      </div>
+      <div className="flex h-64 items-center justify-center text-muted">Loading statistics...</div>
     );
   }
 
@@ -106,12 +128,17 @@ export function AdminDashboardPage({
           </Link>
           <Link
             to={`${basePath}/events`}
-            className={viewOnly
-              ? "flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.06]"
-              : "flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white shadow-[0_0_15px_rgba(124,58,237,0.3)] transition-all hover:bg-primary-soft hover:shadow-[0_0_20px_rgba(124,58,237,0.5)]"
+            className={
+              viewOnly
+                ? "flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.06]"
+                : "flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white shadow-[0_0_15px_rgba(124,58,237,0.3)] transition-all hover:bg-primary-soft hover:shadow-[0_0_20px_rgba(124,58,237,0.5)]"
             }
           >
-            {viewOnly ? <CalendarDays className="h-4 w-4 text-muted" /> : <Plus className="h-4 w-4" />}
+            {viewOnly ? (
+              <CalendarDays className="h-4 w-4 text-muted" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             {viewOnly ? "Events" : "Manage Events"}
           </Link>
         </div>
@@ -147,21 +174,9 @@ export function AdminDashboardPage({
 
       {/* Secondary operational stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Internal Students"
-          value={stats.internalUsers}
-          icon={Users}
-        />
-        <StatCard
-          label="External Students"
-          value={stats.externalUsers}
-          icon={Users}
-        />
-        <StatCard
-          label="Recorded Payments"
-          value={stats.recordedPayments}
-          icon={CheckCircle2}
-        />
+        <StatCard label="Internal Students" value={stats.internalUsers} icon={Users} />
+        <StatCard label="External Students" value={stats.externalUsers} icon={Users} />
+        <StatCard label="Recorded Payments" value={stats.recordedPayments} icon={CheckCircle2} />
         <StatCard
           label="Open Events"
           value={events.filter((e) => e.registrationOpen).length}
@@ -179,20 +194,20 @@ export function AdminDashboardPage({
             </span>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-bold text-foreground">
-                  Revenue & UTR Fraud Audit
-                </h2>
+                <h2 className="text-base font-bold text-foreground">Revenue & UTR Fraud Audit</h2>
                 <span className="rounded-full border border-primary/40 bg-primary/20 px-2.5 py-0.5 text-xs font-mono font-bold text-primary-soft">
                   {formatFee(stats.totalRevenue)} collected
                 </span>
                 {stats.repeatedUtrs.length > 0 && (
                   <span className="rounded-full border border-amber-500/40 bg-amber-500/20 px-2.5 py-0.5 text-xs font-mono font-bold text-amber-300">
-                    {stats.repeatedUtrs.length} {stats.repeatedUtrs.length === 1 ? "group" : "groups"} flagged
+                    {stats.repeatedUtrs.length}{" "}
+                    {stats.repeatedUtrs.length === 1 ? "group" : "groups"} flagged
                   </span>
                 )}
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                Live financial analytics, per-event fee breakdowns, and duplicate transaction UTR resolution are on the dedicated Revenue page.
+                Live financial analytics, per-event fee breakdowns, and duplicate transaction UTR
+                resolution are on the dedicated Revenue page.
               </p>
             </div>
           </div>
@@ -210,9 +225,7 @@ export function AdminDashboardPage({
         {/* Per-event registration counts */}
         <div className="rounded-xl border border-white/[0.07] bg-[#161616] p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">
-              Registrations by Event
-            </h2>
+            <h2 className="text-sm font-semibold text-foreground">Registrations by Event</h2>
             <Link
               to={`${basePath}/events`}
               className="flex items-center gap-1 text-[11px] text-primary-soft hover:text-primary"
@@ -228,9 +241,7 @@ export function AdminDashboardPage({
                 const count = stats.perEvent[ev.id] ?? 0;
                 return (
                   <div key={ev.id} className="flex items-center gap-3">
-                    <span className="min-w-0 flex-1 truncate text-sm text-muted">
-                      {ev.name}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-muted">{ev.name}</span>
                     <div className="flex items-center gap-2">
                       <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/[0.07]">
                         <div
@@ -238,10 +249,7 @@ export function AdminDashboardPage({
                           style={{
                             width:
                               stats.totalEventRegistrations > 0
-                                ? `${Math.min(
-                                    100,
-                                    (count / stats.totalEventRegistrations) * 100
-                                  )}%`
+                                ? `${Math.min(100, (count / stats.totalEventRegistrations) * 100)}%`
                                 : "0%",
                           }}
                         />
@@ -269,9 +277,7 @@ export function AdminDashboardPage({
         {/* Recent registrations */}
         <div className="rounded-xl border border-white/[0.07] bg-[#161616] p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">
-              Recent Registrations
-            </h2>
+            <h2 className="text-sm font-semibold text-foreground">Recent Registrations</h2>
             <Link
               to={`${basePath}/registrations`}
               className="flex items-center gap-1 text-[11px] text-primary-soft hover:text-primary"
@@ -316,8 +322,8 @@ export function AdminDashboardPage({
                       {reg.members[0]?.participantType === "internal"
                         ? "Confirmed"
                         : reg.paymentStatus === "recorded"
-                        ? "Paid"
-                        : "Pending"}
+                          ? "Paid"
+                          : "Pending"}
                     </span>
                   </div>
                 );

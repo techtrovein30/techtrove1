@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { supabase } from "./supabase";
 import { adminListRegistrations, adminListUsers } from "./adminApi";
 import type { Registration, User } from "./api";
 
@@ -26,8 +25,6 @@ export function useAdminRegistrations() {
   useEffect(() => {
     let cancelled = false;
 
-    // Initial load. All setState calls happen after the await, so we satisfy
-    // the react-hooks "no synchronous setState in effect" rule.
     void (async () => {
       try {
         const data = await adminListRegistrations();
@@ -39,24 +36,14 @@ export function useAdminRegistrations() {
       }
     })();
 
-    // Listen to changes on both registration tables
-    const channel = supabase
-      .channel("admin-registrations-sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "registrations_internal" },
-        () => fetchRegistrations()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "registrations_external" },
-        () => fetchRegistrations()
-      )
-      .subscribe();
+    const handleFocus = () => {
+      fetchRegistrations().catch(() => {});
+    };
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
@@ -64,7 +51,7 @@ export function useAdminRegistrations() {
 }
 
 /**
- * Hook to fetch all users (participants) and keep them in sync with the database via Realtime.
+ * Hook to fetch all users (participants) and refresh on focus or manual trigger.
  */
 export function useAdminUsers() {
   const [users, setUsers] = useState<User[]>([]);
@@ -82,23 +69,13 @@ export function useAdminUsers() {
   useEffect(() => {
     fetchUsers();
 
-    // Listen to changes on both split participant tables
-    const channel = supabase
-      .channel("admin-users-sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "internal_participants" },
-        () => fetchUsers()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "external_participants" },
-        () => fetchUsers()
-      )
-      .subscribe();
+    const handleFocus = () => {
+      fetchUsers();
+    };
+    window.addEventListener("focus", handleFocus);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 

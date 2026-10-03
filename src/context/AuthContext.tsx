@@ -75,7 +75,9 @@ async function resolveSessionParticipant(authUserId: string): Promise<User | nul
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [googlePendingProfile, setGooglePendingProfile] = useState<GooglePendingProfile | null>(null);
+  const [googlePendingProfile, setGooglePendingProfile] = useState<GooglePendingProfile | null>(
+    null
+  );
 
   // Monotonic guard so an older (pre-promotion) participant resolution can
   // never overwrite a newer one. Without this, the multiple async
@@ -85,7 +87,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Restore session on initial mount
-    supabase.auth.getSession()
+    supabase.auth
+      .getSession()
       .then(async ({ data: { session } }) => {
         const seq = ++resolveSeq.current;
         if (session?.user) {
@@ -112,34 +115,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
 
     // Listen for auth state changes (sign-in, sign-out, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const seq = ++resolveSeq.current; // Mark this resolution as the latest
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const seq = ++resolveSeq.current; // Mark this resolution as the latest
 
-        if (session?.user) {
-          const resolved = await resolveSessionParticipant(session.user.id);
+      if (session?.user) {
+        const resolved = await resolveSessionParticipant(session.user.id);
 
-          if (seq !== resolveSeq.current) return;
-          if (resolved) {
-            setUser(resolved);
-            setGooglePendingProfile(null);
-          } else {
-            // Google OAuth user without a participant row yet
-            const meta = session.user.user_metadata ?? {};
-            setGooglePendingProfile({
-              authUserId: session.user.id,
-              email: session.user.email ?? meta.email ?? "",
-              fullName: meta.full_name ?? meta.name ?? session.user.email?.split("@")[0] ?? "",
-            });
-          }
-        } else {
-          if (seq !== resolveSeq.current) return;
-          setUser(null);
+        if (seq !== resolveSeq.current) return;
+        if (resolved) {
+          setUser(resolved);
           setGooglePendingProfile(null);
+        } else {
+          // Google OAuth user without a participant row yet
+          const meta = session.user.user_metadata ?? {};
+          setGooglePendingProfile({
+            authUserId: session.user.id,
+            email: session.user.email ?? meta.email ?? "",
+            fullName: meta.full_name ?? meta.name ?? session.user.email?.split("@")[0] ?? "",
+          });
         }
-        setLoading(false);
+      } else {
+        if (seq !== resolveSeq.current) return;
+        setUser(null);
+        setGooglePendingProfile(null);
       }
-    );
+      setLoading(false);
+    });
 
     return () => {
       subscription.unsubscribe();
@@ -155,11 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const cleanup = () => {
       try {
         if (window.location.hash === "") {
-          window.history.replaceState(
-            null,
-            "",
-            window.location.pathname + window.location.search
-          );
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
       } catch {
         // History API unavailable — harmless to skip.
@@ -173,35 +172,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(second);
     };
   }, []);
-
-  // Live-sync the signed-in user's own profile: when an admin edits a
-  // participant row (full name, college, phone) in another tab, re-resolve
-  // and update the app user so their profile/header reflect it immediately.
-  useEffect(() => {
-    if (!user) return;
-    const table =
-      user.participantType === "internal" ? "internal_participants" : "external_participants";
-
-    // Unique channel name per subscription so React StrictMode's double-mount
-    // never reuses a channel that already has callbacks registered.
-    const rand = new Uint32Array(4);
-    crypto.getRandomValues(rand);
-    const channel = supabase
-      .channel(`profile-sync-${user.id}-${Array.from(rand, (n) => n.toString(36)).join("")}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table, filter: `id=eq.${user.id}` },
-        async () => {
-          const refreshed = await resolveSessionParticipant(user.id);
-          if (refreshed) setUser(refreshed);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -252,12 +222,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (phoneErr) throw new Error(phoneErr);
         }
 
-        const usernameBase = fullName
-          .toLowerCase()
-          .split(/\s+/)
-          .map((p) => p.replace(/[^a-z0-9]/g, ""))
-          .filter(Boolean)
-          .join(".") || "member";
+        const usernameBase =
+          fullName
+            .toLowerCase()
+            .split(/\s+/)
+            .map((p) => p.replace(/[^a-z0-9]/g, ""))
+            .filter(Boolean)
+            .join(".") || "member";
 
         // Check username uniqueness server-side (SECURITY DEFINER RPC).
         // A plain SELECT from the client can't see other users' rows under RLS,
@@ -267,10 +238,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let attempt = 1;
         let rpcAvailable = true;
         while (attempt < 50) {
-          const { data: taken, error } = await supabase.rpc(
-            "username_is_taken",
-            { p_username: username },
-          );
+          const { data: taken, error } = await supabase.rpc("username_is_taken", {
+            p_username: username,
+          });
           if (error) {
             // RPC not deployed yet — degrade gracefully below.
             rpcAvailable = false;
@@ -287,7 +257,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!rpcAvailable) {
           const rand = new Uint32Array(2);
           crypto.getRandomValues(rand);
-          const suffix = Array.from(rand, (n) => n.toString(36)).join("").slice(0, 4);
+          const suffix = Array.from(rand, (n) => n.toString(36))
+            .join("")
+            .slice(0, 4);
           username = `${usernameBase}${suffix}`;
         }
 
@@ -341,7 +313,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
       async refreshUser() {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!session?.user) {
           setUser(null);
           return;
@@ -355,7 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [user, loading, googlePendingProfile],
+    [user, loading, googlePendingProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

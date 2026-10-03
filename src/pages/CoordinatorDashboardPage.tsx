@@ -135,12 +135,22 @@ export function CoordinatorDashboardPage() {
   // Realtime updates subscription
   useEffect(() => {
     if (!event) return;
-    const unsubscribe = subscribeToAttendanceUpdates(event.id, async () => {
-      // Reload participant list on real-time scan
-      const parts = await getEventParticipants(event.id);
-      setParticipants(parts);
+    const eventId = event.id;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const unsubscribe = subscribeToAttendanceUpdates(eventId, async () => {
+      // Coalesce burst scans with a 200ms debounce
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const parts = await getEventParticipants(eventId);
+        setParticipants(parts);
+      }, 200);
     });
-    return unsubscribe;
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
   }, [event]);
 
   // Generate QR code for presentation mode
@@ -233,7 +243,9 @@ export function CoordinatorDashboardPage() {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-3">
         <Loader2 className="h-8 w-8 animate-spin text-primary-soft" />
-        <p className="text-xs uppercase tracking-widest text-muted">Loading Coordinator Command Center...</p>
+        <p className="text-xs uppercase tracking-widest text-muted">
+          Loading Coordinator Command Center...
+        </p>
       </div>
     );
   }
@@ -255,9 +267,16 @@ export function CoordinatorDashboardPage() {
           <div className="mt-6 mx-auto max-w-md rounded-2xl border border-white/10 bg-[#141414] p-5 text-left text-xs text-muted space-y-2">
             <p className="font-semibold text-foreground">To initialize the Coordinator system:</p>
             <ol className="list-decimal list-inside space-y-1.5 leading-relaxed">
-              <li>Open your Supabase Project Dashboard → <strong>SQL Editor</strong></li>
-              <li>Paste and run the contents of <code className="text-primary-soft">query_coordinator_attendance.sql</code></li>
-              <li>Click <strong>Check Again</strong> below</li>
+              <li>
+                Open your Supabase Project Dashboard → <strong>SQL Editor</strong>
+              </li>
+              <li>
+                Paste and run the contents of{" "}
+                <code className="text-primary-soft">query_coordinator_attendance.sql</code>
+              </li>
+              <li>
+                Click <strong>Check Again</strong> below
+              </li>
             </ol>
           </div>
           <div className="mt-8 flex justify-center gap-4">
@@ -290,7 +309,8 @@ export function CoordinatorDashboardPage() {
           No event has been assigned to this coordinator.
         </p>
         <p className="mt-1 text-xs text-muted/70">
-          Please contact the fest administrators to assign you as the main coordinator for your event.
+          Please contact the fest administrators to assign you as the main coordinator for your
+          event.
         </p>
         <div className="mt-8 flex justify-center gap-4">
           <Link
@@ -320,11 +340,21 @@ export function CoordinatorDashboardPage() {
               <ShieldAlert className="h-5 w-5" />
             </div>
             <div className="space-y-1.5 flex-1">
-              <h3 className="font-semibold text-sm text-foreground">
-                Database Migration Pending
-              </h3>
+              <h3 className="font-semibold text-sm text-foreground">Database Migration Pending</h3>
               <p className="text-xs text-muted leading-relaxed">
-                The <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-300 border border-amber-500/20">event_coordinators</code> and <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-300 border border-amber-500/20">attendance</code> tables are not yet initialized in Supabase. Please ask an administrator to run <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-primary-soft border border-white/10">query_coordinator_attendance.sql</code> in the Supabase SQL Editor.
+                The{" "}
+                <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-300 border border-amber-500/20">
+                  event_coordinators
+                </code>{" "}
+                and{" "}
+                <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-300 border border-amber-500/20">
+                  attendance
+                </code>{" "}
+                tables are not yet initialized in Supabase. Please ask an administrator to run{" "}
+                <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-primary-soft border border-white/10">
+                  query_coordinator_attendance.sql
+                </code>{" "}
+                in the Supabase SQL Editor.
               </p>
             </div>
           </div>
@@ -344,7 +374,9 @@ export function CoordinatorDashboardPage() {
               <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-semibold text-emerald-400 border border-emerald-500/30">
                 Assigned Event
               </span>
-              <span className="text-xs text-muted">Coordinator: <strong className="text-white">{coordinator.name}</strong></span>
+              <span className="text-xs text-muted">
+                Coordinator: <strong className="text-white">{coordinator.name}</strong>
+              </span>
             </div>
 
             <h1 className="display text-3xl text-foreground sm:text-4xl lg:text-5xl">
@@ -390,7 +422,9 @@ export function CoordinatorDashboardPage() {
       {/* Metrics Row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-2xl border border-white/10 bg-[#141414] p-5 shadow-lg">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Total Registered</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+            Total Registered
+          </p>
           <div className="mt-2 flex items-baseline justify-between">
             <p className="text-3xl font-extrabold text-foreground">{total}</p>
             <Users className="h-5 w-5 text-muted/60" />
@@ -399,7 +433,9 @@ export function CoordinatorDashboardPage() {
         </div>
 
         <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] p-5 shadow-lg">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">Total Attended</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
+            Total Attended
+          </p>
           <div className="mt-2 flex items-baseline justify-between">
             <p className="text-3xl font-extrabold text-emerald-400">{attendedCount}</p>
             <CheckCircle2 className="h-5 w-5 text-emerald-400" />
@@ -408,7 +444,9 @@ export function CoordinatorDashboardPage() {
         </div>
 
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.04] p-5 shadow-lg">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-400">Total Absent</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+            Total Absent
+          </p>
           <div className="mt-2 flex items-baseline justify-between">
             <p className="text-3xl font-extrabold text-amber-400">{absentCount}</p>
             <UserX className="h-5 w-5 text-amber-400" />
@@ -417,7 +455,9 @@ export function CoordinatorDashboardPage() {
         </div>
 
         <div className="rounded-2xl border border-primary/20 bg-primary/[0.04] p-5 shadow-lg">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-primary-soft">Attendance Rate</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-primary-soft">
+            Attendance Rate
+          </p>
           <div className="mt-2 flex items-baseline justify-between">
             <p className="text-3xl font-extrabold text-primary-soft">{percentage}%</p>
             <Sparkles className="h-5 w-5 text-primary-soft" />
@@ -459,7 +499,11 @@ export function CoordinatorDashboardPage() {
                   </span>
                   <p className="text-[9px] text-muted font-mono mt-0.5">
                     {p.attendedAt
-                      ? new Date(p.attendedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                      ? new Date(p.attendedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })
                       : ""}
                   </p>
                 </div>
@@ -507,7 +551,9 @@ export function CoordinatorDashboardPage() {
                 type="button"
                 onClick={() => setFilter("present")}
                 className={`rounded-lg px-3 py-1 font-medium transition-colors ${
-                  filter === "present" ? "bg-emerald-500/20 text-emerald-400 font-semibold" : "text-muted hover:text-foreground"
+                  filter === "present"
+                    ? "bg-emerald-500/20 text-emerald-400 font-semibold"
+                    : "text-muted hover:text-foreground"
                 }`}
               >
                 Present ({attendedCount})
@@ -516,7 +562,9 @@ export function CoordinatorDashboardPage() {
                 type="button"
                 onClick={() => setFilter("absent")}
                 className={`rounded-lg px-3 py-1 font-medium transition-colors ${
-                  filter === "absent" ? "bg-amber-500/20 text-amber-400 font-semibold" : "text-muted hover:text-foreground"
+                  filter === "absent"
+                    ? "bg-amber-500/20 text-amber-400 font-semibold"
+                    : "text-muted hover:text-foreground"
                 }`}
               >
                 Absent ({absentCount})
@@ -591,14 +639,12 @@ export function CoordinatorDashboardPage() {
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-muted font-mono text-[11px]">
-                        {p.attendedAt ? (
-                          new Date(p.attendedAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        ) : (
-                          "—"
-                        )}
+                        {p.attendedAt
+                          ? new Date(p.attendedAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "—"}
                       </td>
                     </tr>
                   ))}
@@ -628,7 +674,11 @@ export function CoordinatorDashboardPage() {
                   title="Fullscreen / Projector Mode"
                   className="rounded-lg p-2 text-muted hover:bg-white/[0.08] hover:text-foreground transition-colors"
                 >
-                  {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                  {isFullscreen ? (
+                    <Minimize2 className="h-5 w-5" />
+                  ) : (
+                    <Maximize2 className="h-5 w-5" />
+                  )}
                 </button>
                 <button
                   type="button"
@@ -641,9 +691,7 @@ export function CoordinatorDashboardPage() {
             </div>
 
             {/* Event Header */}
-            <h2 className="display text-3xl sm:text-4xl text-foreground font-bold">
-              {event.name}
-            </h2>
+            <h2 className="display text-3xl sm:text-4xl text-foreground font-bold">{event.name}</h2>
             <p className="text-xs uppercase tracking-widest text-primary-soft font-semibold mt-1">
               Scan to Mark Attendance
             </p>
@@ -666,21 +714,28 @@ export function CoordinatorDashboardPage() {
             {/* Live Count Display */}
             <div className="mt-6 w-full max-w-md rounded-2xl border border-white/10 bg-[#161616] p-4 flex items-center justify-around">
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">Attendance</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                  Attendance
+                </p>
                 <p className="text-2xl font-black text-emerald-400 mt-0.5">
-                  {attendedCount} <span className="text-muted text-base font-normal">/ {total}</span>
+                  {attendedCount}{" "}
+                  <span className="text-muted text-base font-normal">/ {total}</span>
                 </p>
               </div>
               <div className="h-8 w-px bg-white/10" />
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">Turnout</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                  Turnout
+                </p>
                 <p className="text-2xl font-black text-primary-soft mt-0.5">{percentage}%</p>
               </div>
             </div>
 
             {/* Instruction note */}
             <p className="mt-5 text-xs text-muted/80 max-w-md">
-              Participants: Log in on your phone, click <strong className="text-foreground">SCAN QR</strong> on your dashboard, and aim camera at this code.
+              Participants: Log in on your phone, click{" "}
+              <strong className="text-foreground">SCAN QR</strong> on your dashboard, and aim camera
+              at this code.
             </p>
           </div>
         </div>

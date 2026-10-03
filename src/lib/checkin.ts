@@ -10,7 +10,7 @@
 
 import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { validateEmail } from "./validation";
 import { getAllRegistrations, type RegistrationRow } from "./db";
 
@@ -112,7 +112,9 @@ export async function adminListCheckinMembers(opts?: {
     query,
     supabase
       .from("attendance")
-      .select("event_id, participant_email, participant_id, participant_name, registration_code, status"),
+      .select(
+        "event_id, participant_email, participant_id, participant_name, registration_code, status"
+      ),
   ]);
 
   let rawMemberRows = membersRes.data ?? [];
@@ -127,7 +129,7 @@ export async function adminListCheckinMembers(opts?: {
         if (r.event_id !== opts.eventId && cleanEv !== cleanReq) continue;
       }
       const members = Array.isArray(r.members) ? (r.members as any[]) : [];
-      const isInternal = (members[0]?.participantType === "internal");
+      const isInternal = members[0]?.participantType === "internal";
       if (members.length > 0) {
         members.forEach((m, idx) => {
           synth.push({
@@ -177,11 +179,21 @@ export async function adminListCheckinMembers(opts?: {
       const termLower = safeTerm.toLowerCase();
       rawMemberRows = synth.filter(
         (m: any) =>
-          String(m.member_name || "").toLowerCase().includes(termLower) ||
-          String(m.team_name || "").toLowerCase().includes(termLower) ||
-          String(m.captain_name || "").toLowerCase().includes(termLower) ||
-          String(m.registration_code || "").toLowerCase().includes(termLower) ||
-          String(m.email || "").toLowerCase().includes(termLower)
+          String(m.member_name || "")
+            .toLowerCase()
+            .includes(termLower) ||
+          String(m.team_name || "")
+            .toLowerCase()
+            .includes(termLower) ||
+          String(m.captain_name || "")
+            .toLowerCase()
+            .includes(termLower) ||
+          String(m.registration_code || "")
+            .toLowerCase()
+            .includes(termLower) ||
+          String(m.email || "")
+            .toLowerCase()
+            .includes(termLower)
       );
     } else {
       rawMemberRows = synth;
@@ -201,9 +213,17 @@ export async function adminListCheckinMembers(opts?: {
         ev === "sports-unified" ||
         ev.startsWith("sport-") ||
         [
-          "cricket", "football", "volleyball", "kabaddi", "khokho",
-          "khokho-girls", "throwball-girls", "chess", "chess-girls",
-          "carrom", "carrom-girls"
+          "cricket",
+          "football",
+          "volleyball",
+          "kabaddi",
+          "khokho",
+          "khokho-girls",
+          "throwball-girls",
+          "chess",
+          "chess-girls",
+          "carrom",
+          "carrom-girls",
         ].includes(cleanEv);
 
       if (email) {
@@ -233,9 +253,17 @@ export async function adminListCheckinMembers(opts?: {
     const isSport =
       ev.startsWith("sport-") ||
       [
-        "cricket", "football", "volleyball", "kabaddi", "khokho",
-        "khokho-girls", "throwball-girls", "chess", "chess-girls",
-        "carrom", "carrom-girls"
+        "cricket",
+        "football",
+        "volleyball",
+        "kabaddi",
+        "khokho",
+        "khokho-girls",
+        "throwball-girls",
+        "chess",
+        "chess-girls",
+        "carrom",
+        "carrom-girls",
       ].includes(cleanEv);
 
     const isAttended =
@@ -273,7 +301,8 @@ export async function adminListCheckinMembers(opts?: {
       if (!email && !uid) continue;
 
       if (
-        (email && (registeredKeys.has(`${email}::${ev}`) || registeredKeys.has(`${email}::${cleanEv}`))) ||
+        (email &&
+          (registeredKeys.has(`${email}::${ev}`) || registeredKeys.has(`${email}::${cleanEv}`))) ||
         (uid && (registeredKeys.has(`${uid}::${ev}`) || registeredKeys.has(`${uid}::${cleanEv}`)))
       ) {
         continue;
@@ -362,10 +391,7 @@ export async function adminToggleCheckin(
  * One tap covers all memberships for the same member (keyed by email), so a
  * participant in several events only needs a single check-in.
  */
-export async function adminTogglePlayerCheckin(
-  email: string,
-  attended: boolean
-): Promise<void> {
+export async function adminTogglePlayerCheckin(email: string, attended: boolean): Promise<void> {
   await requireAdmin();
 
   // Validate that the input is a real email before it touches a filter.
@@ -452,35 +478,65 @@ export function useCheckinMembers(eventId?: string, search?: string) {
     void Promise.resolve().then(refresh);
   }, [refresh]);
 
-  // Realtime sync: reload when registration_members or attendance changes.
+  // Keep latest refresh in a ref so Realtime subscription doesn't re-mount on every search keystroke
+  const refreshRef = useRef(refresh);
   useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
+
+  // Realtime sync: reload when registration_members or attendance changes for this eventId
+  useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const trigger = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        refreshRef.current();
+      }, 250);
+    };
+
+    const channelName = `admin-checkin-sync-${eventId || "all"}`;
     const channel = supabase
-      .channel("admin-checkin-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "registration_members" }, () => {
-        refresh();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, () => {
-        refresh();
-      })
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "registration_members",
+          ...(eventId ? { filter: `event_id=eq.${eventId}` } : {}),
+        },
+        trigger
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "attendance",
+          ...(eventId ? { filter: `event_id=eq.${eventId}` } : {}),
+        },
+        trigger
+      )
       .subscribe();
+
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [eventId]);
 
   // Group every membership row under the same player (case-insensitive email).
   const players = new Map<string, PlayerGroup>();
 
   for (const m of members) {
     const key = (m.email || m.id).trim().toLowerCase();
-    const group =
-      players.get(key) ?? {
-        key,
-        playerName: m.memberName,
-        email: m.email.trim(),
-        members: [],
-        attended: false,
-      };
+    const group = players.get(key) ?? {
+      key,
+      playerName: m.memberName,
+      email: m.email.trim(),
+      members: [],
+      attended: false,
+    };
     group.members.push(m);
     if (m.attended) group.attended = true;
     players.set(key, group);
