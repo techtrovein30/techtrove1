@@ -34,8 +34,6 @@ import {
 } from "../../lib/checkin";
 import { adminScanCheckin, type ScanResult } from "../../lib/checkinQr";
 import {
-  ensureEventAttendanceToken,
-  ensureSportsAttendanceToken,
   getAttendanceEventStats,
 } from "../../lib/coordinatorApi";
 import { buildEventQrPayload } from "../../lib/qrToken";
@@ -125,6 +123,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     return { sportsEvents: sports, techEvents: tech, nonTechEvents: nonTech };
   }, [events]);
 
+  // QR cache to prevent unnecessary re-generation
+  const qrCacheRef = useRef<Map<string, string>>(new Map());
+  const processedSignatureRef = useRef<string>("");
+
   // Load attendance statistics
   const loadStats = useCallback(async () => {
     try {
@@ -135,68 +137,140 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     }
   }, []);
 
-  // Generate QR for a token
+  // Generate QR for a token with caching
   const generateQrData = useCallback(async (token: string): Promise<string> => {
+    if (!token) return "";
+    const cached = qrCacheRef.current.get(token);
+    if (cached) return cached;
+
     const payload = buildEventQrPayload(token);
     if (!payload) return "";
     const attendanceUrl = `${window.location.origin}/attendance?token=${encodeURIComponent(payload)}`;
-    return await QRCode.toDataURL(attendanceUrl, {
-      width: 512,
-      margin: 2,
-      color: {
-        dark: "#000000",
-        light: "#ffffff",
-      },
-    });
+    try {
+      const dataUrl = await QRCode.toDataURL(attendanceUrl, {
+        width: 512,
+        margin: 2,
+        color: {
+          dark: "#000000",
+          light: "#ffffff",
+        },
+      });
+      qrCacheRef.current.set(token, dataUrl);
+      return dataUrl;
+    } catch (e) {
+      console.error("QR render error:", e);
+      return "";
+    }
   }, []);
 
-  // Initialize and load all QR codes
-  const loadAllQrs = useCallback(async () => {
+  // Resolve token for an event without mutating Supabase
+  const resolveToken = useCallback((ev: TechEvent): string => {
+    if (ev.attendanceToken && /^[0-9a-f]{32}$/i.test(ev.attendanceToken.trim())) {
+      return ev.attendanceToken.trim().toLowerCase();
+    }
+    const cacheKey = `techtrove_ev_token_${ev.id}`;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached && /^[0-9a-f]{32}$/i.test(cached.trim())) {
+        return cached.trim().toLowerCase();
+      }
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      const fresh = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+      localStorage.setItem(cacheKey, fresh);
+      return fresh;
+    } catch {
+      return "00000000000000000000000000000000";
+    }
+  }, []);
+
+  // Resolve the single master token for sports
+  const resolveSports = useCallback((sports: TechEvent[]): string => {
+    try {
+      const cached = localStorage.getItem("techtrove_sports_attendance_token");
+      if (cached && /^[0-9a-f]{32}$/i.test(cached.trim())) {
+        return cached.trim().toLowerCase();
+      }
+    } catch {}
+
+    for (const s of sports) {
+      if (s.attendanceToken && /^[0-9a-f]{32}$/i.test(s.attendanceToken.trim())) {
+        const tok = s.attendanceToken.trim().toLowerCase();
+        try {
+          localStorage.setItem("techtrove_sports_attendance_token", tok);
+        } catch {}
+        return tok;
+      }
+    }
+
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const fresh = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    try {
+      localStorage.setItem("techtrove_sports_attendance_token", fresh);
+    } catch {}
+    return fresh;
+  }, []);
+
+  // Fast, non-blocking QR initialization (runs purely in-memory)
+  useEffect(() => {
     if (events.length === 0) return;
+
+    // Check if events have changed
+    const signature = events.map((e) => `${e.id}:${e.attendanceToken || ""}`).join(";");
+    if (processedSignatureRef.current === signature) {
+      return;
+    }
+    processedSignatureRef.current = signature;
+
+    let cancelled = false;
     setLoadingQrs(true);
 
-    try {
-      // 1. Unified Sports Token (One QR for ALL sports events)
-      const sToken = await ensureSportsAttendanceToken(sportsEvents);
-      setSportsToken(sToken);
-      const sQr = await generateQrData(sToken);
-      setSportsQrUrl(sQr);
+    const initQrs = async () => {
+      try {
+        // 1. Unified Sports Pass
+        const sToken = resolveSports(sportsEvents);
+        const sQr = await generateQrData(sToken);
+        if (cancelled) return;
+        setSportsToken(sToken);
+        setSportsQrUrl(sQr);
 
-      // 2. Individual QR for EACH Technical Event
-      const tokensMap: Record<string, string> = {};
-      const qrsMap: Record<string, string> = {};
+        // 2. Individual Tech & Non-Tech QRs in parallel
+        const allOther = [...techEvents, ...nonTechEvents];
+        const tokensMap: Record<string, string> = {};
+        const qrsMap: Record<string, string> = {};
 
-      for (const ev of techEvents) {
-        const tok = await ensureEventAttendanceToken(ev.id);
-        tokensMap[ev.id] = tok;
-        qrsMap[ev.id] = await generateQrData(tok);
+        await Promise.all(
+          allOther.map(async (ev) => {
+            const tok = resolveToken(ev);
+            tokensMap[ev.id] = tok;
+            qrsMap[ev.id] = await generateQrData(tok);
+          })
+        );
+
+        if (cancelled) return;
+        setEventTokens(tokensMap);
+        setEventQrUrls(qrsMap);
+      } catch (err) {
+        console.error("Error generating QR passes:", err);
+      } finally {
+        if (!cancelled) setLoadingQrs(false);
       }
+    };
 
-      // 3. Individual QR for EACH Non-Technical Event
-      for (const ev of nonTechEvents) {
-        const tok = await ensureEventAttendanceToken(ev.id);
-        tokensMap[ev.id] = tok;
-        qrsMap[ev.id] = await generateQrData(tok);
-      }
+    initQrs();
+    loadStats();
 
-      setEventTokens(tokensMap);
-      setEventQrUrls(qrsMap);
-      await loadStats();
-    } catch (err) {
-      console.error("Error loading QR codes:", err);
-      toast.error("Failed to generate some event QR codes.");
-    } finally {
-      setLoadingQrs(false);
-    }
-  }, [events, sportsEvents, techEvents, nonTechEvents, generateQrData, loadStats, toast]);
-
-  useEffect(() => {
-    loadAllQrs();
-  }, [loadAllQrs]);
+    return () => {
+      cancelled = true;
+    };
+  }, [events, sportsEvents, techEvents, nonTechEvents, resolveSports, resolveToken, generateQrData, loadStats]);
 
   const handleRefreshAll = async () => {
     setRefreshing(true);
-    await Promise.all([loadAllQrs(), refresh()]);
+    processedSignatureRef.current = ""; // force re-generation
+    qrCacheRef.current.clear();
+    await Promise.all([loadStats(), refresh()]);
     setRefreshing(false);
     toast.success("Check-in data & QR passes refreshed.");
   };
