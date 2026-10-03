@@ -640,6 +640,10 @@ export const CANONICAL_EVENT_TOKENS: Record<string, string> = {
   "nontech-adaptune": "b4b2fec065183af2ea1afaefa2a1d1ea",
   "tunetopia": "7df7ca111c8fb6ebc37bed39fa5bf19e",
   "nontech-tunetopia": "7df7ca111c8fb6ebc37bed39fa5bf19e",
+  "squid-game": "a6316df246aa65c01aa4cd7f9fbe56c6",
+  "nontech-squid-game": "a6316df246aa65c01aa4cd7f9fbe56c6",
+  "pass-the-ball": "c182e151fb5cac13011dc2f9c9b1b04f",
+  "nontech-pass-the-ball": "c182e151fb5cac13011dc2f9c9b1b04f",
   // Sports Events (Unified token + specific IDs)
   "cricket": UNIFIED_SPORTS_TOKEN,
   "sport-cricket": UNIFIED_SPORTS_TOKEN,
@@ -700,118 +704,161 @@ export async function syncUnifiedSportsToken(token: string, sportsEvents: TechEv
 
 /**
  * Aggregates live attendee and registration counts per event.
- * Queries registrations, registration_members, and attendance tables with
- * prefix normalization so that counts are 100% accurate and always reflect immediately.
+ * Queries registrations, registration_members, attendance, and events tables
+ * completely dynamically so that counts match the Admin Dashboard exactly.
  */
 export async function getAttendanceEventStats(): Promise<
   Record<string, { total: number; attended: number }>
 > {
   const stats: Record<string, { total: number; attended: number }> = {};
-  const baseStats: Record<string, { total: number; attendedSet: Set<string> }> = {};
-
   const normalizeKey = (key: string): string => {
     return key.trim().toLowerCase().replace(/^(tech-|nontech-|sport-)/, "");
   };
 
-  const getOrCreate = (rawKey: string) => {
-    const clean = normalizeKey(rawKey);
-    if (!baseStats[clean]) {
-      baseStats[clean] = { total: 0, attendedSet: new Set<string>() };
-    }
-    return baseStats[clean];
-  };
+  const rpcData: Record<string, { total: number; attended: number }> = {};
 
   try {
     // 1. Try secure RPC first
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: rpcStats, error: rpcErr } = await (supabase.rpc as any)("get_attendance_hub_stats");
     if (!rpcErr && rpcStats && typeof rpcStats === "object") {
-      for (const [key, val] of Object.entries(rpcStats as Record<string, { total: number; attended: number }>)) {
-        const clean = normalizeKey(key);
-        const entry = getOrCreate(clean);
-        const tot = Number(val?.total) || 0;
-        const att = Number(val?.attended) || 0;
-        entry.total = Math.max(entry.total, tot);
-        for (let i = 0; i < att; i++) {
-          entry.attendedSet.add(`rpc_attendee_${clean}_${i}`);
-        }
-      }
+      Object.assign(rpcData, rpcStats);
     }
   } catch {
     // Continue to direct queries to ensure completeness
   }
 
   try {
-    // 2. Direct fallback & enrichment querying attendance, registration_members, and registrations
-    const [attRes, memRes, allRegs] = await Promise.all([
-      supabase.from("attendance").select("event_id, participant_email, participant_id"),
+    // 2. Direct query fallback & enrichment querying registrations, attendance, and events
+    const [attRes, memRes, allRegs, eventsRes] = await Promise.all([
+      supabase.from("attendance").select("event_id, participant_email, participant_id, status"),
       supabase.from("registration_members").select("event_id, email, attended"),
       getAllRegistrations().catch(() => [] as RegistrationRow[]),
+      supabase.from("events").select("id, name, category, day_id"),
     ]);
 
-    // 2A. Process registrations table for complete team & solo participant totals
-    const regMemberCounts: Record<string, number> = {};
+    // 2A. Direct registration row counts (each registration = 1 entry, identical to Admin Dashboard)
+    const rawRegCounts: Record<string, number> = {};
+    const cleanRegCounts: Record<string, number> = {};
+
     for (const r of allRegs) {
       if (!r.event_id) continue;
-      const clean = normalizeKey(r.event_id);
-      const members = Array.isArray(r.members) ? r.members : [];
-      const count = members.length > 0 ? members.length : 1;
-      regMemberCounts[clean] = (regMemberCounts[clean] || 0) + count;
+      const raw = r.event_id.trim().toLowerCase();
+      const clean = normalizeKey(raw);
+      rawRegCounts[raw] = (rawRegCounts[raw] || 0) + 1;
+      cleanRegCounts[clean] = (cleanRegCounts[clean] || 0) + 1;
     }
 
-    // 2B. Process registration_members
-    const memCounts: Record<string, number> = {};
-    if (memRes.data) {
-      for (const m of memRes.data) {
-        if (!m.event_id) continue;
-        const clean = normalizeKey(m.event_id);
-        memCounts[clean] = (memCounts[clean] || 0) + 1;
-        if (m.attended && m.email) {
-          getOrCreate(clean).attendedSet.add(m.email.trim().toLowerCase());
-        }
-      }
-    }
+    // 2B. Attendance sets (unique attendees per raw key and clean key)
+    const attendedSets: Record<string, Set<string>> = {};
+    const getAttSet = (k: string) => {
+      if (!attendedSets[k]) attendedSets[k] = new Set<string>();
+      return attendedSets[k];
+    };
 
-    // 2C. Process attendance table
     if (attRes.data) {
       for (const a of attRes.data) {
         if (!a.event_id) continue;
-        const clean = normalizeKey(a.event_id);
-        const identifier = (a.participant_email || a.participant_id || "").trim().toLowerCase();
-        if (identifier) {
-          getOrCreate(clean).attendedSet.add(identifier);
+        if (a.status && a.status !== "present") continue;
+        const id = (a.participant_email || a.participant_id || "").trim().toLowerCase();
+        if (!id) continue;
+        const raw = a.event_id.trim().toLowerCase();
+        const clean = normalizeKey(raw);
+        getAttSet(raw).add(id);
+        getAttSet(clean).add(id);
+      }
+    }
+
+    if (memRes.data) {
+      for (const m of memRes.data) {
+        if (!m.event_id || !m.attended) continue;
+        const email = (m.email || "").trim().toLowerCase();
+        if (!email) continue;
+        const raw = m.event_id.trim().toLowerCase();
+        const clean = normalizeKey(raw);
+        getAttSet(raw).add(email);
+        getAttSet(clean).add(email);
+      }
+    }
+
+    // 2C. Gather all known keys across all sources
+    const allKeys = new Set<string>([
+      ...Object.keys(rpcData),
+      ...Object.keys(rawRegCounts),
+      ...Object.keys(cleanRegCounts),
+      ...Object.keys(attendedSets),
+    ]);
+
+    if (eventsRes.data) {
+      for (const ev of eventsRes.data) {
+        if (ev.id) {
+          allKeys.add(ev.id.trim().toLowerCase());
+          allKeys.add(normalizeKey(ev.id));
         }
       }
     }
 
-    // 2D. Set accurate total: max between direct registrations and registration_members
-    const allKeys = new Set([
-      ...Object.keys(baseStats),
-      ...Object.keys(regMemberCounts),
-      ...Object.keys(memCounts),
-    ]);
-
-    for (const clean of allKeys) {
-      const entry = getOrCreate(clean);
-      entry.total = Math.max(
-        entry.total,
-        regMemberCounts[clean] || 0,
-        memCounts[clean] || 0,
-        entry.attendedSet.size
+    // 2D. Assign verified counts to every raw and clean key
+    for (const key of allKeys) {
+      const clean = normalizeKey(key);
+      const total = Math.max(
+        rpcData[key]?.total ?? 0,
+        rpcData[clean]?.total ?? 0,
+        rawRegCounts[key] ?? 0,
+        rawRegCounts[clean] ?? 0,
+        cleanRegCounts[clean] ?? 0
       );
-    }
+      const attended = Math.max(
+        rpcData[key]?.attended ?? 0,
+        rpcData[clean]?.attended ?? 0,
+        attendedSets[key]?.size ?? 0,
+        attendedSets[clean]?.size ?? 0
+      );
 
-    // 2E. Populate stats for clean keys and all common prefixed variations
-    for (const [clean, data] of Object.entries(baseStats)) {
-      const summary = {
-        total: data.total,
-        attended: data.attendedSet.size,
-      };
+      const summary = { total, attended };
+      stats[key] = summary;
       stats[clean] = summary;
       stats[`tech-${clean}`] = summary;
       stats[`nontech-${clean}`] = summary;
       stats[`sport-${clean}`] = summary;
-      stats[`sport-${clean}-girls`] = summary;
+    }
+
+    // 2E. Also ensure every event in events table is mapped by its exact event id
+    if (eventsRes.data) {
+      let sportsTotal = 0;
+      const sportsAttended = new Set<string>();
+
+      for (const ev of eventsRes.data) {
+        const idLower = ev.id.trim().toLowerCase();
+        const clean = normalizeKey(idLower);
+        const summary = stats[idLower] || stats[clean] || { total: 0, attended: 0 };
+        stats[ev.id] = summary;
+        stats[idLower] = summary;
+
+        // Tally Day 1 Sports
+        const isSport =
+          ev.day_id === "day-1" ||
+          (ev.category ?? "").toLowerCase().startsWith("sport");
+        if (isSport) {
+          sportsTotal += summary.total;
+          const evAttended = attendedSets[idLower] || attendedSets[clean];
+          if (evAttended) {
+            evAttended.forEach((e) => sportsAttended.add(e));
+          }
+        }
+      }
+
+      // Add sports unified master summary
+      const sportsSummary = {
+        total: Math.max(rpcData["sports-unified-master"]?.total ?? 0, sportsTotal),
+        attended: Math.max(
+          rpcData["sports-unified-master"]?.attended ?? 0,
+          sportsAttended.size,
+          attendedSets["sports-unified-master"]?.size ?? 0
+        ),
+      };
+      stats["sports-unified-master"] = sportsSummary;
+      stats["sports-unified"] = sportsSummary;
     }
   } catch (err) {
     console.error("[coordinatorApi] getAttendanceEventStats error:", err);

@@ -262,7 +262,16 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
         return cached.trim().toLowerCase();
       }
     } catch {}
-    return "00000000000000000000000000000000";
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < cleanId.length; i++) {
+      const ch = cleanId.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    const hex = (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(16, "0");
+    return (hex + hex).slice(0, 32);
   }, []);
 
   // Resolve the single master token for sports
@@ -380,6 +389,9 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
 
   // Aggregate Sports Stats
   const sportsStats = useMemo(() => {
+    if (attendanceStats["sports-unified-master"] && attendanceStats["sports-unified-master"].total > 0) {
+      return attendanceStats["sports-unified-master"];
+    }
     let total = 0;
     let attended = 0;
     const countedEvents = new Set<string>();
