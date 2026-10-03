@@ -285,61 +285,92 @@ security definer
 set search_path = public
 as $$
 declare
-  v_stats jsonb;
+  v_stats jsonb := '{}'::jsonb;
+  rec record;
 begin
-  with all_registered as (
-    -- Member counts from registration_members
-    select
-      regexp_replace(lower(btrim(coalesce(event_id, ''))), '^(tech-|nontech-|sport-)', '') as clean_id,
-      count(*)::int as count_members
-    from public.registration_members
-    group by 1
-
-    union all
-
-    -- Fallback from registrations tables (captain + team members)
-    select
-      regexp_replace(lower(btrim(coalesce(r.event_id, ''))), '^(tech-|nontech-|sport-)', '') as clean_id,
-      sum(case when jsonb_typeof(r.members) = 'array' and jsonb_array_length(r.members) > 0 then jsonb_array_length(r.members) else 1 end)::int as count_members
-    from (
-      select event_id, members from public.registrations_internal
-      union all
-      select event_id, members from public.registrations_external
-    ) r
-    group by 1
-  ),
-  aggregated_totals as (
-    select clean_id, max(count_members)::int as total_members
-    from all_registered
-    where clean_id <> ''
-    group by clean_id
-  ),
-  attended_counts as (
-    select
-      regexp_replace(lower(btrim(coalesce(event_id, ''))), '^(tech-|nontech-|sport-)', '') as clean_id,
-      count(distinct lower(btrim(participant_email)))::int as attended_count
-    from public.attendance
-    where status = 'present' or status is null
-    group by 1
-  )
-  select jsonb_object_agg(
-    clean_id,
-    jsonb_build_object(
-      'total', greatest(coalesce(t.total_members, 0), coalesce(a.attended_count, 0)),
-      'attended', coalesce(a.attended_count, 0)
+  -- 1. Calculate clean aggregated counts per base event
+  for rec in (
+    with raw_registrations as (
+      -- All registrations from internal and external
+      select
+        lower(btrim(coalesce(event_id, ''))),
+        regexp_replace(lower(btrim(coalesce(event_id, ''))), '^(tech-|nontech-|sport-)', '') as clean_id,
+        case
+          when jsonb_typeof(members) = 'array' and jsonb_array_length(members) > 0 then jsonb_array_length(members)
+          else 1
+        end as member_count
+      from (
+        select event_id, members from public.registrations_internal
+        union all
+        select event_id, members from public.registrations_external
+      ) r
+    ),
+    reg_totals as (
+      select clean_id, sum(member_count)::int as total_regs
+      from raw_registrations
+      where clean_id <> ''
+      group by clean_id
+    ),
+    member_table_totals as (
+      select
+        regexp_replace(lower(btrim(coalesce(event_id, ''))), '^(tech-|nontech-|sport-)', '') as clean_id,
+        count(*)::int as total_members
+      from public.registration_members
+      where coalesce(event_id, '') <> ''
+      group by 1
+    ),
+    attended_totals as (
+      select
+        regexp_replace(lower(btrim(coalesce(event_id, ''))), '^(tech-|nontech-|sport-)', '') as clean_id,
+        count(distinct lower(btrim(participant_email)))::int as total_attended
+      from public.attendance
+      where status = 'present' or status is null
+      group by 1
+    ),
+    all_events_combined as (
+      select distinct regexp_replace(lower(btrim(id)), '^(tech-|nontech-|sport-)', '') as clean_id from public.events
+      union
+      select distinct clean_id from reg_totals
+      union
+      select distinct clean_id from member_table_totals
+      union
+      select distinct clean_id from attended_totals
     )
-  ) into v_stats
-  from (
-    select distinct clean_id from aggregated_totals
-    union
-    select distinct clean_id from attended_counts
-    union
-    select distinct regexp_replace(lower(btrim(id)), '^(tech-|nontech-|sport-)', '') as clean_id from public.events
-  ) u
-  left join aggregated_totals t on t.clean_id = u.clean_id
-  left join attended_counts a on a.clean_id = u.clean_id;
+    select
+      e.clean_id,
+      greatest(
+        coalesce(rt.total_regs, 0),
+        coalesce(mt.total_members, 0),
+        coalesce(at.total_attended, 0)
+      ) as total,
+      coalesce(at.total_attended, 0) as attended
+    from all_events_combined e
+    left join reg_totals rt on rt.clean_id = e.clean_id
+    left join member_table_totals mt on mt.clean_id = e.clean_id
+    left join attended_totals at on at.clean_id = e.clean_id
+    where e.clean_id <> ''
+  ) loop
+    -- Populate clean key, prefixed keys, and event table keys so ANY lookup in the UI succeeds
+    v_stats := v_stats || jsonb_build_object(
+      rec.clean_id, jsonb_build_object('total', rec.total, 'attended', rec.attended),
+      'tech-' || rec.clean_id, jsonb_build_object('total', rec.total, 'attended', rec.attended),
+      'nontech-' || rec.clean_id, jsonb_build_object('total', rec.total, 'attended', rec.attended),
+      'sport-' || rec.clean_id, jsonb_build_object('total', rec.total, 'attended', rec.attended)
+    );
+  end loop;
 
-  return coalesce(v_stats, '{}'::jsonb);
+  -- Also map every event in public.events to its exact id in events table
+  for rec in (select id from public.events) loop
+    declare
+      v_clean text := regexp_replace(lower(btrim(rec.id)), '^(tech-|nontech-|sport-)', '');
+    begin
+      if v_stats ? v_clean and not (v_stats ? rec.id) then
+        v_stats := v_stats || jsonb_build_object(rec.id, v_stats -> v_clean);
+      end if;
+    end;
+  end loop;
+
+  return v_stats;
 end;
 $$;
 
@@ -364,13 +395,22 @@ select
   coalesce(m->>'name', r.captain_name),
   coalesce(m->>'role', 'player'),
   coalesce((m->>'position')::int, 0),
-  lower(btrim(coalesce(m->>'email', ''))),
-  m->>'regNumber',
-  m->>'phone',
-  m->>'college'
-from public.registrations_internal r,
-     lateral jsonb_array_elements(case when jsonb_typeof(r.members) = 'array' and jsonb_array_length(r.members) > 0 then r.members else jsonb_build_array(jsonb_build_object('name', r.captain_name, 'role', 'captain', 'position', 0)) end) as m
-where coalesce(m->>'email', '') != ''
+  coalesce(
+    nullif(lower(btrim(coalesce(m->>'email', ''))), ''),
+    p.email,
+    lower(btrim(r.registration_code)) || '_' || coalesce(m->>'position', '0') || '@techtrove.live'
+  ),
+  coalesce(m->>'regNumber', p.reg_number),
+  coalesce(m->>'phone', p.phone),
+  coalesce(m->>'college', p.college)
+from public.registrations_internal r
+left join public.internal_participants p on p.id = r.user_id,
+lateral jsonb_array_elements(
+  case
+    when jsonb_typeof(r.members) = 'array' and jsonb_array_length(r.members) > 0 then r.members
+    else jsonb_build_array(jsonb_build_object('name', r.captain_name, 'role', 'captain', 'position', 0))
+  end
+) as m
 on conflict do nothing;
 
 insert into public.registration_members (
@@ -391,13 +431,22 @@ select
   coalesce(m->>'name', r.captain_name),
   coalesce(m->>'role', 'player'),
   coalesce((m->>'position')::int, 0),
-  lower(btrim(coalesce(m->>'email', ''))),
-  m->>'regNumber',
-  m->>'phone',
-  m->>'college'
-from public.registrations_external r,
-     lateral jsonb_array_elements(case when jsonb_typeof(r.members) = 'array' and jsonb_array_length(r.members) > 0 then r.members else jsonb_build_array(jsonb_build_object('name', r.captain_name, 'role', 'captain', 'position', 0)) end) as m
-where coalesce(m->>'email', '') != ''
+  coalesce(
+    nullif(lower(btrim(coalesce(m->>'email', ''))), ''),
+    p.email,
+    lower(btrim(r.registration_code)) || '_' || coalesce(m->>'position', '0') || '@techtrove.live'
+  ),
+  coalesce(m->>'regNumber', p.reg_number),
+  coalesce(m->>'phone', p.phone),
+  coalesce(m->>'college', p.college)
+from public.registrations_external r
+left join public.external_participants p on p.id = r.user_id,
+lateral jsonb_array_elements(
+  case
+    when jsonb_typeof(r.members) = 'array' and jsonb_array_length(r.members) > 0 then r.members
+    else jsonb_build_array(jsonb_build_object('name', r.captain_name, 'role', 'captain', 'position', 0))
+  end
+) as m
 on conflict do nothing;
 
 -- Ensure RLS allows attendance recording and viewing
