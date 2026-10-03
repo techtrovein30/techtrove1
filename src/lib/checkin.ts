@@ -107,9 +107,52 @@ export async function adminListCheckinMembers(opts?: {
     );
   }
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message || "Could not load check-in list.");
-  return (data ?? []).map(toCheckinMember);
+  const [membersRes, attRes] = await Promise.all([
+    query,
+    supabase
+      .from("attendance")
+      .select("event_id, participant_email, participant_id, status"),
+  ]);
+
+  if (membersRes.error) throw new Error(membersRes.error.message || "Could not load check-in list.");
+
+  const attPresentSet = new Set<string>();
+  if (attRes.data) {
+    for (const a of attRes.data) {
+      if (a.status && a.status !== "present") continue;
+      const email = (a.participant_email || "").trim().toLowerCase();
+      const uid = (a.participant_id || "").trim().toLowerCase();
+      const ev = (a.event_id || "").trim().toLowerCase();
+      const cleanEv = ev.replace(/^(tech-|nontech-|sport-)/, "");
+      if (email) {
+        attPresentSet.add(`${email}::${ev}`);
+        attPresentSet.add(`${email}::${cleanEv}`);
+      }
+      if (uid) {
+        attPresentSet.add(`${uid}::${ev}`);
+        attPresentSet.add(`${uid}::${cleanEv}`);
+      }
+    }
+  }
+
+  return (membersRes.data ?? []).map((row) => {
+    const m = toCheckinMember(row);
+    const email = (m.email || "").trim().toLowerCase();
+    const uid = (m.userId || "").trim().toLowerCase();
+    const ev = (m.eventId || "").trim().toLowerCase();
+    const cleanEv = ev.replace(/^(tech-|nontech-|sport-)/, "");
+    const isAttended =
+      m.attended ||
+      attPresentSet.has(`${email}::${ev}`) ||
+      attPresentSet.has(`${email}::${cleanEv}`) ||
+      attPresentSet.has(`${uid}::${ev}`) ||
+      attPresentSet.has(`${uid}::${cleanEv}`);
+
+    return {
+      ...m,
+      attended: Boolean(isAttended),
+    };
+  });
 }
 
 /** Toggle check-in for a single member. Returns the updated member. */
@@ -127,7 +170,37 @@ export async function adminToggleCheckin(
   if (error || !data) {
     throw new Error(error?.message || "Could not update check-in.");
   }
-  return toCheckinMember(data as Record<string, unknown>);
+  const member = toCheckinMember(data as Record<string, unknown>);
+
+  // Keep attendance table in sync
+  try {
+    const cleanEmail = (member.email || "").trim().toLowerCase();
+    if (attended) {
+      await supabase.from("attendance").upsert(
+        {
+          event_id: member.eventId,
+          participant_id: member.userId,
+          participant_email: cleanEmail,
+          participant_name: member.memberName,
+          registration_code: member.registrationCode,
+          status: "present",
+          marked_at: new Date().toISOString(),
+          marked_by: "desk_admin",
+        },
+        { onConflict: "event_id,participant_id" }
+      );
+    } else {
+      await supabase
+        .from("attendance")
+        .update({ status: "cancelled" })
+        .eq("event_id", member.eventId)
+        .or(`participant_email.ilike.${cleanEmail},participant_id.eq.${member.userId}`);
+    }
+  } catch (attErr) {
+    console.warn("[checkin] attendance sync warning:", attErr);
+  }
+
+  return member;
 }
 
 /**
@@ -157,6 +230,23 @@ export async function adminTogglePlayerCheckin(
     .update({ attended })
     .ilike("email", clean);
   if (error) throw new Error(error?.message || "Could not update player check-in.");
+
+  // Also sync attendance table
+  try {
+    if (attended) {
+      await supabase
+        .from("attendance")
+        .update({ status: "present" })
+        .ilike("participant_email", clean);
+    } else {
+      await supabase
+        .from("attendance")
+        .update({ status: "cancelled" })
+        .ilike("participant_email", clean);
+    }
+  } catch (attErr) {
+    console.warn("[checkin] attendance table sync warning:", attErr);
+  }
 }
 
 /** Check in (or undo) every member of a team registration in one shot. */

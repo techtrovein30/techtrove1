@@ -436,3 +436,33 @@ create policy "attendance_authenticated_select" on public.attendance
 drop policy if exists "attendance_anon_select" on public.attendance;
 create policy "attendance_anon_select" on public.attendance
   for select to anon using (true);
+
+-- 6. Synchronize any existing attendance rows to registration_members
+update public.registration_members rm
+   set attended = true,
+       attended_at = coalesce(a.marked_at, now()),
+       attended_source = 'qr_scanner'
+  from public.attendance a
+ where (a.status = 'present' or a.status is null)
+   and (
+     (a.participant_email is not null and lower(btrim(rm.email)) = lower(btrim(a.participant_email)))
+     or (a.participant_id is not null and rm.user_id is not null and rm.user_id::text = a.participant_id)
+   )
+   and (
+     rm.event_id = a.event_id
+     or regexp_replace(rm.event_id, '^(tech-|nontech-|sport-)', '') = regexp_replace(a.event_id, '^(tech-|nontech-|sport-)', '')
+     or (
+       (a.event_id = 'sports-unified-master' or lower(a.event_id) like 'sport-%')
+       and (rm.event_id in (select id from public.events where day_id = 'day-1' or lower(coalesce(category, '')) like 'sport%') or lower(rm.event_id) like 'sport-%')
+     )
+   );
+
+-- ============================================================================
+-- NOTE: TO RESET TEST ATTENDANCE BACK TO 0 FOR ALL EVENTS:
+-- If the 1 check-in on Connexion and 2 on Sports were test scans and you want
+-- a clean 0 check-ins start for the real symposium, run these two lines:
+--
+--   delete from public.attendance;
+--   update public.registration_members set attended = false, attended_at = null, attended_source = null;
+-- ============================================================================
+
