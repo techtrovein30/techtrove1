@@ -382,8 +382,17 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
   const sportsStats = useMemo(() => {
     let total = 0;
     let attended = 0;
+    const countedEvents = new Set<string>();
+
     for (const ev of sportsEvents) {
-      const s = attendanceStats[ev.id];
+      const clean = ev.id.replace(/^(tech-|nontech-|sport-)/, "");
+      if (countedEvents.has(clean)) continue;
+      countedEvents.add(clean);
+
+      const s =
+        attendanceStats[ev.id] ||
+        attendanceStats[clean] ||
+        attendanceStats[`sport-${clean}`];
       if (s) {
         total += s.total;
         attended += s.attended;
@@ -927,7 +936,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {filteredTech.map((item) => {
-                        const stat = attendanceStats[item.id] || { total: 0, attended: 0 };
+                        const stat =
+                          attendanceStats[item.id] ||
+                          attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
+                          { total: 0, attended: 0 };
                         return (
                           <EventCard
                             key={item.id}
@@ -974,7 +986,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {filteredNonTech.map((item) => {
-                        const stat = attendanceStats[item.id] || { total: 0, attended: 0 };
+                        const stat =
+                          attendanceStats[item.id] ||
+                          attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
+                          { total: 0, attended: 0 };
                         return (
                           <EventCard
                             key={item.id}
