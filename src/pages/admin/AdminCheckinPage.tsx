@@ -63,6 +63,35 @@ interface EventQrItem {
   subEvents?: TechEvent[];
 }
 
+function getEventUnitLabel(ev?: TechEvent): string {
+  if (!ev) return "";
+  if (ev.registrationType === "individual") {
+    return "players";
+  }
+  if (ev.registrationType === "solo_team") {
+    return "entries";
+  }
+  if (ev.registrationType === "team") {
+    return "teams";
+  }
+  const name = (ev.name || "").toLowerCase();
+  if (name.includes("chess")) return "players";
+  if (name.includes("carrom")) return "entries";
+  if (
+    name.includes("cricket") ||
+    name.includes("football") ||
+    name.includes("volleyball") ||
+    name.includes("kabaddi") ||
+    name.includes("kho-kho") ||
+    name.includes("khokho") ||
+    name.includes("throwball") ||
+    name.includes("hackathon")
+  ) {
+    return "teams";
+  }
+  return "participants";
+}
+
 const STATIC_QR_MAP: Record<string, string> = {
   // Master Unified Sports Pass
   "sports-unified-master": "/checkin%20qr's/sports-pass.png",
@@ -302,8 +331,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
         setSportsToken(sToken);
         setSportsQrUrl(sQr);
 
-        // 2. Individual Tech & Non-Tech QRs in parallel
-        const allOther = [...techEvents, ...nonTechEvents];
+        // 2. Individual Sports, Tech & Non-Tech QRs in parallel
+        const allOther = [...sportsEvents, ...techEvents, ...nonTechEvents];
         const tokensMap: Record<string, string> = {};
         const qrsMap: Record<string, string> = {};
 
@@ -311,7 +340,12 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
           allOther.map(async (ev) => {
             const tok = resolveToken(ev);
             tokensMap[ev.id] = tok;
-            const qrUrl = STATIC_QR_MAP[ev.id] || (await generateQrData(tok));
+            const cleanId = ev.id.replace(/^(tech-|nontech-|sport-)/, "");
+            const qrUrl =
+              STATIC_QR_MAP[ev.id] ||
+              STATIC_QR_MAP[cleanId] ||
+              STATIC_QR_MAP[`sport-${cleanId}`] ||
+              (await generateQrData(tok));
             qrsMap[ev.id] = qrUrl;
           })
         );
@@ -497,6 +531,44 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       (item) => item.name.toLowerCase().includes(q) || (item.venue && item.venue.toLowerCase().includes(q))
     );
   }, [nonTechItems, eventSearch]);
+
+  // Individual Sports QR Items
+  const sportsItems: EventQrItem[] = useMemo(() => {
+    return sportsEvents.map((ev) => {
+      const cleanId = ev.id.replace(/^(tech-|nontech-|sport-)/, "");
+      const token = eventTokens[ev.id] || resolveToken(ev) || sportsToken;
+      const qrDataUrl =
+        eventQrUrls[ev.id] ||
+        STATIC_QR_MAP[ev.id] ||
+        STATIC_QR_MAP[cleanId] ||
+        STATIC_QR_MAP[`sport-${cleanId}`] ||
+        sportsQrUrl;
+      const payload = token ? buildEventQrPayload(token) : "";
+      const url = payload
+        ? `${window.location.origin}/attendance?token=${encodeURIComponent(payload)}`
+        : "";
+      return {
+        id: ev.id,
+        name: ev.name,
+        category: ev.category || "Sports - Day 1",
+        dayId: ev.dayId || "day-1",
+        venue: ev.venue || "Sports Grounds & Arenas",
+        time: ev.time || "Day 1",
+        token,
+        qrDataUrl,
+        url,
+      };
+    });
+  }, [sportsEvents, eventTokens, eventQrUrls, resolveToken, sportsToken, sportsQrUrl]);
+
+  // Filtered sports items
+  const filteredSports = useMemo(() => {
+    if (!eventSearch.trim()) return sportsItems;
+    const q = eventSearch.toLowerCase();
+    return sportsItems.filter(
+      (item) => item.name.toLowerCase().includes(q) || (item.venue && item.venue.toLowerCase().includes(q))
+    );
+  }, [sportsItems, eventSearch]);
 
   // Desk Scanner Handler
   const handleScan = useCallback(
@@ -758,10 +830,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
             <div className="flex flex-wrap items-center gap-1.5">
               {(
                 [
-                  ["all", "All Events", Layers],
-                  ["sports", "🏆 Sports (1 Unified QR)", Trophy],
-                  ["technical", "💻 Technical", Cpu],
-                  ["non_technical", "🎭 Non-Technical", Sparkles],
+                  ["all", `All Events (${1 + sportsEvents.length + techEvents.length + nonTechEvents.length})`, Layers],
+                  ["sports", `🏆 Sports (${sportsEvents.length})`, Trophy],
+                  ["technical", `💻 Technical (${techEvents.length})`, Cpu],
+                  ["non_technical", `🎭 Non-Technical (${nonTechEvents.length})`, Sparkles],
                 ] as const
               ).map(([key, label, Icon]) => (
                 <button
@@ -845,20 +917,31 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                           </p>
                         </div>
 
-                        {/* Covered sports chips */}
+                        {/* Covered sports chips with live team/player counts */}
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400/90 mb-2">
                             Sports Included Under This Pass ({sportsEvents.length} Events):
                           </p>
-                          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                            {sportsEvents.map((sp) => (
-                              <span
-                                key={sp.id}
-                                className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-200"
-                              >
-                                {sp.name}
-                              </span>
-                            ))}
+                          <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                            {sportsEvents.map((sp) => {
+                              const s =
+                                attendanceStats[sp.id] ||
+                                attendanceStats[sp.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
+                                attendanceStats[`sport-${sp.id}`] ||
+                                { total: 0, attended: 0 };
+                              const unit = getEventUnitLabel(sp);
+                              return (
+                                <span
+                                  key={sp.id}
+                                  className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-200 shadow-sm"
+                                >
+                                  <span>{sp.name}</span>
+                                  <span className="rounded bg-amber-400/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
+                                    {s.total} {unit}
+                                  </span>
+                                </span>
+                              );
+                            })}
                           </div>
                         </div>
 
@@ -953,6 +1036,60 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
               )}
 
               {/* ────────────────────────────────────────────────────────── */}
+              {/* 1B. INDIVIDUAL SPORTS PASSES (DAY 1 - CRICKET, FOOTBALL..) */}
+              {/* ────────────────────────────────────────────────────────── */}
+              {(categoryFilter === "all" || categoryFilter === "sports") && (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
+                        <Trophy className="h-5 w-5 text-amber-400" />
+                        Day 1 · Individual Sports Event Passes ({filteredSports.length} Sports)
+                      </h2>
+                      <p className="text-xs text-muted">
+                        Each sport has its own dedicated event pass with live team / player counts and check-in tracking.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300">
+                      {filteredSports.length} Sports
+                    </span>
+                  </div>
+
+                  {filteredSports.length === 0 ? (
+                    <div className="rounded-xl border border-white/[0.07] bg-[#141414] p-8 text-center text-muted text-xs">
+                      No sports events match your search.
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {filteredSports.map((item) => {
+                        const rawEv = sportsEvents.find((e) => e.id === item.id);
+                        const stat =
+                          attendanceStats[item.id] ||
+                          attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
+                          attendanceStats[`sport-${item.id}`] ||
+                          { total: 0, attended: 0 };
+                        const unit = getEventUnitLabel(rawEv);
+                        return (
+                          <EventCard
+                            key={item.id}
+                            item={item}
+                            stat={stat}
+                            accentColor="amber"
+                            unitLabel={unit}
+                            onPresent={() => setPresentItem(item)}
+                            onPrint={() => setPrintItem(item)}
+                            onDownload={() => downloadQr(item.qrDataUrl, item.name)}
+                            onCopy={() => copyLink(item.token, item.id)}
+                            isCopied={copiedId === item.id}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* ────────────────────────────────────────────────────────── */}
               {/* 2. TECHNICAL EVENTS GRID (DAY 2 - SEPARATE QRs)            */}
               {/* ────────────────────────────────────────────────────────── */}
               {(categoryFilter === "all" || categoryFilter === "technical") && (
@@ -979,16 +1116,20 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {filteredTech.map((item) => {
+                        const rawEv = techEvents.find((e) => e.id === item.id);
                         const stat =
                           attendanceStats[item.id] ||
                           attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
+                          attendanceStats[`tech-${item.id}`] ||
                           { total: 0, attended: 0 };
+                        const unit = getEventUnitLabel(rawEv);
                         return (
                           <EventCard
                             key={item.id}
                             item={item}
                             stat={stat}
                             accentColor="sky"
+                            unitLabel={unit}
                             onPresent={() => setPresentItem(item)}
                             onPrint={() => setPrintItem(item)}
                             onDownload={() => downloadQr(item.qrDataUrl, item.name)}
@@ -1029,16 +1170,20 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {filteredNonTech.map((item) => {
+                        const rawEv = nonTechEvents.find((e) => e.id === item.id);
                         const stat =
                           attendanceStats[item.id] ||
                           attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
+                          attendanceStats[`nontech-${item.id}`] ||
                           { total: 0, attended: 0 };
+                        const unit = getEventUnitLabel(rawEv);
                         return (
                           <EventCard
                             key={item.id}
                             item={item}
                             stat={stat}
                             accentColor="purple"
+                            unitLabel={unit}
                             onPresent={() => setPresentItem(item)}
                             onPrint={() => setPrintItem(item)}
                             onDownload={() => downloadQr(item.qrDataUrl, item.name)}
@@ -1399,6 +1544,7 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       {batchPrintOpen && (
         <BatchPrintModal
           sportsItem={unifiedSportsItem}
+          sportsItems={sportsItems}
           techItems={techItems}
           nonTechItems={nonTechItems}
           onClose={() => setBatchPrintOpen(false)}
@@ -1415,7 +1561,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
 interface EventCardProps {
   item: EventQrItem;
   stat: { total: number; attended: number };
-  accentColor: "sky" | "purple";
+  accentColor: "sky" | "purple" | "amber";
+  unitLabel?: string;
   onPresent: () => void;
   onPrint: () => void;
   onDownload: () => void;
@@ -1427,6 +1574,7 @@ function EventCard({
   item,
   stat,
   accentColor,
+  unitLabel,
   onPresent,
   onPrint,
   onDownload,
@@ -1439,7 +1587,11 @@ function EventCard({
     <div
       className={cn(
         "group flex flex-col justify-between rounded-2xl border bg-[#151515] p-5 transition-all duration-300 hover:border-white/20 hover:shadow-xl",
-        accentColor === "sky" ? "border-sky-500/20 hover:border-sky-500/40" : "border-purple-500/20 hover:border-purple-500/40"
+        accentColor === "sky"
+          ? "border-sky-500/20 hover:border-sky-500/40"
+          : accentColor === "amber"
+          ? "border-amber-500/20 hover:border-amber-500/40"
+          : "border-purple-500/20 hover:border-purple-500/40"
       )}
     >
       <div>
@@ -1450,6 +1602,8 @@ function EventCard({
               "rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider",
               accentColor === "sky"
                 ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
+                : accentColor === "amber"
+                ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
                 : "border-purple-500/30 bg-purple-500/10 text-purple-300"
             )}
           >
@@ -1493,14 +1647,18 @@ function EventCard({
           <div className="flex items-center justify-between text-[11px] mb-1">
             <span className="text-muted">Checked In</span>
             <span className="font-semibold text-emerald-400">
-              {stat.attended} / {stat.total} ({percentage}%)
+              {stat.attended} / {stat.total} {unitLabel ? unitLabel : ""} ({percentage}%)
             </span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-300",
-                accentColor === "sky" ? "bg-sky-400" : "bg-purple-400"
+                accentColor === "sky"
+                  ? "bg-sky-400"
+                  : accentColor === "amber"
+                  ? "bg-amber-400"
+                  : "bg-purple-400"
               )}
               style={{ width: `${Math.min(100, percentage)}%` }}
             />
@@ -1643,11 +1801,13 @@ function PrintPosterModal({ item, onClose }: { item: EventQrItem; onClose: () =>
 
 function BatchPrintModal({
   sportsItem,
+  sportsItems,
   techItems,
   nonTechItems,
   onClose,
 }: {
   sportsItem: EventQrItem;
+  sportsItems: EventQrItem[];
   techItems: EventQrItem[];
   nonTechItems: EventQrItem[];
   onClose: () => void;
@@ -1655,11 +1815,11 @@ function BatchPrintModal({
   const [selectedBatch, setSelectedBatch] = useState<"all" | "sports" | "technical" | "non_technical">("all");
 
   const itemsToPrint = useMemo(() => {
-    if (selectedBatch === "sports") return [sportsItem];
+    if (selectedBatch === "sports") return [sportsItem, ...sportsItems];
     if (selectedBatch === "technical") return techItems;
     if (selectedBatch === "non_technical") return nonTechItems;
-    return [sportsItem, ...techItems, ...nonTechItems];
-  }, [selectedBatch, sportsItem, techItems, nonTechItems]);
+    return [sportsItem, ...sportsItems, ...techItems, ...nonTechItems];
+  }, [selectedBatch, sportsItem, sportsItems, techItems, nonTechItems]);
 
   const handlePrint = () => {
     window.print();
@@ -1698,8 +1858,8 @@ function BatchPrintModal({
         <div className="flex flex-wrap gap-2 mb-4">
           {(
             [
-              ["all", `All (${1 + techItems.length + nonTechItems.length})`],
-              ["sports", "Sports Only (1 Master QR)"],
+              ["all", `All (${1 + sportsItems.length + techItems.length + nonTechItems.length})`],
+              ["sports", `Sports (${1 + sportsItems.length})`],
               ["technical", `Technical (${techItems.length})`],
               ["non_technical", `Non-Technical (${nonTechItems.length})`],
             ] as const
