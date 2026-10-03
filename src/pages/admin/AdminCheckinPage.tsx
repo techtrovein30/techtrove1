@@ -59,6 +59,32 @@ interface EventQrItem {
   subEvents?: TechEvent[];
 }
 
+const STATIC_QR_MAP: Record<string, string> = {
+  "sports-unified-master": "/checkin-qrs/sports-pass.png",
+  "hackathon": "/checkin-qrs/hackathon.png",
+  "debugging": "/checkin-qrs/debugging.png",
+  "paper-presentation": "/checkin-qrs/paper-presentation.png",
+  "tech-maze": "/checkin-qrs/tech-maze.png",
+  "quiz": "/checkin-qrs/quiz.png",
+  "dance": "/checkin-qrs/dance.png",
+  "singing": "/checkin-qrs/singing.png",
+  "gaming": "/checkin-qrs/gaming.png",
+  "ramp-walk": "/checkin-qrs/ramp-walk.png",
+  "treasure-hunt": "/checkin-qrs/treasure-hunt.png",
+  "connexion": "/checkin-qrs/connexion.png",
+  "adaptune": "/checkin-qrs/adaptune.png",
+  "tunetopia": "/checkin-qrs/tunetopia.png",
+  "logo-making": "/checkin-qrs/logo-making.png",
+  "cricket": "/checkin-qrs/cricket.png",
+  "football": "/checkin-qrs/football.png",
+  "volleyball": "/checkin-qrs/volleyball.png",
+  "kabaddi": "/checkin-qrs/kabaddi.png",
+  "sport-khokho-girls": "/checkin-qrs/kho-kho.png",
+  "sport-throwball-girls": "/checkin-qrs/throwball.png",
+  "sport-chess-girls": "/checkin-qrs/chess.png",
+  "sport-carrom-girls": "/checkin-qrs/carrom.png",
+};
+
 export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = {}) {
   const { events, loading: eventsLoading } = useAllEvents();
   const toast = useToast();
@@ -230,7 +256,7 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
       try {
         // 1. Unified Sports Pass
         const sToken = resolveSports(sportsEvents);
-        const sQr = await generateQrData(sToken);
+        const sQr = STATIC_QR_MAP["sports-unified-master"] || (await generateQrData(sToken));
         if (cancelled) return;
         setSportsToken(sToken);
         setSportsQrUrl(sQr);
@@ -244,7 +270,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
           allOther.map(async (ev) => {
             const tok = resolveToken(ev);
             tokensMap[ev.id] = tok;
-            qrsMap[ev.id] = await generateQrData(tok);
+            const qrUrl = STATIC_QR_MAP[ev.id] || (await generateQrData(tok));
+            qrsMap[ev.id] = qrUrl;
           })
         );
 
