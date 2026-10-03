@@ -58,8 +58,13 @@ export function buildQrPayload(token: string): string | null {
  * ungroup step below, which is what keeps the camera-less desk working.
  */
 export function extractQrToken(raw: string): string | null {
-  const value = raw.trim().toLowerCase();
-  if (!value) return null;
+  if (!raw) return null;
+  let value = raw.trim();
+
+  try {
+    value = decodeURIComponent(value);
+  } catch {}
+  value = value.toLowerCase();
 
   // Canonical payload, and any payload with a separator we did not plan for.
   if (value.startsWith(`${QR_PAYLOAD_VERSION.toLowerCase()}:`)) {
@@ -77,9 +82,11 @@ export function extractQrToken(raw: string): string | null {
   const ungrouped = value.replace(/[\s-]+/g, "");
   if (TOKEN_PATTERN.test(ungrouped)) return ungrouped;
 
+  // Deep link with ttq1:<token>
+  const ttqMatch = value.match(/ttq1:([0-9a-f]{32})/);
+  if (ttqMatch) return ttqMatch[1];
+
   // Deep link: pull the first 32-hex run out of the trailing path/query.
-  // A regex over a fixed-width alphabet cannot inject SQL — the result is still
-  // validated against TOKEN_PATTERN before it leaves this function.
   const match = value.match(TOKEN_SCAN_PATTERN);
   return match ? match[0] : null;
 }
@@ -104,8 +111,13 @@ export function extractQrToken(raw: string): string | null {
  * displayed QR self-describing; it is stripped again here.
  */
 export function extractEventToken(raw: string): string | null {
-  const value = raw.trim().toLowerCase();
-  if (!value) return null;
+  if (!raw) return null;
+  let value = raw.trim();
+
+  try {
+    value = decodeURIComponent(value);
+  } catch {}
+  value = value.toLowerCase();
 
   // Canonical event payload, and the slash variant some scanners normalise to.
   if (value.startsWith(`${EVENT_QR_PREFIX.toLowerCase()}:`)) {
@@ -122,16 +134,13 @@ export function extractEventToken(raw: string): string | null {
   if (TOKEN_PATTERN.test(ungrouped)) return ungrouped;
 
   // Deep link, e.g. `https://techtrove.live/attendance?token=TTE1:<token>`.
-  //
-  // Restricted to values that are actually links or paths. The personal-pass
-  // extractor above will pull a 32-hex run out of arbitrary junk, which is
-  // deliberate there because a phone camera hands over whatever the QR decoder
-  // produced. For the event code it is the wrong trade: a truncated or extended
-  // string like `<token>f` would silently be read as `<token>`, so what gets
-  // accepted is not what the coordinator printed. Only take the token out of a
-  // structure that says where it should be.
   if (value.includes("ttq1")) return null;
   if (!/^https?:\/\//.test(value) && !value.startsWith("/") && !value.includes("attendance")) return null;
+
+  // Explicitly match tte1:<token> to avoid URL-encoded colons (%3a) corrupting the token match
+  const tteMatch = value.match(/tte1:([0-9a-f]{32})/);
+  if (tteMatch) return tteMatch[1];
+
   const match = value.match(TOKEN_SCAN_PATTERN);
   return match ? match[0] : null;
 }
