@@ -20,22 +20,22 @@ update public.events
  where day_id = 'day-1' or lower(coalesce(category, '')) like 'sport%';
 
 -- Day 2: Technical Events
-update public.events set attendance_token = 'c2d785c6556130288b23bc5930e0c897' where id = 'hackathon';
-update public.events set attendance_token = '290956874150306ca19811783dc6e939' where id = 'debugging';
-update public.events set attendance_token = 'a40b6e47c70ce8a2da3cb7868cc01327' where id = 'paper-presentation';
-update public.events set attendance_token = 'd343f64181baadd8c18d1445e5f5dcc9' where id = 'tech-maze';
-update public.events set attendance_token = '598f2afc0c67c72c24c7313e0734daba' where id = 'quiz';
+update public.events set attendance_token = 'c2d785c6556130288b23bc5930e0c897' where id = 'hackathon' or lower(name) like '%hackathon%';
+update public.events set attendance_token = '290956874150306ca19811783dc6e939' where id = 'debugging' or lower(name) like '%debugging%';
+update public.events set attendance_token = 'a40b6e47c70ce8a2da3cb7868cc01327' where id = 'paper-presentation' or lower(name) like '%paper%presentation%';
+update public.events set attendance_token = 'd343f64181baadd8c18d1445e5f5dcc9' where id = 'tech-maze' or lower(name) like '%maze%';
+update public.events set attendance_token = '598f2afc0c67c72c24c7313e0734daba' where id = 'quiz' or lower(name) like '%quiz%';
 
 -- Day 2: Non-Technical Events
-update public.events set attendance_token = '048c0b5cea0eb38ab212c9897ad107ff' where id = 'dance';
-update public.events set attendance_token = '3b872130193c85708506bc2d8bbc1fb0' where id = 'singing';
-update public.events set attendance_token = '20575a9e9755fc64694258c938f8c1dc' where id = 'gaming';
-update public.events set attendance_token = '3cc0ccc344defb6d48a3b5b59ec6bc88' where id = 'ramp-walk';
-update public.events set attendance_token = '42afcf562a175493cf013832357b9b48' where id = 'treasure-hunt';
-update public.events set attendance_token = '4582ab70dce31f3dc148e2893284532e' where id = 'connexion';
-update public.events set attendance_token = 'b4b2fec065183af2ea1afaefa2a1d1ea' where id = 'adaptune';
-update public.events set attendance_token = '7df7ca111c8fb6ebc37bed39fa5bf19e' where id = 'tunetopia';
-update public.events set attendance_token = '487449ffe383208b37ebb6ea11a0586d' where id = 'logo-making';
+update public.events set attendance_token = '048c0b5cea0eb38ab212c9897ad107ff' where id = 'dance' or lower(name) like '%dance%';
+update public.events set attendance_token = '3b872130193c85708506bc2d8bbc1fb0' where id = 'singing' or lower(name) like '%singing%';
+update public.events set attendance_token = '20575a9e9755fc64694258c938f8c1dc' where id = 'gaming' or lower(name) like '%gaming%';
+update public.events set attendance_token = '3cc0ccc344defb6d48a3b5b59ec6bc88' where id = 'ramp-walk' or lower(name) like '%ramp%';
+update public.events set attendance_token = '42afcf562a175493cf013832357b9b48' where id = 'treasure-hunt' or lower(name) like '%treasure%';
+update public.events set attendance_token = '4582ab70dce31f3dc148e2893284532e' where id = 'connexion' or lower(name) like '%connexion%';
+update public.events set attendance_token = 'b4b2fec065183af2ea1afaefa2a1d1ea' where id = 'adaptune' or lower(name) like '%adaptune%';
+update public.events set attendance_token = '7df7ca111c8fb6ebc37bed39fa5bf19e' where id = 'tunetopia' or lower(name) like '%tunetopia%';
+update public.events set attendance_token = '487449ffe383208b37ebb6ea11a0586d' where id = 'logo-making' or lower(name) like '%logo%';
 
 -- 3. Enhanced mark_event_attendance RPC
 create or replace function public.mark_event_attendance(p_token text)
