@@ -128,62 +128,62 @@ const events = [
     seed: "techtrove_event_logo_making",
   },
 
-  // 4. Individual Sports Event QRs (For field-specific desk signs)
+  // 4. Individual Sports Event QRs (Field-specific signs, unified sports token)
   {
     fileName: "cricket.png",
     id: "cricket",
     title: "TECHTROVE 3.0 · CRICKET",
     subtitle: "SCAN WITH PHONE CAMERA",
-    seed: "techtrove_event_cricket",
+    seed: "techtrove_sports_unified_day1",
   },
   {
     fileName: "football.png",
     id: "football",
     title: "TECHTROVE 3.0 · FOOTBALL",
     subtitle: "SCAN WITH PHONE CAMERA",
-    seed: "techtrove_event_football",
+    seed: "techtrove_sports_unified_day1",
   },
   {
     fileName: "volleyball.png",
     id: "volleyball",
     title: "TECHTROVE 3.0 · VOLLEYBALL",
     subtitle: "SCAN WITH PHONE CAMERA",
-    seed: "techtrove_event_volleyball",
+    seed: "techtrove_sports_unified_day1",
   },
   {
     fileName: "kabaddi.png",
     id: "kabaddi",
     title: "TECHTROVE 3.0 · KABADDI",
     subtitle: "SCAN WITH PHONE CAMERA",
-    seed: "techtrove_event_kabaddi",
+    seed: "techtrove_sports_unified_day1",
   },
   {
     fileName: "kho-kho.png",
     id: "sport-khokho-girls",
     title: "TECHTROVE 3.0 · KHO-KHO (GIRLS)",
     subtitle: "SCAN WITH PHONE CAMERA",
-    seed: "techtrove_event_khokho",
+    seed: "techtrove_sports_unified_day1",
   },
   {
     fileName: "throwball.png",
     id: "sport-throwball-girls",
     title: "TECHTROVE 3.0 · THROWBALL (GIRLS)",
     subtitle: "SCAN WITH PHONE CAMERA",
-    seed: "techtrove_event_throwball",
+    seed: "techtrove_sports_unified_day1",
   },
   {
     fileName: "chess.png",
     id: "sport-chess-girls",
     title: "TECHTROVE 3.0 · CHESS",
     subtitle: "SCAN WITH PHONE CAMERA",
-    seed: "techtrove_event_chess",
+    seed: "techtrove_sports_unified_day1",
   },
   {
     fileName: "carrom.png",
     id: "sport-carrom-girls",
     title: "TECHTROVE 3.0 · CARROM",
     subtitle: "SCAN WITH PHONE CAMERA",
-    seed: "techtrove_event_carrom",
+    seed: "techtrove_sports_unified_day1",
   },
 ];
 

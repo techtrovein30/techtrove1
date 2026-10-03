@@ -704,7 +704,19 @@ set search_path = public
 as $$
 declare
   v_token         text := lower(btrim(coalesce(p_token, '')));
-  v_is_sports     boolean := (v_token = 'ba31a6b79aa1bf173badbd6f62236556');
+  v_is_sports     boolean := (
+    v_token = 'ba31a6b79aa1bf173badbd6f62236556'
+    or v_token in (
+      '42f72b973a4435f9aef271a8fe028992', -- cricket
+      'ab30b6937266257e63ba609931840c68', -- football
+      '1aa8125cc6422b40182407d3cb802c2d', -- volleyball
+      'a4589e9420537421ae5343bbff9bcf40', -- kabaddi
+      '18631d75d480ce4c8f0979a200d3e08e', -- kho-kho
+      '87cb2c00f1f675db80174d5af7caaf54', -- throwball
+      'e08dfc0be793e4b9d70dc9aa9beca60b', -- chess
+      '6fb1e0984a6a4ba1ede4f6459869a0f4'  -- carrom
+    )
+  );
   v_uid           uuid := auth.uid();
   v_email         text;
   v_user_name     text;
@@ -744,7 +756,16 @@ begin
     into v_event
     from public.events e
     join public.registration_members m
-      on m.event_id = e.id and lower(btrim(m.email)) = v_email
+      on (
+        m.event_id = e.id
+        or m.event_id = replace(e.id, 'tech-', '')
+        or m.event_id = replace(e.id, 'nontech-', '')
+        or m.event_id = replace(e.id, 'sport-', '')
+        or e.id = replace(m.event_id, 'tech-', '')
+        or e.id = replace(m.event_id, 'nontech-', '')
+        or e.id = replace(m.event_id, 'sport-', '')
+      )
+      and lower(btrim(m.email)) = v_email
    where (e.attendance_token = v_token or (v_is_sports and (coalesce(e.day_id, '') = 'day-1' or lower(coalesce(e.category, '')) like 'sport%')))
    limit 1;
 
@@ -758,7 +779,16 @@ begin
         select event_id, id, registration_code, user_id from public.registrations_internal
         union all
         select event_id, id, registration_code, user_id from public.registrations_external
-      ) r on r.event_id = e.id and r.user_id::text = v_uid::text
+      ) r on (
+        r.event_id = e.id
+        or r.event_id = replace(e.id, 'tech-', '')
+        or r.event_id = replace(e.id, 'nontech-', '')
+        or r.event_id = replace(e.id, 'sport-', '')
+        or e.id = replace(r.event_id, 'tech-', '')
+        or e.id = replace(r.event_id, 'nontech-', '')
+        or e.id = replace(r.event_id, 'sport-', '')
+      )
+      and r.user_id::text = v_uid::text
      where (e.attendance_token = v_token or (v_is_sports and (coalesce(e.day_id, '') = 'day-1' or lower(coalesce(e.category, '')) like 'sport%')))
      limit 1;
   end if;
@@ -829,9 +859,17 @@ begin
 
   -- Also update registration_members attended flag
   update public.registration_members
-     set attended = true
-   where event_id = v_event.id
-     and lower(btrim(email)) = v_email;
+     set attended = true,
+         attended_at = v_marked,
+         attended_source = 'qr',
+         updated_at = now()
+   where (
+     event_id = v_event.id
+     or event_id = replace(v_event.id, 'tech-', '')
+     or event_id = replace(v_event.id, 'nontech-', '')
+     or event_id = replace(v_event.id, 'sport-', '')
+   )
+   and lower(btrim(email)) = v_email;
 
   return jsonb_build_object(
     'ok', true,
@@ -844,7 +882,125 @@ begin
 end;
 $$;
 
-grant execute on function public.mark_event_attendance(text) to authenticated;
+grant execute on function public.mark_event_attendance(text) to authenticated, anon;
+
+-- 3E-2. get_attendance_hub_stats (Instant live attendance & participant statistics)
+drop function if exists public.get_attendance_hub_stats();
+create or replace function public.get_attendance_hub_stats()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_stats jsonb;
+begin
+  with event_members_count as (
+    select
+      coalesce(event_id, '') as event_id,
+      count(*)::int as member_count
+    from public.registration_members
+    group by event_id
+  ),
+  event_attendance_count as (
+    select
+      coalesce(event_id, '') as event_id,
+      count(distinct lower(btrim(participant_email)))::int as attended_count
+    from public.attendance
+    where status = 'present' or status is null
+    group by event_id
+  )
+  select jsonb_object_agg(
+    e.id,
+    jsonb_build_object(
+      'total', coalesce(em.member_count, 0),
+      'attended', coalesce(ea.attended_count, 0)
+    )
+  ) into v_stats
+  from public.events e
+  left join event_members_count em on (
+    em.event_id = e.id
+    or em.event_id = replace(e.id, 'tech-', '')
+    or em.event_id = replace(e.id, 'nontech-', '')
+    or em.event_id = replace(e.id, 'sport-', '')
+  )
+  left join event_attendance_count ea on (
+    ea.event_id = e.id
+    or ea.event_id = replace(e.id, 'tech-', '')
+    or ea.event_id = replace(e.id, 'nontech-', '')
+    or ea.event_id = replace(e.id, 'sport-', '')
+  );
+
+  return coalesce(v_stats, '{}'::jsonb);
+end;
+$$;
+
+grant execute on function public.get_attendance_hub_stats() to authenticated, anon;
+
+-- Synchronize / Backfill registration_members from registrations_internal and registrations_external
+insert into public.registration_members (
+  id, registration_id, registration_code, user_id, event_id,
+  team_name, captain_name, participant_type, payment_status,
+  member_name, member_role, position, email, reg_number, phone, college
+)
+select
+  gen_random_uuid(),
+  r.id::text,
+  r.registration_code,
+  r.user_id::text,
+  r.event_id,
+  r.team_name,
+  r.captain_name,
+  'internal',
+  coalesce(r.payment_status, 'confirmed'),
+  coalesce(m->>'name', r.captain_name),
+  coalesce(m->>'role', 'player'),
+  coalesce((m->>'position')::int, 0),
+  lower(btrim(coalesce(m->>'email', ''))),
+  m->>'regNumber',
+  m->>'phone',
+  m->>'college'
+from public.registrations_internal r,
+     lateral jsonb_array_elements(case when jsonb_typeof(r.members) = 'array' and jsonb_array_length(r.members) > 0 then r.members else jsonb_build_array(jsonb_build_object('name', r.captain_name, 'role', 'captain', 'position', 0)) end) as m
+where coalesce(m->>'email', '') != ''
+on conflict do nothing;
+
+insert into public.registration_members (
+  id, registration_id, registration_code, user_id, event_id,
+  team_name, captain_name, participant_type, payment_status,
+  member_name, member_role, position, email, reg_number, phone, college
+)
+select
+  gen_random_uuid(),
+  r.id::text,
+  r.registration_code,
+  r.user_id::text,
+  r.event_id,
+  r.team_name,
+  r.captain_name,
+  'external',
+  coalesce(r.payment_status, 'pending'),
+  coalesce(m->>'name', r.captain_name),
+  coalesce(m->>'role', 'player'),
+  coalesce((m->>'position')::int, 0),
+  lower(btrim(coalesce(m->>'email', ''))),
+  m->>'regNumber',
+  m->>'phone',
+  m->>'college'
+from public.registrations_external r,
+     lateral jsonb_array_elements(case when jsonb_typeof(r.members) = 'array' and jsonb_array_length(r.members) > 0 then r.members else jsonb_build_array(jsonb_build_object('name', r.captain_name, 'role', 'captain', 'position', 0)) end) as m
+where coalesce(m->>'email', '') != ''
+on conflict do nothing;
+
+-- Grant broad schema & table permissions to ensure PostgREST clients and RPCs can query check-in
+grant usage on schema public to anon, authenticated;
+grant select, insert, update on public.registration_members to authenticated, anon;
+grant select, insert, update on public.attendance to authenticated, anon;
+grant select, insert, update on public.registrations_internal to authenticated, anon;
+grant select, insert, update on public.registrations_external to authenticated, anon;
+grant select on public.events to authenticated, anon;
+grant select on public.internal_participants to authenticated, anon;
+grant select on public.external_participants to authenticated, anon;
 
 -- 3F. admin_mark_event_attendance (Manual override by coordinator/admin)
 drop function if exists public.admin_mark_event_attendance(text, text, boolean);

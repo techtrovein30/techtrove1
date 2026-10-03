@@ -208,11 +208,14 @@ export function useCheckinMembers(eventId?: string, search?: string) {
     void Promise.resolve().then(refresh);
   }, [refresh]);
 
-  // Realtime sync: reload when registration_members changes.
+  // Realtime sync: reload when registration_members or attendance changes.
   useEffect(() => {
     const channel = supabase
       .channel("admin-checkin-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "registration_members" }, () => {
+        refresh();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, () => {
         refresh();
       })
       .subscribe();
@@ -225,17 +228,17 @@ export function useCheckinMembers(eventId?: string, search?: string) {
   const players = new Map<string, PlayerGroup>();
 
   for (const m of members) {
-    const key = m.email.trim().toLowerCase();
+    const key = (m.email || m.id).trim().toLowerCase();
     const group =
       players.get(key) ?? {
         key,
         playerName: m.memberName,
         email: m.email.trim(),
         members: [],
-        attended: true,
+        attended: false,
       };
     group.members.push(m);
-    if (!m.attended) group.attended = false;
+    if (m.attended) group.attended = true;
     players.set(key, group);
   }
 

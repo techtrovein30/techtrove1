@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import QRCode from "qrcode";
 import { useAllEvents } from "../../lib/useEvents";
+import { supabase } from "../../lib/supabase";
 import type { TechEvent } from "../../data/techtrove";
 import {
   useCheckinMembers,
@@ -63,28 +64,59 @@ interface EventQrItem {
 }
 
 const STATIC_QR_MAP: Record<string, string> = {
+  // Master Unified Sports Pass
   "sports-unified-master": "/checkin%20qr's/sports-pass.png",
+  
+  // Technical Events
   "hackathon": "/checkin%20qr's/hackathon.png",
+  "tech-hackathon": "/checkin%20qr's/hackathon.png",
   "debugging": "/checkin%20qr's/debugging.png",
+  "tech-debugging": "/checkin%20qr's/debugging.png",
   "paper-presentation": "/checkin%20qr's/paper-presentation.png",
+  "tech-paper-presentation": "/checkin%20qr's/paper-presentation.png",
   "tech-maze": "/checkin%20qr's/tech-maze.png",
   "quiz": "/checkin%20qr's/quiz.png",
-  "dance": "/checkin%20qr's/dance.png",
-  "singing": "/checkin%20qr's/singing.png",
-  "gaming": "/checkin%20qr's/gaming.png",
-  "ramp-walk": "/checkin%20qr's/ramp-walk.png",
-  "treasure-hunt": "/checkin%20qr's/treasure-hunt.png",
-  "connexion": "/checkin%20qr's/connexion.png",
-  "adaptune": "/checkin%20qr's/adaptune.png",
-  "tunetopia": "/checkin%20qr's/tunetopia.png",
+  "tech-quiz": "/checkin%20qr's/quiz.png",
   "logo-making": "/checkin%20qr's/logo-making.png",
+  "tech-logo-making": "/checkin%20qr's/logo-making.png",
+
+  // Non-Technical Events
+  "dance": "/checkin%20qr's/dance.png",
+  "nontech-dance": "/checkin%20qr's/dance.png",
+  "singing": "/checkin%20qr's/singing.png",
+  "nontech-singing": "/checkin%20qr's/singing.png",
+  "gaming": "/checkin%20qr's/gaming.png",
+  "nontech-mobile-gaming": "/checkin%20qr's/gaming.png",
+  "ramp-walk": "/checkin%20qr's/ramp-walk.png",
+  "nontech-ramp-walk": "/checkin%20qr's/ramp-walk.png",
+  "treasure-hunt": "/checkin%20qr's/treasure-hunt.png",
+  "nontech-treasure-hunt": "/checkin%20qr's/treasure-hunt.png",
+  "connexion": "/checkin%20qr's/connexion.png",
+  "nontech-connexion": "/checkin%20qr's/connexion.png",
+  "adaptune": "/checkin%20qr's/adaptune.png",
+  "nontech-adaptune": "/checkin%20qr's/adaptune.png",
+  "tunetopia": "/checkin%20qr's/tunetopia.png",
+  "nontech-tunetopia": "/checkin%20qr's/tunetopia.png",
+
+  // Sports Events
   "cricket": "/checkin%20qr's/cricket.png",
+  "sport-cricket": "/checkin%20qr's/cricket.png",
   "football": "/checkin%20qr's/football.png",
+  "sport-football": "/checkin%20qr's/football.png",
   "volleyball": "/checkin%20qr's/volleyball.png",
+  "sport-volleyball": "/checkin%20qr's/volleyball.png",
   "kabaddi": "/checkin%20qr's/kabaddi.png",
+  "sport-kabaddi": "/checkin%20qr's/kabaddi.png",
+  "kho-kho": "/checkin%20qr's/kho-kho.png",
+  "sport-khokho": "/checkin%20qr's/kho-kho.png",
   "sport-khokho-girls": "/checkin%20qr's/kho-kho.png",
+  "throwball": "/checkin%20qr's/throwball.png",
   "sport-throwball-girls": "/checkin%20qr's/throwball.png",
+  "chess": "/checkin%20qr's/chess.png",
+  "sport-chess": "/checkin%20qr's/chess.png",
   "sport-chess-girls": "/checkin%20qr's/chess.png",
+  "carrom": "/checkin%20qr's/carrom.png",
+  "sport-carrom": "/checkin%20qr's/carrom.png",
   "sport-carrom-girls": "/checkin%20qr's/carrom.png",
 };
 
@@ -192,10 +224,33 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
     }
   }, []);
 
+  // Live realtime sync: update stats and attendee list whenever attendance or registrations change
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-checkin-attendance-stats-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, () => {
+        loadStats();
+        refresh();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "registration_members" }, () => {
+        loadStats();
+        refresh();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadStats, refresh]);
+
   // Resolve token for an event matching the verified generated cards
   const resolveToken = useCallback((ev: TechEvent): string => {
     if (CANONICAL_EVENT_TOKENS[ev.id]) {
       return CANONICAL_EVENT_TOKENS[ev.id];
+    }
+    const cleanId = ev.id.replace(/^(tech-|nontech-|sport-)/, "");
+    if (CANONICAL_EVENT_TOKENS[cleanId]) {
+      return CANONICAL_EVENT_TOKENS[cleanId];
     }
     if (ev.attendanceToken && /^[0-9a-f]{32}$/i.test(ev.attendanceToken.trim())) {
       return ev.attendanceToken.trim().toLowerCase();

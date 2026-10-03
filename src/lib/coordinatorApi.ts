@@ -613,29 +613,53 @@ export const CANONICAL_EVENT_TOKENS: Record<string, string> = {
   "sports-unified-master": UNIFIED_SPORTS_TOKEN,
   // Tech Events
   "hackathon": "c2d785c6556130288b23bc5930e0c897",
+  "tech-hackathon": "c2d785c6556130288b23bc5930e0c897",
   "debugging": "290956874150306ca19811783dc6e939",
+  "tech-debugging": "290956874150306ca19811783dc6e939",
   "paper-presentation": "a40b6e47c70ce8a2da3cb7868cc01327",
+  "tech-paper-presentation": "a40b6e47c70ce8a2da3cb7868cc01327",
   "tech-maze": "d343f64181baadd8c18d1445e5f5dcc9",
   "quiz": "598f2afc0c67c72c24c7313e0734daba",
+  "tech-quiz": "598f2afc0c67c72c24c7313e0734daba",
+  "logo-making": "487449ffe383208b37ebb6ea11a0586d",
+  "tech-logo-making": "487449ffe383208b37ebb6ea11a0586d",
   // Non-Tech Events
   "dance": "048c0b5cea0eb38ab212c9897ad107ff",
+  "nontech-dance": "048c0b5cea0eb38ab212c9897ad107ff",
   "singing": "3b872130193c85708506bc2d8bbc1fb0",
+  "nontech-singing": "3b872130193c85708506bc2d8bbc1fb0",
   "gaming": "20575a9e9755fc64694258c938f8c1dc",
+  "nontech-mobile-gaming": "20575a9e9755fc64694258c938f8c1dc",
   "ramp-walk": "3cc0ccc344defb6d48a3b5b59ec6bc88",
+  "nontech-ramp-walk": "3cc0ccc344defb6d48a3b5b59ec6bc88",
   "treasure-hunt": "42afcf562a175493cf013832357b9b48",
+  "nontech-treasure-hunt": "42afcf562a175493cf013832357b9b48",
   "connexion": "4582ab70dce31f3dc148e2893284532e",
+  "nontech-connexion": "4582ab70dce31f3dc148e2893284532e",
   "adaptune": "b4b2fec065183af2ea1afaefa2a1d1ea",
+  "nontech-adaptune": "b4b2fec065183af2ea1afaefa2a1d1ea",
   "tunetopia": "7df7ca111c8fb6ebc37bed39fa5bf19e",
-  "logo-making": "487449ffe383208b37ebb6ea11a0586d",
-  // Individual Sports
-  "cricket": "42f72b973a4435f9aef271a8fe028992",
-  "football": "ab30b6937266257e63ba609931840c68",
-  "volleyball": "1aa8125cc6422b40182407d3cb802c2d",
-  "kabaddi": "a4589e9420537421ae5343bbff9bcf40",
-  "sport-khokho-girls": "18631d75d480ce4c8f0979a200d3e08e",
-  "sport-throwball-girls": "87cb2c00f1f675db80174d5af7caaf54",
-  "sport-chess-girls": "e08dfc0be793e4b9d70dc9aa9beca60b",
-  "sport-carrom-girls": "6fb1e0984a6a4ba1ede4f6459869a0f4",
+  "nontech-tunetopia": "7df7ca111c8fb6ebc37bed39fa5bf19e",
+  // Sports Events (Unified token + specific IDs)
+  "cricket": UNIFIED_SPORTS_TOKEN,
+  "sport-cricket": UNIFIED_SPORTS_TOKEN,
+  "football": UNIFIED_SPORTS_TOKEN,
+  "sport-football": UNIFIED_SPORTS_TOKEN,
+  "volleyball": UNIFIED_SPORTS_TOKEN,
+  "sport-volleyball": UNIFIED_SPORTS_TOKEN,
+  "kabaddi": UNIFIED_SPORTS_TOKEN,
+  "sport-kabaddi": UNIFIED_SPORTS_TOKEN,
+  "kho-kho": UNIFIED_SPORTS_TOKEN,
+  "sport-khokho": UNIFIED_SPORTS_TOKEN,
+  "sport-khokho-girls": UNIFIED_SPORTS_TOKEN,
+  "throwball": UNIFIED_SPORTS_TOKEN,
+  "sport-throwball-girls": UNIFIED_SPORTS_TOKEN,
+  "chess": UNIFIED_SPORTS_TOKEN,
+  "sport-chess": UNIFIED_SPORTS_TOKEN,
+  "sport-chess-girls": UNIFIED_SPORTS_TOKEN,
+  "carrom": UNIFIED_SPORTS_TOKEN,
+  "sport-carrom": UNIFIED_SPORTS_TOKEN,
+  "sport-carrom-girls": UNIFIED_SPORTS_TOKEN,
 };
 
 export const CANONICAL_TOKEN_TO_EVENT: Record<string, string> = Object.entries(
@@ -676,27 +700,70 @@ export async function syncUnifiedSportsToken(token: string, sportsEvents: TechEv
 
 /**
  * Aggregates live attendee and registration counts per event.
+ * Uses get_attendance_hub_stats RPC for instant DB-level accuracy with fallback.
  */
 export async function getAttendanceEventStats(): Promise<
   Record<string, { total: number; attended: number }>
 > {
   const stats: Record<string, { total: number; attended: number }> = {};
-  try {
-    const { data: members, error } = await supabase
-      .from("registration_members")
-      .select("event_id, attended");
 
-    if (!error && members) {
-      for (const m of members) {
+  try {
+    // 1. Try secure RPC first
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: rpcStats, error: rpcErr } = await (supabase.rpc as any)("get_attendance_hub_stats");
+    if (!rpcErr && rpcStats && typeof rpcStats === "object") {
+      for (const [key, val] of Object.entries(rpcStats as Record<string, { total: number; attended: number }>)) {
+        stats[key] = {
+          total: Number(val?.total) || 0,
+          attended: Number(val?.attended) || 0,
+        };
+        // Also map without prefix for UI matching
+        const shortKey = key.replace(/^(tech-|nontech-|sport-)/, "");
+        if (shortKey !== key && !stats[shortKey]) {
+          stats[shortKey] = stats[key];
+        }
+      }
+      return stats;
+    }
+  } catch {
+    // Fall back to direct queries below
+  }
+
+  try {
+    // 2. Direct fallback querying attendance and registration_members
+    const [attRes, memRes] = await Promise.all([
+      supabase.from("attendance").select("event_id, participant_email"),
+      supabase.from("registration_members").select("event_id, attended"),
+    ]);
+
+    // Count distinct attended emails per event from attendance table
+    const attendedSets: Record<string, Set<string>> = {};
+    if (attRes.data) {
+      for (const a of attRes.data) {
+        if (!a.event_id) continue;
+        if (!attendedSets[a.event_id]) attendedSets[a.event_id] = new Set();
+        if (a.participant_email) attendedSets[a.event_id].add(a.participant_email.toLowerCase());
+      }
+    }
+
+    if (memRes.data) {
+      for (const m of memRes.data) {
         if (!m.event_id) continue;
         if (!stats[m.event_id]) stats[m.event_id] = { total: 0, attended: 0 };
         stats[m.event_id].total++;
         if (m.attended) stats[m.event_id].attended++;
       }
     }
+
+    // Merge attendance table counts if greater
+    for (const [evId, emailSet] of Object.entries(attendedSets)) {
+      if (!stats[evId]) stats[evId] = { total: emailSet.size, attended: emailSet.size };
+      else stats[evId].attended = Math.max(stats[evId].attended, emailSet.size);
+    }
   } catch {
     // Graceful fallback
   }
+
   return stats;
 }
 
