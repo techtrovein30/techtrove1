@@ -4,15 +4,15 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const { chromium } = require("playwright");
 
-// Output directories
-const dirWithQuotes = path.join(__dirname, "..", "public", "checkin qr's");
-const dirClean = path.join(__dirname, "..", "public", "checkin-qrs");
+// The single output directory requested: "public/checkin qr's"
+const outputDir = path.join(__dirname, "..", "public", "checkin qr's");
 
-for (const dir of [dirWithQuotes, dirClean]) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+if (!fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir, { recursive: true });
 }
+
+// User's verified production domain
+const BASE_DOMAIN = process.env.SITE_URL || "https://techtrove3-simats.vercel.app";
 
 // Event Definitions
 const events = [
@@ -23,7 +23,7 @@ const events = [
     id: "sports-unified-master",
     title: "TECHTROVE 3.0 · SPORTS PASS",
     subtitle: "SCAN WITH PHONE CAMERA",
-    token: "sports_unified_checkin_token_day1",
+    seed: "techtrove_sports_unified_day1",
   },
 
   // 2. Day 2 - Technical Events
@@ -32,30 +32,35 @@ const events = [
     id: "hackathon",
     title: "TECHTROVE 3.0 · HACKATHON",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_hackathon",
   },
   {
     fileName: "debugging.png",
     id: "debugging",
     title: "TECHTROVE 3.0 · DEBUGGING",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_debugging",
   },
   {
     fileName: "paper-presentation.png",
     id: "paper-presentation",
     title: "TECHTROVE 3.0 · PAPER PRESENTATION",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_paper_presentation",
   },
   {
     fileName: "tech-maze.png",
     id: "tech-maze",
     title: "TECHTROVE 3.0 · TECH MAZE",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_tech_maze",
   },
   {
     fileName: "quiz.png",
     id: "quiz",
     title: "TECHTROVE 3.0 · TECH QUIZ",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_quiz",
   },
 
   // 3. Day 2 - Non-Technical Events
@@ -64,125 +69,145 @@ const events = [
     id: "dance",
     title: "TECHTROVE 3.0 · SOLO/GROUP DANCE",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_dance",
   },
   {
     fileName: "singing.png",
     id: "singing",
     title: "TECHTROVE 3.0 · SINGING",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_singing",
   },
   {
     fileName: "gaming.png",
     id: "gaming",
     title: "TECHTROVE 3.0 · MOBILE GAMING",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_gaming",
   },
   {
     fileName: "ramp-walk.png",
     id: "ramp-walk",
     title: "TECHTROVE 3.0 · RAMP WALK",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_ramp_walk",
   },
   {
     fileName: "treasure-hunt.png",
     id: "treasure-hunt",
     title: "TECHTROVE 3.0 · TREASURE HUNT",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_treasure_hunt",
   },
   {
     fileName: "connexion.png",
     id: "connexion",
     title: "TECHTROVE 3.0 · CONNEXION",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_connexion",
   },
   {
     fileName: "adaptune.png",
     id: "adaptune",
     title: "TECHTROVE 3.0 · ADAPTUNE",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_adaptune",
   },
   {
     fileName: "tunetopia.png",
     id: "tunetopia",
     title: "TECHTROVE 3.0 · TUNETOPIA",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_tunetopia",
   },
   {
     fileName: "logo-making.png",
     id: "logo-making",
     title: "TECHTROVE 3.0 · LOGO MAKING",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_logo_making",
   },
 
-  // 4. Individual Sports Event QRs (Convenience for specific field desks)
+  // 4. Individual Sports Event QRs (For field-specific desk signs)
   {
     fileName: "cricket.png",
     id: "cricket",
     title: "TECHTROVE 3.0 · CRICKET",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_cricket",
   },
   {
     fileName: "football.png",
     id: "football",
     title: "TECHTROVE 3.0 · FOOTBALL",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_football",
   },
   {
     fileName: "volleyball.png",
     id: "volleyball",
     title: "TECHTROVE 3.0 · VOLLEYBALL",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_volleyball",
   },
   {
     fileName: "kabaddi.png",
     id: "kabaddi",
     title: "TECHTROVE 3.0 · KABADDI",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_kabaddi",
   },
   {
     fileName: "kho-kho.png",
     id: "sport-khokho-girls",
     title: "TECHTROVE 3.0 · KHO-KHO (GIRLS)",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_khokho",
   },
   {
     fileName: "throwball.png",
     id: "sport-throwball-girls",
     title: "TECHTROVE 3.0 · THROWBALL (GIRLS)",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_throwball",
   },
   {
     fileName: "chess.png",
     id: "sport-chess-girls",
     title: "TECHTROVE 3.0 · CHESS",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_chess",
   },
   {
     fileName: "carrom.png",
     id: "sport-carrom-girls",
     title: "TECHTROVE 3.0 · CARROM",
     subtitle: "SCAN WITH PHONE CAMERA",
+    seed: "techtrove_event_carrom",
   },
 ];
 
 async function generateAll() {
-  console.log(`Generating ${events.length} QR code cards...`);
+  console.log(`Using base domain: ${BASE_DOMAIN}`);
+  console.log(`Generating ${events.length} QR code cards to: public/checkin qr's/`);
 
   const browser = await chromium.launch();
   const context = await browser.newContext({
-    deviceScaleFactor: 2, // Ultra-crisp 2x resolution
+    deviceScaleFactor: 2,
   });
   const page = await context.newPage();
 
   for (const item of events) {
-    const rawToken =
-      item.token ||
-      crypto.createHash("sha256").update(`techtrove_attendance_${item.id}`).digest("hex").slice(0, 32);
+    // Generate valid 32-hex character lowercase token
+    const rawToken = crypto
+      .createHash("sha256")
+      .update(item.seed || item.id)
+      .digest("hex")
+      .slice(0, 32);
 
     const payload = `TTE1:${rawToken}`;
-    const targetUrl = `https://techtrove.live/attendance?token=${encodeURIComponent(payload)}`;
+    const targetUrl = `${BASE_DOMAIN}/attendance?token=${encodeURIComponent(payload)}`;
 
-    // Generate high resolution SVG/DataURL of the QR code
     const qrDataUrl = await QRCode.toDataURL(targetUrl, {
       width: 440,
       margin: 1,
@@ -193,7 +218,6 @@ async function generateAll() {
       errorCorrectionLevel: "M",
     });
 
-    // Render HTML card matching the user's reference image
     const html = `
       <!DOCTYPE html>
       <html>
@@ -263,28 +287,22 @@ async function generateAll() {
     await page.setContent(html);
     const cardHandle = await page.$("#card");
 
-    const outPath1 = path.join(dirWithQuotes, item.fileName);
-    const outPath2 = path.join(dirClean, item.fileName);
-
+    const outPath = path.join(outputDir, item.fileName);
     await cardHandle.screenshot({
-      path: outPath1,
+      path: outPath,
       omitBackground: true,
     });
-    fs.copyFileSync(outPath1, outPath2);
 
     if (item.alias) {
-      const aliasPath1 = path.join(dirWithQuotes, item.alias);
-      const aliasPath2 = path.join(dirClean, item.alias);
-      fs.copyFileSync(outPath1, aliasPath1);
-      fs.copyFileSync(outPath1, aliasPath2);
+      const aliasPath = path.join(outputDir, item.alias);
+      fs.copyFileSync(outPath, aliasPath);
     }
 
-    console.log(`  ✓ Created: ${item.fileName} (${item.title})`);
+    console.log(`  ✓ ${item.fileName} -> ${targetUrl}`);
   }
 
   await browser.close();
-  console.log("\nAll QR code cards successfully generated!");
-  console.log(`Location: public/checkin qr's/ and public/checkin-qrs/`);
+  console.log("\nAll QR code cards successfully generated in public/checkin qr's!");
 }
 
 generateAll().catch((err) => {
