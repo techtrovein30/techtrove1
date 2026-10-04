@@ -49,7 +49,10 @@ vi.mock("./eventStore", () => ({
   adminUpdateEvent: vi.fn(async () => {}),
 }));
 
-vi.mock("./db", () => ({ getAllRegistrations: vi.fn(async () => []) }));
+vi.mock("./db", () => ({
+  getRegistrationEventRows: vi.fn(async () => []),
+  getRegistrationsByEvent: vi.fn(async () => []),
+}));
 
 import {
   markEventAttendance,
@@ -61,7 +64,7 @@ import {
 } from "./coordinatorApi";
 import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
-import { getAllRegistrations } from "./db";
+import { getRegistrationEventRows } from "./db";
 import type { User } from "./api";
 
 const rpc = supabase.rpc as unknown as ReturnType<typeof vi.fn>;
@@ -412,7 +415,7 @@ describe("adminGetCoordinatorSummaries headcount", () => {
   async function summarise(regs: unknown[], members: unknown[], attendance: unknown[] = []) {
     const { getDaysAsync } = await import("./eventStore");
     vi.mocked(getDaysAsync).mockResolvedValue(DAY as never);
-    vi.mocked(getAllRegistrations).mockResolvedValue(regs as never);
+    vi.mocked(getRegistrationEventRows).mockResolvedValue(regs as never);
 
     const from = supabase.from as unknown as ReturnType<typeof vi.fn>;
     from.mockImplementation((table: string) => {
@@ -429,7 +432,7 @@ describe("adminGetCoordinatorSummaries headcount", () => {
   }
 
   beforeEach(() => {
-    vi.mocked(getAllRegistrations).mockResolvedValue([] as never);
+    vi.mocked(getRegistrationEventRows).mockResolvedValue([] as never);
   });
 
   it("counts every person in a team, not the one registration row", async () => {

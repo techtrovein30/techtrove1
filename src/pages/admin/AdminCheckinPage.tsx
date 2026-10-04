@@ -188,11 +188,10 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  const {
-    players,
-    loading: playersLoading,
-    refresh,
-  } = useCheckinMembers(eventId || undefined, search);
+const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembers(
+    eventId || undefined,
+    search
+  );
 
   // Categorize events
   const { sportsEvents, techEvents, nonTechEvents } = useMemo(() => {
@@ -255,14 +254,33 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
   }, []);
 
   // Live realtime sync: update stats and attendee list whenever attendance or registrations change
+  //
+  // Coalesced, not per-event. Both loadStats() and refresh() re-read whole
+  // tables, and every desk scan writes rows to both of these tables, so a
+  // 250ms trailing debounce still fired continuously through a queue and
+  // re-downloaded everything dozens of times. The scanned row itself is already
+  // reflected instantly by applyScan(), so this only needs to keep other desks
+  // and the header counters in step — 5s trailing / 20s ceiling is plenty.
   useEffect(() => {
+    const REALTIME_DEBOUNCE_MS = 5000;
+    const REALTIME_MAX_WAIT_MS = 20000;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let firstQueuedAt = 0;
+
     const debouncedSync = () => {
+      const now = Date.now();
+      if (!firstQueuedAt) firstQueuedAt = now;
+      const wait = Math.max(
+        0,
+        Math.min(REALTIME_DEBOUNCE_MS, REALTIME_MAX_WAIT_MS - (now - firstQueuedAt))
+      );
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        firstQueuedAt = 0;
         loadStats();
         refresh();
-      }, 250);
+      }, wait);
     };
 
     const channel = supabase
@@ -618,8 +636,16 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
         const result = await adminScanCheckin(raw);
         setScanResult(result);
         if (result.ok) {
-          await refresh();
-          await loadStats();
+// Flip the row in place. This used to re-read every registration_members
+          // row in the schema after each scan, which is what made a long venue
+          // queue crawl: the RPC had already done the work, so all the browser
+          // needed was the name it already had back.
+          //
+          // loadStats() is deliberately NOT awaited here. It re-reads the
+          // attendance and registration tables, so calling it per scan turns a
+          // 3,000-person queue back into thousands of full-table downloads. The
+          // header counters settle on the coalesced realtime tick below instead.
+          applyScan(result.email);
           toast.success(
             result.duplicate
               ? `${result.displayName} was already checked in`
@@ -632,7 +658,7 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
         setScanning(false);
       }
     },
-    [refresh, loadStats, toast]
+[applyScan, toast]
   );
 
   // Sync all verified QR tokens to the Supabase database

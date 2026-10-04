@@ -17,7 +17,7 @@ import { getDaysAsync, adminUpdateEvent } from "./eventStore";
 import { extractEventToken } from "./qrToken";
 import type { TechEvent } from "../data/techtrove";
 import type { User } from "./api";
-import { getAllRegistrations, type RegistrationRow } from "./db";
+import { getRegistrationEventRows, getRegistrationsByEvent, type RegistrationRow } from "./db";
 
 export interface EventCoordinator {
   id: string;
@@ -324,16 +324,34 @@ export async function getEventCoordinator(eventId: string): Promise<EventCoordin
 
 /**
  * Get attendance statistics for a single event.
+ *
+ * Counted in the database with head-only reads. This used to build the entire
+ * participant roster (every member, every phone number) just to take two
+ * lengths of it.
  */
 export async function getEventAttendanceStats(
   eventId: string
 ): Promise<{ totalParticipants: number; attendedCount: number }> {
-  const parts = await getEventParticipants(eventId);
-  const attended = parts.filter((p) => p.attended).length;
-  return {
-    totalParticipants: parts.length,
-    attendedCount: attended,
+  const count = async (attended?: boolean): Promise<number> => {
+    let query = supabase
+      .from("registration_members")
+      .select("id", { count: "exact", head: true })
+      .eq("event_id", eventId);
+    if (attended !== undefined) query = query.eq("attended", attended);
+    const { count: c, error } = await query;
+    if (error) {
+      console.error("[coordinatorApi] getEventAttendanceStats count error:", error);
+      return 0;
+    }
+    return c ?? 0;
   };
+
+  const [totalParticipants, attendedCount] = await Promise.all([
+    count(),
+    count(true),
+  ]);
+
+  return { totalParticipants, attendedCount };
 }
 
 /**
@@ -344,7 +362,11 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
 
   // Load festival days first. Even if event_coordinators or attendance tables haven't been
   // migrated yet in Supabase, we degrade gracefully so the admin can see their events list.
-  const [days, coordinators, registrations, membersRes, attendanceRes] = await Promise.all([
+  //
+  // Everything below is a COUNT, so nothing but the keys are requested:
+  // registrations come back as id/event_id/members and registration_members as
+  // event_id alone. Both used to be select("*") over the entire table.
+  const [days, coordinators, registrations, memberEvents, attendanceRes] = await Promise.all([
     getDaysAsync(),
     adminListCoordinators().catch((err: Error) => {
       console.warn(
@@ -353,10 +375,15 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
       );
       return [] as EventCoordinator[];
     }),
-    getAllRegistrations().catch(() => [] as RegistrationRow[]),
+    getRegistrationEventRows().catch((err: Error) => {
+      console.warn("[coordinatorApi] getRegistrationEventRows error:", err.message);
+      return [] as Array<{ id: string; event_id: string; members: unknown }>;
+    }),
     (async () => {
-      const { data } = await supabase.from("registration_members").select("*");
-      return (data ?? []) as Record<string, unknown>[];
+      const { data } = await supabase
+        .from("registration_members")
+        .select("event_id");
+      return (data ?? []) as Array<{ event_id: string }>;
     })(),
     (async () => {
       const { data } = await supabase.from("attendance").select("event_id");
@@ -368,7 +395,13 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
   const coordByEvent = new Map<string, EventCoordinator>();
   coordinators.forEach((c) => coordByEvent.set(c.eventId, c));
 
-  const allMembers = membersRes ?? [];
+  // How many member rows each event has — registration_members is only read as
+  // a backstop, so a single integer per event is all that is needed.
+  const membersByEvent = new Map<string, number>();
+  for (const row of memberEvents) {
+    const id = String(row.event_id ?? "");
+    membersByEvent.set(id, (membersByEvent.get(id) ?? 0) + 1);
+  }
 
   // attendance is UNIQUE(event_id, participant_id), so a raw row count per event
   // is already the number of distinct people present.
@@ -382,7 +415,6 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
     const coordinator = coordByEvent.get(event.id) ?? null;
 
     // Filter registrations/members for this event
-    const eventMembers = allMembers.filter((m) => m.event_id === event.id);
     const eventRegs = registrations.filter((r) => r.event_id === event.id);
 
     // Expected people for this event, derived from the registrations themselves:
@@ -401,7 +433,7 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
 
     // registration_members is only a backstop for events that have no
     // registration rows at all, which should not happen but must not read as 0.
-    const totalParticipants = peopleFromRegs > 0 ? peopleFromRegs : eventMembers.length;
+    const totalParticipants = peopleFromRegs > 0 ? peopleFromRegs : (membersByEvent.get(event.id) ?? 0);
 
     const attendedCount = Math.min(
       attendedByEvent.get(event.id) ?? 0,
@@ -430,6 +462,14 @@ export async function adminGetCoordinatorSummaries(): Promise<CoordinatorEventSu
 }
 
 /**
+ * Columns the roster actually renders. registration_members carries certificate
+ * and payment columns that no coordinator screen reads, and this query runs on
+ * every attendance event during a 3000-person scan rush.
+ */
+const ROSTER_MEMBER_COLUMNS =
+  "id,user_id,event_id,registration_id,registration_code,member_name,email,phone,team_name,attended,attended_at,participant_type";
+
+/**
  * Get all participants registered for a specific event.
  */
 export async function getEventParticipants(eventId: string): Promise<CoordinatorParticipant[]> {
@@ -438,12 +478,15 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
   // registration_members.attended, which meant the roster a coordinator saw was
   // partly their own browser's history: one coordinator could see fewer people
   // marked than another, and a browser with no history saw none.
+//
+  // The registration fallback below is scoped to THIS event AND lazy. It used to
+  // call getAllRegistrations(), so every scan re-downloaded both registration
+  // tables in full before throwing away the other twenty-odd events — and it ran
+  // on every load even when registration_members already had the roster.
   const [membersRes, attendanceRes] = await Promise.all([
     supabase
       .from("registration_members")
-      .select(
-        "id, user_id, member_name, email, phone, registration_id, registration_code, team_name, attended, attended_at, participant_type"
-      )
+      .select(ROSTER_MEMBER_COLUMNS)
       .eq("event_id", eventId),
     (async () => {
       const { data } = await supabase
@@ -458,28 +501,26 @@ export async function getEventParticipants(eventId: string): Promise<Coordinator
   let allRegs: RegistrationRow[] = [];
   if (!membersRes.data || membersRes.data.length === 0) {
     try {
-      const [intRes, extRes] = await Promise.all([
-        supabase.from("registrations_internal").select("*").eq("event_id", eventId),
-        supabase.from("registrations_external").select("*").eq("event_id", eventId),
-      ]);
-      allRegs = [...(intRes.data ?? []), ...(extRes.data ?? [])] as RegistrationRow[];
-    } catch {
+      allRegs = await getRegistrationsByEvent(eventId);
+    } catch (err) {
+      console.warn(
+        "[coordinatorApi] getRegistrationsByEvent error:",
+        err instanceof Error ? err.message : err
+      );
       allRegs = [];
     }
   }
 
-  if (
-    allRegs.length === 0 &&
-    (!membersRes.data || membersRes.data.length === 0) &&
-    typeof localStorage !== "undefined"
-  ) {
+  if (allRegs.length === 0 && typeof localStorage !== "undefined") {
     try {
       const raw = localStorage.getItem("techtrove_registrations");
+      // Filter to this event here rather than below: the cached copy holds every
+      // event, and the roster builder is event-scoped.
       if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          allRegs = parsed.filter((r: any) => r.event_id === eventId || r.eventId === eventId);
-        }
+        const cached = JSON.parse(raw) as RegistrationRow[];
+        allRegs = Array.isArray(cached)
+          ? cached.filter((r) => r?.event_id === eventId)
+          : [];
       }
     } catch {
       // ignore
@@ -779,10 +820,15 @@ export async function getAttendanceEventStats(): Promise<
 
   try {
     // 2. Direct query fallback & enrichment querying registrations, attendance, and events
+    //
+    // The registrations read only needs event_id to build the per-event totals
+    // below, so it uses the slim id/event_id/members projection. This used to
+    // pull every column of every registration in the schema (~4,400 rows) on
+    // each call, and this function runs after every desk scan.
     const [attRes, memRes, allRegs, eventsRes] = await Promise.all([
       supabase.from("attendance").select("event_id, participant_email, participant_id, status"),
       supabase.from("registration_members").select("event_id, email, attended"),
-      getAllRegistrations().catch(() => [] as RegistrationRow[]),
+      getRegistrationEventRows().catch(() => [] as Array<{ id: string; event_id: string }>),
       supabase.from("events").select("id, name, category, day_id"),
     ]);
 
@@ -1296,9 +1342,13 @@ export async function getStudentAttendanceHistory(
 
   // Database only. A student clearing their browser used to lose their entire
   // attendance history, and a second device showed them nothing at all.
+  // Only this student's own rows match the filter, but ask for the ten columns
+  // that get mapped rather than every column of the table.
   const { data, error } = await supabase
     .from("attendance")
-    .select("*")
+    .select(
+      "id,event_id,participant_id,participant_email,participant_name,registration_id,registration_code,marked_at,status,source",
+    )
     .or(`participant_id.eq.${userId},participant_email.ilike.${email}`);
 
   if (error) {
@@ -1324,59 +1374,84 @@ export async function getStudentAttendanceHistory(
 
 /**
  * Hook or listener for realtime attendance changes.
+ *
+ * Batched on purpose. A 3000-person scan rush delivers attendance INSERTs as a
+ * continuous stream, and firing the callback for each one made the coordinator
+ * dashboard re-read the whole roster hundreds of times over — which is both
+ * the bulk of the request volume at the venue and the reason the live counter
+ * lagged behind the last scan. Changes are now coalesced into one reload per
+ * quiet window, with a hard ceiling so a nonstop stream still refreshes.
  */
 export function subscribeToAttendanceUpdates(
   eventId: string | undefined,
-  callback: (payload?: Record<string, unknown>) => void
+callback: () => void,
+  opts?: { debounceMs?: number; maxWaitMs?: number },
 ): () => void {
+  const debounceMs = opts?.debounceMs ?? 750;
+  const maxWaitMs = opts?.maxWaitMs ?? 3000;
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let firstQueuedAt = 0;
+
+  const schedule = () => {
+    const now = Date.now();
+    if (!firstQueuedAt) firstQueuedAt = now;
+    // Trailing edge, but never wait longer than maxWaitMs from the first
+    // pending change, so the counter keeps moving during a continuous rush.
+    const wait = Math.max(0, Math.min(debounceMs, maxWaitMs - (now - firstQueuedAt)));
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      firstQueuedAt = 0;
+      callback();
+    }, wait);
+  };
+
   const handler = (e: Event) => {
     const detail = (e as CustomEvent).detail;
     if (!eventId || !detail?.eventId || detail.eventId === eventId) {
-      callback(detail);
+      schedule();
     }
   };
 
   window.addEventListener(REALTIME_EVENT_NAME, handler);
 
-  // Subscribe to Supabase Postgres Changes with eventId isolation
-  const channelName = `attendance-realtime-${eventId || "all"}`;
-  const channel = supabase.channel(channelName);
-
-  channel.on(
-    "postgres_changes",
-    {
-      event: "*",
-      schema: "public",
-      table: "attendance",
-      ...(eventId ? { filter: `event_id=eq.${eventId}` } : {}),
-    },
-    (payload) => {
-      const row = (payload.new ?? payload.old) as Record<string, unknown> | undefined;
-      if (!eventId || !row?.event_id || row.event_id === eventId) {
-        callback(row);
+  // Subscribe to Supabase Postgres Changes with eventId isolation. The
+  // event_id filter is applied server-side so a coordinator on one event does
+  // not receive (and we do not pay to deliver) every other event's changes.
+  //
+  // NOTE: event_coordinators is deliberately NOT subscribed here — including it
+  // is what froze the check-in page, and attendance/registration_members cover
+  // the counters this callback actually refreshes.
+  const channelName = `attendance-realtime-${eventId || "all"}-${Math.random()
+    .toString(36)
+    .slice(2, 6)}`;
+  const eventFilter = eventId ? { filter: `event_id=eq.${eventId}` } : {};
+  const matchesEvent = (payload: unknown) => {
+    const row = ((payload as { new?: unknown; old?: unknown })?.new ??
+      (payload as { old?: unknown })?.old) as Record<string, unknown> | undefined;
+    return !eventId || !row?.event_id || row.event_id === eventId;
+  };
+  const channel = supabase
+    .channel(channelName)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "attendance", ...eventFilter },
+      (payload) => {
+        if (matchesEvent(payload)) schedule();
       }
-    }
-  );
-
-  channel.on(
-    "postgres_changes",
-    {
-      event: "*",
-      schema: "public",
-      table: "registration_members",
-      ...(eventId ? { filter: `event_id=eq.${eventId}` } : {}),
-    },
-    (payload) => {
-      const row = (payload.new ?? payload.old) as Record<string, unknown> | undefined;
-      if (!eventId || !row?.event_id || row.event_id === eventId) {
-        callback(row);
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "registration_members", ...eventFilter },
+      (payload) => {
+        if (matchesEvent(payload)) schedule();
       }
-    }
-  );
-
-  channel.subscribe();
+    )
+    .subscribe();
 
   return () => {
+    if (timer) clearTimeout(timer);
     window.removeEventListener(REALTIME_EVENT_NAME, handler);
     supabase.removeChannel(channel);
   };

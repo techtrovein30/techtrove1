@@ -15,12 +15,15 @@ import {
   requireAdmin as guard,
   requireCoreAdmin,
   participantToView,
+  invalidateAdminViewCache,
   type AdminView,
 } from "./adminGuard";
 import {
   ALL_REGISTRATION_TABLES,
   getParticipantById,
-  getAllParticipants,
+  getParticipantDirectory,
+  countNonAdminParticipants,
+  getAdminEmailById,
   getAllRegistrations,
   getRegistrationsByUser,
   getRegistrationCountsByUser,
@@ -157,6 +160,7 @@ export async function adminSignIn(
 }
 
 export function adminSignOut(): void {
+  invalidateAdminViewCache();
   supabase.auth.signOut();
 }
 
@@ -266,7 +270,9 @@ export interface AdminStats {
 export async function getAdminStats(): Promise<AdminStats> {
   await requireAdmin();
 
-  const users = (await getAllParticipants()).filter((u) => u.role !== "admin");
+  // Participant totals are counted by Postgres. Reading every participant row
+  // only to call .length on it was the biggest single read on this screen.
+  const participantCounts = await countNonAdminParticipants();
   const registrations = await getAllRegistrations();
 
   const perEvent: Record<string, number> = {};
@@ -437,9 +443,9 @@ export async function getAdminStats(): Promise<AdminStats> {
     .eq("attended", true);
 
   return {
-    totalUsers: users.length,
-    internalUsers: users.filter((u) => u.participant_type === "internal").length,
-    externalUsers: users.filter((u) => u.participant_type === "external").length,
+    totalUsers: participantCounts.total,
+    internalUsers: participantCounts.internal,
+    externalUsers: participantCounts.external,
     totalRegistrations: registrationCodes.size,
     totalEventRegistrations: registrations.length,
     pendingPayments: pending,
@@ -461,7 +467,7 @@ export async function adminListUsers(): Promise<User[]> {
   
   // Match the dashboard's "Total Students" definition: only non-admin
   // participant accounts. Admin accounts are never shown on the Students page.
-  const users = (await getAllParticipants())
+  const users = (await getParticipantDirectory())
     .filter((u) => u.role !== "admin")
     .sort((a, b) => (a.created_at > b.created_at ? -1 : 1));
   return users.map(profileToUser);
@@ -816,10 +822,7 @@ export async function adminListDeleteHistory(limit = 300): Promise<DeleteAuditEn
   if (error) throw friendlyError(error, "Could not load deletion history.");
 
   // Resolve deleted_by (auth uid) → admin email for readable display.
-  const admins = (await getAllParticipants()).filter(
-    (u) => u.role === "admin" && !!u.email,
-  );
-  const emailById = new Map(admins.map((u) => [u.id, u.email]));
+  const emailById = await getAdminEmailById();
 
   const entries: DeleteAuditEntry[] = [];
   for (const row of data ?? []) {

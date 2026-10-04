@@ -30,6 +30,14 @@ function sanitizeCheckinSearch(input: string): string {
     .slice(0, 64);
 }
 
+/**
+ * Exactly the columns toCheckinMember reads, plus created_at for the sort.
+ * registration_members is the biggest table in the schema, and this query runs
+ * on the check-in desk where every scan used to trigger a full re-read of it.
+ */
+const CHECKIN_MEMBER_COLUMNS =
+  "id,registration_id,registration_code,user_id,event_id,event_name,team_name,captain_name,participant_type,payment_status,member_name,member_role,position,email,reg_number,phone,college,attended,certificate_id,certificate_url,certificate_issued_at,created_at";
+
 export interface CheckinMember {
   id: string;
   registrationId: string;
@@ -94,7 +102,7 @@ export async function adminListCheckinMembers(opts?: {
   await requireAdmin();
   let query = supabase
     .from("registration_members")
-    .select("*")
+    .select(CHECKIN_MEMBER_COLUMNS)
     .order("created_at", { ascending: false });
 
   if (opts?.eventId) {
@@ -117,7 +125,11 @@ export async function adminListCheckinMembers(opts?: {
       ),
   ]);
 
-  let rawMemberRows = membersRes.data ?? [];
+  // Widened to match the synthesized fallback below: when registration_members
+  // has no rows for this event we rebuild equivalent rows from the registration
+  // tables, and those objects are plain records rather than the select() shape.
+  let rawMemberRows: Record<string, unknown>[] =
+    (membersRes.data ?? []) as unknown as Record<string, unknown>[];
 
   if (rawMemberRows.length === 0) {
     const allRegs = await getAllRegistrations().catch(() => [] as RegistrationRow[]);
@@ -455,6 +467,14 @@ export interface PlayerGroup {
  * Rows are grouped by player (keyed by case-insensitive email) so a member
  * who registered for several events still only needs one check-in.
  * Filters after fetch (event filter) so realtime updates stay simple.
+ *
+ * Two things stop a 3000-pass venue run from becoming 3000 full re-reads of
+ * registration_members:
+ *
+ *   - realtime changes are COALESCED (5s trailing, 20s ceiling) instead of
+ *     reloading the whole table per row change;
+ *   - applyScan() flips the scanned player locally, so the operator sees the
+ *     row change the instant the RPC returns and needs no reload for it.
  */
 export function useCheckinMembers(eventId?: string, search?: string) {
   const [members, setMembers] = useState<CheckinMember[]>([]);
@@ -478,23 +498,38 @@ export function useCheckinMembers(eventId?: string, search?: string) {
     void Promise.resolve().then(refresh);
   }, [refresh]);
 
-  // Keep latest refresh in a ref so Realtime subscription doesn't re-mount on every search keystroke
+// Keep latest refresh in a ref so Realtime subscription doesn't re-mount on every search keystroke
   const refreshRef = useRef(refresh);
   useEffect(() => {
     refreshRef.current = refresh;
   }, [refresh]);
 
-  // Realtime sync: reload when registration_members or attendance changes for this eventId
+  // Realtime sync: reload when registration_members or attendance changes for this
+  // eventId. Events are COALESCED rather than reloading per row — a scan rush
+  // writes hundreds of rows and each one used to trigger a full table re-read.
   useEffect(() => {
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const trigger = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        refreshRef.current();
-      }, 250);
+    const REALTIME_DEBOUNCE_MS = 5000;
+    const REALTIME_MAX_WAIT_MS = 20000;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let firstQueuedAt = 0;
+
+    const schedule = () => {
+      const now = Date.now();
+      if (!firstQueuedAt) firstQueuedAt = now;
+      const wait = Math.max(
+        0,
+        Math.min(REALTIME_DEBOUNCE_MS, REALTIME_MAX_WAIT_MS - (now - firstQueuedAt)),
+      );
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        firstQueuedAt = 0;
+        void refreshRef.current();
+      }, wait);
     };
 
     const channelName = `admin-checkin-sync-${eventId || "all"}`;
+    const eventFilter = eventId ? { filter: `event_id=eq.${eventId}` } : {};
     const channel = supabase
       .channel(channelName)
       .on(
@@ -503,9 +538,9 @@ export function useCheckinMembers(eventId?: string, search?: string) {
           event: "*",
           schema: "public",
           table: "registration_members",
-          ...(eventId ? { filter: `event_id=eq.${eventId}` } : {}),
+          ...eventFilter,
         },
-        trigger
+        schedule
       )
       .on(
         "postgres_changes",
@@ -513,17 +548,38 @@ export function useCheckinMembers(eventId?: string, search?: string) {
           event: "*",
           schema: "public",
           table: "attendance",
-          ...(eventId ? { filter: `event_id=eq.${eventId}` } : {}),
+          ...eventFilter,
         },
-        trigger
+        schedule
       )
       .subscribe();
 
     return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
+      if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
     };
   }, [eventId]);
+
+  /**
+   * Reflect a just-completed scan in the local list without re-reading the
+   * table. The scan RPC marks EVERY membership the player holds (all events),
+   * which is the same effect adminTogglePlayerCheckin has, so mirroring it here
+   * cannot drift from the server for this player's own scan. Everyone else's
+   * changes still arrive via the coalesced reload above.
+   */
+  const applyScan = useCallback((email: string) => {
+    const key = email.trim().toLowerCase();
+    if (!key) return;
+    setMembers((prev) => {
+      let changed = false;
+      const next = prev.map((m) => {
+        if (m.email.trim().toLowerCase() !== key || m.attended) return m;
+        changed = true;
+        return { ...m, attended: true };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
 
   // Group every membership row under the same player (case-insensitive email).
   const players = new Map<string, PlayerGroup>();
@@ -545,5 +601,5 @@ export function useCheckinMembers(eventId?: string, search?: string) {
   const playerList = Array.from(players.values());
   const attendedCount = playerList.filter((p) => p.attended).length;
 
-  return { players: playerList, attendedCount, loading, error, refresh };
+return { players: playerList, attendedCount, loading, error, refresh, applyScan };
 }
