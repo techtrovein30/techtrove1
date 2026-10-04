@@ -44,13 +44,38 @@ export function AdminDashboardPage({
   }
 
   useEffect(() => {
+    let lastFetchAt = Date.now();
+    const markFetched = () => {
+      lastFetchAt = Date.now();
+    };
+
     fetchStats();
-    window.addEventListener("focus", fetchStats);
+
+    // Refetching on EVERY window focus meant every alt-tab away and back
+    // re-downloaded the whole registration table. getAdminStats() reads both
+    // registrations tables in full, so that was megabytes per tab-switch, and
+    // an admin checking a chat mid-review paid it dozens of times.
+    //
+    // The realtime subscription below already keeps these numbers current, so
+    // the focus refetch only has to cover the case where the socket silently
+    // dropped while the tab was backgrounded. 30s is well inside "stale" for
+    // revenue figures an admin is reading off a screen.
+    const FOCUS_REFETCH_STALE_MS = 30_000;
+    const onFocus = () => {
+      if (Date.now() - lastFetchAt >= FOCUS_REFETCH_STALE_MS) {
+        markFetched();
+        fetchStats();
+      }
+    };
+    window.addEventListener("focus", onFocus);
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const debouncedFetch = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(fetchStats, 500);
+      debounceTimer = setTimeout(() => {
+        markFetched();
+        fetchStats();
+      }, 500);
     };
 
     // Listen to changes on participant and registration tables only (not members/attendance)
@@ -79,7 +104,7 @@ export function AdminDashboardPage({
       .subscribe();
 
     return () => {
-      window.removeEventListener("focus", fetchStats);
+      window.removeEventListener("focus", onFocus);
       if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };

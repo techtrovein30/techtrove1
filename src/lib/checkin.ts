@@ -38,6 +38,90 @@ function sanitizeCheckinSearch(input: string): string {
 const CHECKIN_MEMBER_COLUMNS =
   "id,registration_id,registration_code,user_id,event_id,event_name,team_name,captain_name,participant_type,payment_status,member_name,member_role,position,email,reg_number,phone,college,attended,certificate_id,certificate_url,certificate_issued_at,created_at";
 
+/**
+ * The individual sport disciplines, keyed by their prefix-stripped event id.
+ *
+ * These are the only sports that get their own roster; everything else rolls up
+ * into SPORT_AGGREGATE_IDS.
+ */
+const SPORT_EVENT_KEYS = [
+  "cricket",
+  "football",
+  "volleyball",
+  "kabaddi",
+  "khokho",
+  "khokho-girls",
+  "throwball-girls",
+  "chess",
+  "chess-girls",
+  "carrom",
+  "carrom-girls",
+] as const;
+
+/**
+ * Event ids that mean "every sport" rather than one discipline. The desk uses
+ * the `sports` attendance bucket to let a sport roster see attendance recorded
+ * under any of these.
+ */
+const SPORT_AGGREGATE_IDS = ["sports-unified-master", "sports-unified"] as const;
+
+function stripEventPrefix(id: string): string {
+  return id.replace(/^(tech-|nontech-|sport-)/, "");
+}
+
+/**
+ * Is this event one of the individual sports?
+ *
+ * NOTE: this deliberately does NOT include SPORT_AGGREGATE_IDS. The member-side
+ * and attendance-side attendance checks have historically disagreed about
+ * "sports-unified" — the attendance side treats it as a sport, the member side
+ * does not. Unifying them would change which members show as attended, so this
+ * helper preserves the stricter (member-side) meaning and
+ * `isSportAggregateEvent` below keeps the looser one. Reconciling the two is a
+ * separate decision, not something to smuggle into an egress fix.
+ */
+function isSportEvent(id: string): boolean {
+  const raw = (id || "").trim().toLowerCase();
+  if (!raw) return false;
+  return raw.startsWith("sport-") || (SPORT_EVENT_KEYS as readonly string[]).includes(stripEventPrefix(raw));
+}
+
+/** The looser membership test, used only when indexing attendance rows. */
+function isSportAggregateEvent(id: string): boolean {
+  const raw = (id || "").trim().toLowerCase();
+  return (SPORT_AGGREGATE_IDS as readonly string[]).includes(raw) || isSportEvent(raw);
+}
+
+/**
+ * Every `attendance.event_id` spelling whose rows can affect this desk's roster.
+ *
+ * The attendance read used to be unscoped, so every desk refresh re-downloaded
+ * the whole attendance table — free while it is empty, but megabytes once a
+ * 6,000-person event has scanned through it.
+ *
+ * It cannot simply be narrowed with `.eq("event_id", opts.eventId)`:
+ *   - members are fetched with a strict eq(), but
+ *   - a member is matched against `${email}::${eventId}`, `${email}::${cleanEventId}`
+ *     and, for sports, `${email}::sports`,
+ * so the matching attendance rows can carry a prefixed or aggregate id. A bare
+ * eq() would return none of them and silently mark nobody attended — worse than
+ * the egress problem it fixes.
+ *
+ * Returns null when there is no event filter (the "All events" view), because
+ * that caller genuinely needs attendance for every event.
+ */
+export function attendanceEventAliases(eventId?: string): string[] | null {
+  const raw = (eventId || "").trim().toLowerCase();
+  if (!raw) return null;
+
+  const ids = new Set<string>([raw, stripEventPrefix(raw)]);
+  if (isSportAggregateEvent(raw)) {
+    for (const k of SPORT_EVENT_KEYS) ids.add(k);
+    for (const k of SPORT_AGGREGATE_IDS) ids.add(k);
+  }
+  return [...ids];
+}
+
 export interface CheckinMember {
   id: string;
   registrationId: string;
@@ -116,14 +200,17 @@ export async function adminListCheckinMembers(opts?: {
     );
   }
 
-  const [membersRes, attRes] = await Promise.all([
-    query,
-    supabase
-      .from("attendance")
-      .select(
-        "event_id, participant_email, participant_id, participant_name, registration_code, status"
-      ),
-  ]);
+  // Scoped to the events this roster can actually match. See
+  // attendanceEventAliases() for why a bare .eq() would be wrong here.
+  const attendanceQuery = supabase
+    .from("attendance")
+    .select(
+      "event_id, participant_email, participant_id, participant_name, registration_code, status"
+    );
+  const attAliases = attendanceEventAliases(opts?.eventId);
+  if (attAliases) attendanceQuery.in("event_id", attAliases);
+
+  const [membersRes, attRes] = await Promise.all([query, attendanceQuery]);
 
   // Widened to match the synthesized fallback below: when registration_members
   // has no rows for this event we rebuild equivalent rows from the registration
@@ -219,24 +306,8 @@ export async function adminListCheckinMembers(opts?: {
       const email = (a.participant_email || "").trim().toLowerCase();
       const uid = (a.participant_id || "").trim().toLowerCase();
       const ev = (a.event_id || "").trim().toLowerCase();
-      const cleanEv = ev.replace(/^(tech-|nontech-|sport-)/, "");
-      const isSport =
-        ev === "sports-unified-master" ||
-        ev === "sports-unified" ||
-        ev.startsWith("sport-") ||
-        [
-          "cricket",
-          "football",
-          "volleyball",
-          "kabaddi",
-          "khokho",
-          "khokho-girls",
-          "throwball-girls",
-          "chess",
-          "chess-girls",
-          "carrom",
-          "carrom-girls",
-        ].includes(cleanEv);
+      const cleanEv = stripEventPrefix(ev);
+      const isSport = isSportAggregateEvent(ev);
 
       if (email) {
         attPresentSet.add(`${email}::${ev}`);
@@ -261,22 +332,8 @@ export async function adminListCheckinMembers(opts?: {
     const email = (m.email || "").trim().toLowerCase();
     const uid = (m.userId || "").trim().toLowerCase();
     const ev = (m.eventId || "").trim().toLowerCase();
-    const cleanEv = ev.replace(/^(tech-|nontech-|sport-)/, "");
-    const isSport =
-      ev.startsWith("sport-") ||
-      [
-        "cricket",
-        "football",
-        "volleyball",
-        "kabaddi",
-        "khokho",
-        "khokho-girls",
-        "throwball-girls",
-        "chess",
-        "chess-girls",
-        "carrom",
-        "carrom-girls",
-      ].includes(cleanEv);
+    const cleanEv = stripEventPrefix(ev);
+    const isSport = isSportEvent(ev);
 
     const isAttended =
       m.attended ||
@@ -309,7 +366,7 @@ export async function adminListCheckinMembers(opts?: {
       const email = (a.participant_email || "").trim().toLowerCase();
       const uid = (a.participant_id || "").trim().toLowerCase();
       const ev = (a.event_id || "").trim().toLowerCase();
-      const cleanEv = ev.replace(/^(tech-|nontech-|sport-)/, "");
+      const cleanEv = stripEventPrefix(ev);
       if (!email && !uid) continue;
 
       if (

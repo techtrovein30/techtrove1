@@ -67,13 +67,33 @@ export function AdminRevenuePage() {
   }
 
   useEffect(() => {
+    let lastLoadAt = Date.now();
+    const markLoaded = () => {
+      lastLoadAt = Date.now();
+    };
+
     loadStats();
-    window.addEventListener("focus", loadStats);
+
+    // Same reasoning as the dashboard: refetching on every window focus pulled
+    // both registration tables in full each time an admin tabbed away and back.
+    // The realtime subscription below keeps these figures current, so focus only
+    // needs to cover a socket that dropped while the tab was backgrounded.
+    const FOCUS_RELOAD_STALE_MS = 30_000;
+    const onFocus = () => {
+      if (Date.now() - lastLoadAt >= FOCUS_RELOAD_STALE_MS) {
+        markLoaded();
+        loadStats();
+      }
+    };
+    window.addEventListener("focus", onFocus);
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const debouncedLoad = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(loadStats, 500);
+      debounceTimer = setTimeout(() => {
+        markLoaded();
+        loadStats();
+      }, 500);
     };
 
     const channel = supabase
@@ -91,7 +111,7 @@ export function AdminRevenuePage() {
       .subscribe();
 
     return () => {
-      window.removeEventListener("focus", loadStats);
+      window.removeEventListener("focus", onFocus);
       if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
