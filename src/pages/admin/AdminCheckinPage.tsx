@@ -32,6 +32,8 @@ import {
   adminTogglePlayerCheckin,
   adminToggleCheckin,
   type CheckinMember,
+  shouldDeferCheckinReload,
+  markCheckinReload,
 } from "../../lib/checkin";
 import { adminScanCheckin, type ScanResult } from "../../lib/checkinQr";
 import {
@@ -264,8 +266,26 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
   useEffect(() => {
     const REALTIME_DEBOUNCE_MS = 5000;
     const REALTIME_MAX_WAIT_MS = 20000;
+    const RESCAN_DEFER_MS = 2000;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let firstQueuedAt = 0;
+
+    const runSync = () => {
+      debounceTimer = null;
+      // Stand down while this desk is mid-queue. loadStats() and refresh() both
+      // re-read whole tables, so running them between scans is what makes the
+      // desk feel like it is loading rather than scanning. The scanned row is
+      // already correct via applyScan(), and the starve ceiling in
+      // shouldDeferCheckinReload() still forces a refresh at least once a minute.
+      if (shouldDeferCheckinReload()) {
+        debounceTimer = setTimeout(runSync, RESCAN_DEFER_MS);
+        return;
+      }
+      firstQueuedAt = 0;
+      markCheckinReload();
+      loadStats();
+      refresh();
+    };
 
     const debouncedSync = () => {
       const now = Date.now();
@@ -275,12 +295,7 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
         Math.min(REALTIME_DEBOUNCE_MS, REALTIME_MAX_WAIT_MS - (now - firstQueuedAt))
       );
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null;
-        firstQueuedAt = 0;
-        loadStats();
-        refresh();
-      }, wait);
+      debounceTimer = setTimeout(runSync, wait);
     };
 
     const channel = supabase

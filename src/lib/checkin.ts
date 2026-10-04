@@ -10,7 +10,7 @@
 
 import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { validateEmail } from "./validation";
 import { getAllRegistrations, type RegistrationRow } from "./db";
 
@@ -463,16 +463,58 @@ export interface PlayerGroup {
 }
 
 /**
+ * Scan-activity gate.
+ *
+ * Coalescing alone is not enough during a real queue. Every scan writes rows, so
+ * the realtime listeners keep firing, and a full registration_members re-read
+ * every 5-20s competes with the operator for bandwidth and replaces the whole
+ * roster mid-scan — which is exactly when the page must feel instant.
+ *
+ * The gate lets background reloads stand down while a desk is actively scanning.
+ * That is safe because the scanned player's own row is already correct locally
+ * (applyScan), so the only thing a reload adds during the rush is other desks'
+ * scans, which can wait for the queue to pause. The MAX_STARVE ceiling
+ * guarantees the roster and the header counters still settle at least once a
+ * minute even if scanning never stops.
+ */
+const SCAN_BUSY_WINDOW_MS = 8000;
+const SCAN_MAX_STARVE_MS = 60000;
+let lastScanActivityAt = 0;
+let lastReloadAt = 0;
+
+/** Record that a local desk scan just happened, so reloads can stand down. */
+export function noteCheckinActivity(): void {
+  lastScanActivityAt = Date.now();
+}
+
+/**
+ * True when a background reload should be postponed because this desk is in the
+ * middle of a scan burst and has reloaded recently enough to not be stale.
+ */
+export function shouldDeferCheckinReload(): boolean {
+  const now = Date.now();
+  if (now - lastScanActivityAt >= SCAN_BUSY_WINDOW_MS) return false;
+  return now - lastReloadAt < SCAN_MAX_STARVE_MS;
+}
+
+/** Record that a full roster reload actually ran (resets the starve ceiling). */
+export function markCheckinReload(): void {
+  lastReloadAt = Date.now();
+}
+
+/**
  * React hook: live list of check-in members for the admin check-in page.
  * Rows are grouped by player (keyed by case-insensitive email) so a member
  * who registered for several events still only needs one check-in.
  * Filters after fetch (event filter) so realtime updates stay simple.
  *
- * Two things stop a 3000-pass venue run from becoming 3000 full re-reads of
+ * Three things stop a 3000-pass venue run from becoming 3000 full re-reads of
  * registration_members:
  *
  *   - realtime changes are COALESCED (5s trailing, 20s ceiling) instead of
  *     reloading the whole table per row change;
+ *   - background reloads STAND DOWN while a desk is scanning (see the gate
+ *     above), so a queue never competes with itself;
  *   - applyScan() flips the scanned player locally, so the operator sees the
  *     row change the instant the RPC returns and needs no reload for it.
  */
@@ -510,8 +552,22 @@ export function useCheckinMembers(eventId?: string, search?: string) {
   useEffect(() => {
     const REALTIME_DEBOUNCE_MS = 5000;
     const REALTIME_MAX_WAIT_MS = 20000;
+    const RESCAN_DEFER_MS = 2000;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let firstQueuedAt = 0;
+
+    const run = () => {
+      timer = null;
+      // A desk mid-rush does not need anyone else's rows yet, and re-reading
+      // the table now would stall the next scan. Try again shortly.
+      if (shouldDeferCheckinReload()) {
+        timer = setTimeout(run, RESCAN_DEFER_MS);
+        return;
+      }
+      firstQueuedAt = 0;
+      markCheckinReload();
+      void refreshRef.current();
+    };
 
     const schedule = () => {
       const now = Date.now();
@@ -521,11 +577,7 @@ export function useCheckinMembers(eventId?: string, search?: string) {
         Math.min(REALTIME_DEBOUNCE_MS, REALTIME_MAX_WAIT_MS - (now - firstQueuedAt)),
       );
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        firstQueuedAt = 0;
-        void refreshRef.current();
-      }, wait);
+      timer = setTimeout(run, wait);
     };
 
     const channelName = `admin-checkin-sync-${eventId || "all"}`;
@@ -566,10 +618,14 @@ export function useCheckinMembers(eventId?: string, search?: string) {
    * which is the same effect adminTogglePlayerCheckin has, so mirroring it here
    * cannot drift from the server for this player's own scan. Everyone else's
    * changes still arrive via the coalesced reload above.
+   *
+   * This also stands the background reloads down, which is what keeps the desk
+   * responsive while a queue is running.
    */
   const applyScan = useCallback((email: string) => {
     const key = email.trim().toLowerCase();
     if (!key) return;
+    noteCheckinActivity();
     setMembers((prev) => {
       let changed = false;
       const next = prev.map((m) => {
@@ -582,24 +638,31 @@ export function useCheckinMembers(eventId?: string, search?: string) {
   }, []);
 
   // Group every membership row under the same player (case-insensitive email).
-  const players = new Map<string, PlayerGroup>();
+  //
+  // Memoised on `members` only. This is O(rows) with a string normalise per row,
+  // and the desk page re-renders several times per scan (scan result, spinner,
+  // error) without `members` changing at all — rebuilding the whole map on each
+  // of those is what made a long queue feel heavy.
+  const { playerList, attendedCount } = useMemo(() => {
+    const grouped = new Map<string, PlayerGroup>();
 
-  for (const m of members) {
-    const key = (m.email || m.id).trim().toLowerCase();
-    const group = players.get(key) ?? {
-      key,
-      playerName: m.memberName,
-      email: m.email.trim(),
-      members: [],
-      attended: false,
-    };
-    group.members.push(m);
-    if (m.attended) group.attended = true;
-    players.set(key, group);
-  }
+    for (const m of members) {
+      const key = (m.email || m.id).trim().toLowerCase();
+      const group = grouped.get(key) ?? {
+        key,
+        playerName: m.memberName,
+        email: m.email.trim(),
+        members: [],
+        attended: false,
+      };
+      group.members.push(m);
+      if (m.attended) group.attended = true;
+      grouped.set(key, group);
+    }
 
-  const playerList = Array.from(players.values());
-  const attendedCount = playerList.filter((p) => p.attended).length;
+    const list = Array.from(grouped.values());
+    return { playerList: list, attendedCount: list.filter((p) => p.attended).length };
+  }, [members]);
 
-return { players: playerList, attendedCount, loading, error, refresh, applyScan };
+  return { players: playerList, attendedCount, loading, error, refresh, applyScan };
 }
