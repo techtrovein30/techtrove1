@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -747,12 +747,6 @@ export function ProfilePage() {
       .catch(() => setCoordinatorInfo(null));
   }, [user]);
 
-  useEffect(() => {
-    loadAttendance();
-    window.addEventListener("focus", loadAttendance);
-    return () => window.removeEventListener("focus", loadAttendance);
-  }, [loadAttendance]);
-
   const loadRegistrations = useCallback(() => {
     api
       .listMyRegistrations()
@@ -761,12 +755,34 @@ export function ProfilePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // ── Focus-driven refresh ──────────────────────────────────────────────────
+  // "focus" fires far more often than "the user came back". On Android it also
+  // fires for the notification shade, app switches, the keyboard opening and
+  // closing, and tapping a toast. Refetching on every one of those ran three
+  // Supabase round trips (attendance history, coordinator lookup, registrations)
+  // many times a minute for anyone idling on this page — wasted egress, plus
+  // three extra sets of Postgres statements to write to the log.
+  //
+  // One listener, rate-limited. Mounting and signing in still refetch, and a
+  // user who genuinely comes back after more than a minute gets fresh data.
+  const FOCUS_REFRESH_MIN_INTERVAL_MS = 60_000;
+  const lastFocusRefreshRef = useRef(0);
+
+  const onWindowFocus = useCallback(() => {
+    const now = Date.now();
+    if (now - lastFocusRefreshRef.current < FOCUS_REFRESH_MIN_INTERVAL_MS) return;
+    lastFocusRefreshRef.current = now;
+    loadAttendance();
+    loadRegistrations();
+  }, [loadAttendance, loadRegistrations]);
+
   useEffect(() => {
     if (!user) return;
+    loadAttendance();
     loadRegistrations();
-    window.addEventListener("focus", loadRegistrations);
-    return () => window.removeEventListener("focus", loadRegistrations);
-  }, [user, loadRegistrations]);
+    window.addEventListener("focus", onWindowFocus);
+    return () => window.removeEventListener("focus", onWindowFocus);
+  }, [user, loadAttendance, loadRegistrations, onWindowFocus]);
 
   // Group registrations by registration_code. A flat pass shares ONE code
   // across every Tech/Non-Tech event, so all of them collapse into a single

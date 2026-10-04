@@ -205,7 +205,7 @@ const EVENT_PUBLIC_COLUMNS =
 async function fetchAndCacheDays(): Promise<Day[]> {
   const [eventsResult, daysResult] = await Promise.all([
     supabase.from("events").select(EVENT_PUBLIC_COLUMNS),
-    supabase.from("days").select("*")
+    supabase.from("days").select("id,label,name,description,status")
   ]);
 
   if (eventsResult.error) {

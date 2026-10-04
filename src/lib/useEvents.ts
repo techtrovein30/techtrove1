@@ -1,22 +1,88 @@
 /**
  * useEvents.ts
  * ------------
- * React hooks that load event data exclusively from Supabase and subscribe
- * to real-time changes so that admin edits are instantly reflected everywhere.
+ * React hooks that read event data from Supabase through a single shared
+ * store, so many components on one screen cost one fetch instead of one each.
  *
  * Flow:
- *   Admin saves event → Supabase events table updated
- *     → Realtime channel fires
- *       → getDaysAsync() re-fetches
- *         → React state updates
- *           → Every open tab shows new data immediately (no refresh needed)
+ *   Any component calls useAllEvents() / useEvent()
+ *     → shared store serves its cached days if they are younger than the TTL
+ *     → otherwise one in-flight fetch is shared by every waiting caller
+ *     → all subscribers re-render from the same array
+ *
+ * The previous version kept its own useState + useEffect per caller and called
+ * getDaysAsync() on every mount. useAllEvents() is used twice on RegisterPage
+ * and twice on a couple of admin pages, so a single page load issued the same
+ * pair of queries several times over - 25 call sites across 16 files. That is
+ * redundant egress and redundant Postgres statements on the busiest screens.
  */
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { getDaysAsync } from "./eventStore";
 import type { Day, TechEvent } from "./eventStore";
 
 export type { Day };
+
+// Events change a handful of times per day (an admin edits a venue, a
+// coordinator). A short TTL keeps the picker honest without refetching on
+// every navigation, and an explicit reload() still bypasses it.
+const EVENT_LIST_TTL_MS = 60_000;
+
+interface EventsState {
+  days: Day[];
+  loading: boolean;
+  error: string | null;
+}
+
+let state: EventsState = { days: [], loading: true, error: null };
+let inFlight: Promise<void> | null = null;
+let loadedAt = 0;
+const listeners = new Set<() => void>();
+
+function emit(): void {
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getSnapshot(): EventsState {
+  return state;
+}
+
+/**
+ * Populate the shared store. Callers that arrive while a fetch is already
+ * running join that fetch instead of starting their own.
+ */
+function ensureLoaded(force = false): void {
+  const isFresh = state.days.length > 0 && Date.now() - loadedAt < EVENT_LIST_TTL_MS;
+  if (!force && isFresh) return;
+  if (inFlight) return;
+
+  state = { ...state, loading: true, error: null };
+  emit();
+
+  inFlight = getDaysAsync()
+    .then((days) => {
+      state = { days, loading: false, error: null };
+      loadedAt = Date.now();
+    })
+    .catch((err: unknown) => {
+      state = {
+        days: state.days,
+        loading: false,
+        error: err instanceof Error && err.message ? err.message : "Failed to load events.",
+      };
+    })
+    .finally(() => {
+      inFlight = null;
+      emit();
+    });
+}
 
 // ─── useEvents ──────────────────────────────────────────────────────────────
 
@@ -28,50 +94,21 @@ interface UseEventsResult {
 }
 
 /**
- * Fetches all days (with events) from Supabase and keeps them live via
- * Supabase Realtime.  Any INSERT / UPDATE / DELETE on the `events` table
- * will automatically re-fetch and update the returned `days` array.
+ * All days (with their events) from Supabase, shared across every component
+ * that asks for them.
  */
 export function useEvents(): UseEventsResult {
-  const [days, setDays] = useState<Day[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0); // manual reload trigger
+  const { days, loading, error } = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  // ── initial fetch + re-fetch on manual reload ─────────────────────────
+  const reload = useCallback(() => {
+    ensureLoaded(true);
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
+    ensureLoaded();
+  }, []);
 
-    getDaysAsync()
-      .then((d) => {
-        if (!cancelled) {
-          setDays(d);
-          setError(null);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err?.message ?? "Failed to load events.");
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [tick]);
-
-  return {
-    days,
-    loading,
-    error,
-    reload: () => {
-      setLoading(true);
-      setError(null);
-      setTick((t) => t + 1);
-    },
-  };
+  return { days, loading, error, reload };
 }
 
 // ─── useAllEvents ────────────────────────────────────────────────────────────
@@ -85,8 +122,8 @@ interface UseAllEventsResult {
 }
 
 /**
- * All days (with their events) + a flat list of all events, kept live via
- * Realtime.  Use in admin pages and RegisterPage's event picker.
+ * All days (with their events) + a flat list of all events.
+ * Use in admin pages and RegisterPage's event picker.
  */
 export function useAllEvents(): UseAllEventsResult {
   const { days, loading, error, reload } = useEvents();
@@ -104,14 +141,13 @@ interface UseEventResult {
 }
 
 /**
- * Looks up a single event by ID, kept live via Realtime.
+ * Looks up a single event by ID.
  * Use in EventDetailPage, RegisterSuccessPage, ProfilePage, etc.
  */
 export function useEvent(eventId: string | undefined): UseEventResult {
   const { days, loading, error } = useEvents();
 
   const event = eventId ? days.flatMap((d) => d.events).find((e) => e.id === eventId) : undefined;
-
   const day = event ? days.find((d) => d.id === event.dayId) : undefined;
 
   return { event, day, loading, error };

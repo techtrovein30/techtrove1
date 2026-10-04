@@ -17,7 +17,7 @@ import { getDaysAsync, adminUpdateEvent } from "./eventStore";
 import { extractEventToken } from "./qrToken";
 import type { TechEvent } from "../data/techtrove";
 import type { User } from "./api";
-import { getRegistrationEventRows, getRegistrationsByEvent, type RegistrationRow } from "./db";
+import { getRegistrationEventRows, getRegistrationCountsByEvent, getRegistrationsByEvent, type RegistrationRow } from "./db";
 
 export interface EventCoordinator {
   id: string;
@@ -821,27 +821,86 @@ export async function getAttendanceEventStats(): Promise<
   try {
     // 2. Direct query fallback & enrichment querying registrations, attendance, and events
     //
-    // The registrations read only needs event_id to build the per-event totals
-    // below, so it uses the slim id/event_id/members projection. This used to
-    // pull every column of every registration in the schema (~4,400 rows) on
-    // each call, and this function runs after every desk scan.
-    const [attRes, memRes, allRegs, eventsRes] = await Promise.all([
+    // The registrations read only needs to know how many rows point at each event,
+    // so it asks for the per-event counts instead of the id/event_id/members
+    // projection. That projection carried every member JSON array for all
+    // ~4,400 registrations on each call - a column this function never reads -
+    // and the desk reloads this on its coalesced cycle.
+    const [attRes, regCounts, eventsRes, memberStatsRes] = await Promise.all([
       supabase.from("attendance").select("event_id, participant_email, participant_id, status"),
-      supabase.from("registration_members").select("event_id, email, attended"),
-      getRegistrationEventRows().catch(() => [] as Array<{ id: string; event_id: string }>),
+      getRegistrationCountsByEvent().catch(() => ({}) as Record<string, number>),
       supabase.from("events").select("id, name, category, day_id"),
+      // One row per event instead of all ~41,700 member rows. The view counts
+      // inside Postgres; see query_create_registration_member_stats.sql.
+      supabase.from("registration_member_stats").select("event_id, attended_people"),
     ]);
+
+    // How many distinct people are marked present, per event, straight from the
+    // aggregate view. Kept as counts rather than emails because this is the
+    // only thing the desk needs - except for the unified Day 1 sports pass,
+    // which has to de-duplicate one person who entered several sports.
+    const memberAttended: Record<string, number> = {};
+    for (const row of (memberStatsRes.data ?? []) as Array<{
+      event_id?: string | null;
+      attended_people?: number | null;
+    }>) {
+      if (!row.event_id) continue;
+      const raw = row.event_id.trim().toLowerCase();
+      const clean = normalizeKey(raw);
+      const count = Number(row.attended_people ?? 0);
+      // An event can appear under both its raw and normalised key; keep the
+      // larger so a repeated key can never shrink a count.
+      memberAttended[raw] = Math.max(memberAttended[raw] ?? 0, count);
+      memberAttended[clean] = Math.max(memberAttended[clean] ?? 0, count);
+    }
+
+    const isSportsEvent = (ev: { day_id?: string | null; category?: string | null }): boolean =>
+      ev.day_id === "day-1" || (ev.category ?? "").toLowerCase().startsWith("sport");
+
+    // Only sports need the actual email list, to collapse a person who showed
+    // up at more than one sport into a single arrival on the unified pass. This
+    // stays a small, filtered read.
+    const sportsEventIds = ((eventsRes.data ?? []) as Array<{
+      id?: string | null;
+      day_id?: string | null;
+      category?: string | null;
+    }>)
+      .filter((ev) => ev.id && isSportsEvent(ev))
+      .map((ev) => ev.id as string);
+
+    const sportAttendees = new Map<string, Set<string>>();
+    if (sportsEventIds.length > 0) {
+      const sportsRes = await supabase
+        .from("registration_members")
+        .select("event_id, email")
+        .in("event_id", sportsEventIds)
+        .eq("attended", true);
+      for (const m of (sportsRes.data ?? []) as Array<{
+        event_id?: string | null;
+        email?: string | null;
+      }>) {
+        if (!m.event_id) continue;
+        const email = (m.email || "").trim().toLowerCase();
+        if (!email) continue;
+        const raw = m.event_id.trim().toLowerCase();
+        const clean = normalizeKey(raw);
+        if (!sportAttendees.has(raw)) sportAttendees.set(raw, new Set());
+        if (!sportAttendees.has(clean)) sportAttendees.set(clean, new Set());
+        sportAttendees.get(raw)!.add(email);
+        sportAttendees.get(clean)!.add(email);
+      }
+    }
 
     // 2A. Direct registration row counts (each registration = 1 entry, identical to Admin Dashboard)
     const rawRegCounts: Record<string, number> = {};
     const cleanRegCounts: Record<string, number> = {};
 
-    for (const r of allRegs) {
-      if (!r.event_id) continue;
-      const raw = r.event_id.trim().toLowerCase();
+    for (const [eventId, count] of Object.entries(regCounts)) {
+      if (!eventId) continue;
+      const raw = eventId.trim().toLowerCase();
       const clean = normalizeKey(raw);
-      rawRegCounts[raw] = (rawRegCounts[raw] || 0) + 1;
-      cleanRegCounts[clean] = (cleanRegCounts[clean] || 0) + 1;
+      rawRegCounts[raw] = (rawRegCounts[raw] || 0) + count;
+      cleanRegCounts[clean] = (cleanRegCounts[clean] || 0) + count;
     }
 
     // 2B. Attendance sets (unique attendees per raw key and clean key)
@@ -864,17 +923,10 @@ export async function getAttendanceEventStats(): Promise<
       }
     }
 
-    if (memRes.data) {
-      for (const m of memRes.data) {
-        if (!m.event_id || !m.attended) continue;
-        const email = (m.email || "").trim().toLowerCase();
-        if (!email) continue;
-        const raw = m.event_id.trim().toLowerCase();
-        const clean = normalizeKey(raw);
-        getAttSet(raw).add(email);
-        getAttSet(clean).add(email);
-      }
-    }
+    // Member attendance now arrives as per-event counts above (and, for sports,
+    // as a small email list), so there is no full member table walk here any
+    // more. Attendance-table emails still contribute to the per-event counts
+    // through attendedSets above.
 
     // 2C. Gather all known keys across all sources
     const allKeys = new Set<string>([
@@ -907,7 +959,9 @@ export async function getAttendanceEventStats(): Promise<
         rpcData[key]?.attended ?? 0,
         rpcData[clean]?.attended ?? 0,
         attendedSets[key]?.size ?? 0,
-        attendedSets[clean]?.size ?? 0
+        attendedSets[clean]?.size ?? 0,
+        memberAttended[key] ?? 0,
+        memberAttended[clean] ?? 0
       );
 
       const summary = { total, attended };
@@ -935,10 +989,17 @@ export async function getAttendanceEventStats(): Promise<
           ev.day_id === "day-1" || (ev.category ?? "").toLowerCase().startsWith("sport");
         if (isSport) {
           sportsTotal += summary.total;
-          const evAttended = attendedSets[idLower] || attendedSets[clean];
-          if (evAttended) {
-            evAttended.forEach((e) => sportsAttended.add(e));
+          const evAttended = new Set<string>();
+          for (const source of [
+            sportAttendees.get(idLower),
+            sportAttendees.get(clean),
+            attendedSets[idLower],
+            attendedSets[clean],
+          ]) {
+            if (!source) continue;
+            for (const e of source) evAttended.add(e);
           }
+          for (const e of evAttended) sportsAttended.add(e);
         }
       }
 

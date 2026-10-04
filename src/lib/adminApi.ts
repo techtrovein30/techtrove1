@@ -27,6 +27,7 @@ import {
   getAllRegistrations,
   getRegistrationsByUser,
   getRegistrationCountsByUser,
+  getRegistrationCountsByEvent,
   getRegistrationById,
   findRegistrationTableById,
   findParticipantTableById,
@@ -554,6 +555,15 @@ export async function adminListRegistrations(): Promise<Registration[]> {
   await requireAdmin();
   const rows = await getAllRegistrations();
   return rows.map(rowToRegistration);
+}
+
+/**
+ * Registration count per event id, for the events admin screen.
+ * Counts only - no rows - so it stays cheap as registrations grow.
+ */
+export async function adminCountRegistrationsByEvent(): Promise<Record<string, number>> {
+  await requireAdmin();
+  return getRegistrationCountsByEvent();
 }
 
 export async function adminGetRegistration(regId: string): Promise<Registration> {

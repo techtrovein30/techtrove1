@@ -51,6 +51,7 @@ vi.mock("./eventStore", () => ({
 
 vi.mock("./db", () => ({
   getRegistrationEventRows: vi.fn(async () => []),
+  getRegistrationCountsByEvent: vi.fn(async () => ({})),
   getRegistrationsByEvent: vi.fn(async () => []),
 }));
 
@@ -61,10 +62,11 @@ import {
   adminGetCoordinatorSummaries,
   getAssignedCoordinatorEvent,
   parseAttendanceToken,
+  getAttendanceEventStats,
 } from "./coordinatorApi";
 import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
-import { getRegistrationEventRows } from "./db";
+import { getRegistrationEventRows, getRegistrationCountsByEvent } from "./db";
 import type { User } from "./api";
 
 const rpc = supabase.rpc as unknown as ReturnType<typeof vi.fn>;
@@ -496,5 +498,123 @@ describe("adminGetCoordinatorSummaries headcount", () => {
 
     expect(map.flat.totalParticipants).toBe(0);
     expect(map.flat.attendancePercentage).toBe(0);
+  });
+});
+
+describe("getAttendanceEventStats desk headcounts", () => {
+  const EVENTS = [{ id: "hackathon", name: "Hackathon", category: "tech", day_id: "day-2" }];
+
+  /** Serve each table its own rows; anything else comes back empty. */
+  function tables(overrides: Record<string, unknown[]>) {
+    const from = supabase.from as unknown as ReturnType<typeof vi.fn>;
+    from.mockImplementation((table: string) => {
+      const rows = overrides[table] ?? [];
+      const builder: Record<string, unknown> = {};
+      const chain = () => builder;
+      for (const method of ["select", "eq", "in", "order", "range"]) builder[method] = vi.fn(chain);
+      builder.then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
+      return builder;
+    });
+  }
+
+  beforeEach(() => {
+    // The hub RPC is absent on this project, so the direct-query path is the
+    // one that actually decides what the desk displays.
+    rpc.mockResolvedValue({ data: null, error: { message: "function does not exist" } });
+    vi.mocked(getRegistrationCountsByEvent).mockResolvedValue({} as never);
+    vi.mocked(getRegistrationEventRows).mockClear();
+    vi.mocked(supabase.from).mockClear();
+  });
+
+  it("counts registrations per event from the cheap count read, never from member JSON", async () => {
+    vi.mocked(getRegistrationCountsByEvent).mockResolvedValue({ hackathon: 12 } as never);
+    tables({
+      events: EVENTS,
+      attendance: [
+        { event_id: "hackathon", participant_email: "a@x.com", participant_id: "u1", status: "present" },
+        { event_id: "hackathon", participant_email: "b@x.com", participant_id: "u2", status: "present" },
+      ],
+    });
+
+    const stats = await getAttendanceEventStats();
+
+    expect(stats.hackathon).toEqual({ total: 12, attended: 2 });
+    // The regression guard: this is the whole point of the change. The desk
+    // reloads on its coalesced cycle, and the member JSON for every
+    // registration in the schema was being downloaded just to count rows.
+    expect(getRegistrationCountsByEvent).toHaveBeenCalled();
+    expect(getRegistrationEventRows).not.toHaveBeenCalled();
+  });
+
+  it("still reports an event nobody registered for instead of dropping it", async () => {
+    tables({ events: EVENTS });
+
+    const stats = await getAttendanceEventStats();
+
+    expect(stats.hackathon).toEqual({ total: 0, attended: 0 });
+  });
+
+  it("keeps the exact event id working alongside the normalised aliases", async () => {
+    vi.mocked(getRegistrationCountsByEvent).mockResolvedValue({ hackathon: 3 } as never);
+    tables({ events: EVENTS });
+
+    const stats = await getAttendanceEventStats();
+
+    expect(stats.hackathon).toEqual(stats["tech-hackathon"]);
+    expect(stats.hackathon.total).toBe(3);
+  });
+
+  it("takes attendance from the aggregate view instead of the member table", async () => {
+    vi.mocked(getRegistrationCountsByEvent).mockResolvedValue({ kabaddi: 8 } as never);
+    tables({
+      events: [{ id: "kabaddi", name: "Kabaddi", category: "sports", day_id: "day-1" }],
+      registration_member_stats: [{ event_id: "kabaddi", attended_people: 5 }],
+    });
+
+    const stats = await getAttendanceEventStats();
+
+    expect(stats.kabaddi.attended).toBe(5);
+    expect(stats.kabaddi.total).toBe(8);
+  });
+
+  it("never reads the full member table when no event is a sport", async () => {
+    // The regression guard for the ~3.7 MB read. A non-sports event needs no
+    // email list at all, so registration_members must not be queried; the
+    // aggregate view alone answers the question.
+    vi.mocked(getRegistrationCountsByEvent).mockResolvedValue({ hackathon: 4 } as never);
+    tables({ events: EVENTS });
+
+    const from = supabase.from as unknown as ReturnType<typeof vi.fn>;
+    await getAttendanceEventStats();
+
+    const queriedTables = from.mock.calls.map((c) => c[0]);
+    expect(queriedTables).toContain("registration_member_stats");
+    expect(queriedTables).not.toContain("registration_members");
+  });
+
+  it("counts one person once on the unified sports pass across two sports", async () => {
+    // The reason the sports read is still allowed to fetch emails at all: a
+    // single pass admits someone to every sport, so attending two of them must
+    // read as one arrival, not two.
+    vi.mocked(getRegistrationCountsByEvent).mockResolvedValue({ kabaddi: 1, football: 1 } as never);
+    tables({
+      events: [
+        { id: "kabaddi", name: "Kabaddi", category: "sports", day_id: "day-1" },
+        { id: "football", name: "Football", category: "sports", day_id: "day-1" },
+      ],
+      registration_member_stats: [
+        { event_id: "kabaddi", attended_people: 1 },
+        { event_id: "football", attended_people: 1 },
+      ],
+      registration_members: [
+        { event_id: "kabaddi", email: "sam@example.com" },
+        { event_id: "football", email: "sam@example.com" },
+      ],
+    });
+
+    const stats = await getAttendanceEventStats();
+
+    expect(stats["sports-unified-master"].attended).toBe(1);
+    expect(stats["sports-unified-master"].total).toBe(2);
   });
 });

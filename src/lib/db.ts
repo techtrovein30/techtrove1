@@ -335,6 +335,30 @@ export async function getAllRegistrations(): Promise<RegistrationRow[]> {
 }
 
 /**
+ * How many registrations point at each event, across both tables.
+ *
+ * The events admin screen only ever renders a number beside every event and a
+ * number inside its delete warning, yet it was downloading every registration
+ * row - fees, UTRs, payment-proof paths and all - to count them in the browser.
+ * This asks for the one column those counts actually need, which keeps the same
+ * number of round trips but drops the payload by roughly twenty times.
+ */
+export async function getRegistrationCountsByEvent(): Promise<Record<string, number>> {
+  const [internal, external] = await Promise.all([
+    fetchAllRows("registrations_internal", "event_id"),
+    fetchAllRows("registrations_external", "event_id"),
+  ]);
+
+  const counts: Record<string, number> = {};
+  for (const row of [...internal, ...external] as Array<{ event_id?: string | null }>) {
+    const eventId = row.event_id;
+    if (!eventId) continue;
+    counts[eventId] = (counts[eventId] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
  * event_id + members for every registration: the whole of what the coordinator
  * headcounts need.
  *

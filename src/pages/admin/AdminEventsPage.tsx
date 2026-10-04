@@ -18,8 +18,7 @@ import {
   adminUpdateDay,
 } from "../../lib/eventStore";
 import type { TechEvent, Day } from "../../lib/eventStore";
-import type { Registration } from "../../lib/api";
-import { adminListRegistrations } from "../../lib/adminApi";
+import { adminCountRegistrationsByEvent } from "../../lib/adminApi";
 import { formatPerPerson } from "../../lib/utils";
 import { ConfirmDialog } from "../../components/admin/ConfirmDialog";
 
@@ -379,7 +378,8 @@ export function AdminEventsPage({ viewOnly: viewOnlyProp }: { viewOnly?: boolean
   const [addingDayId, setAddingDayId] = useState<string | null>(null);
   const [deletingEvent, setDeletingEvent] = useState<TechEvent | null>(null);
   const [editingDay, setEditingDay] = useState<Day | null>(null);
-  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  // Counts only - this screen renders a number per event, never a row.
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
   const [rowError, setRowError] = useState<string | null>(null);
   const [busyEventId, setBusyEventId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -388,7 +388,7 @@ export function AdminEventsPage({ viewOnly: viewOnlyProp }: { viewOnly?: boolean
 
   useEffect(() => {
     getDaysAsync().then(setDays).catch(() => {});
-    adminListRegistrations().then(setRegistrations).catch(() => {});
+    adminCountRegistrationsByEvent().then(setRegistrationCounts).catch(() => {});
   }, []);
 
   // Auto-dismiss success message
@@ -538,9 +538,9 @@ export function AdminEventsPage({ viewOnly: viewOnlyProp }: { viewOnly?: boolean
                 Are you sure you want to delete{" "}
                 <strong className="text-foreground">{deletingEvent.name}</strong>?
               </p>
-              {registrations.filter((r) => r.eventId === deletingEvent.id).length > 0 && (
+              {(registrationCounts[deletingEvent.id] ?? 0) > 0 && (
                 <p className="mt-2 text-xs font-semibold text-amber-400 border border-amber-500/30 bg-amber-500/10 p-2.5 rounded">
-                  WARNING: There are {registrations.filter((r) => r.eventId === deletingEvent.id).length} existing registrations
+                  WARNING: There are {registrationCounts[deletingEvent.id]} existing registrations
                   for this event.
                 </p>
               )}
@@ -677,9 +677,7 @@ export function AdminEventsPage({ viewOnly: viewOnlyProp }: { viewOnly?: boolean
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-5 bg-white/[0.01]">
                 {day.events.map((event) => {
-                  const regCount = registrations.filter(
-                    (r) => r.eventId === event.id
-                  ).length;
+                  const regCount = registrationCounts[event.id] ?? 0;
                   const isBusy = busyEventId === event.id;
                   return (
                     <div
