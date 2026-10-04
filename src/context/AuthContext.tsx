@@ -20,6 +20,8 @@ import type { User, ParticipantType } from "../lib/api";
 import { getParticipantById } from "../lib/db";
 import type { ParticipantRow } from "../lib/db";
 import { validateRegisterNumber, validateEmail, validatePhoneNumber } from "../lib/validation";
+import { invalidateAdminViewCache } from "../lib/adminGuard";
+import { invalidateAdminRealtimeCache } from "../lib/useAdminRealtime";
 
 interface GooglePendingProfile {
   authUserId: string;
@@ -308,6 +310,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           await api.signOut();
         } finally {
+          // Both admin caches are module-level and outlive the components that
+          // read them, so they have to be dropped explicitly or the previous
+          // user's admin profile, registrations and participant list stay in
+          // memory for the rest of the SPA session.
+          invalidateAdminViewCache();
+          invalidateAdminRealtimeCache();
           setUser(null);
           setGooglePendingProfile(null);
         }

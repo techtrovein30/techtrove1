@@ -29,6 +29,8 @@ interface SharedResource<T> {
   refresh: () => Promise<T>;
   /** Local write (optimistic UI), never triggers the network. */
   patch: (next: SetStateAction<T>) => void;
+  /** Drops the cached data. Call on sign-out / user change. */
+  reset: () => void;
 }
 
 const EMPTY: never[] = [];
@@ -110,6 +112,17 @@ function createResource<T>(
       loaded = true;
       emit();
     },
+    reset: () => {
+      // Cancel any in-flight reload so a late response cannot repopulate the
+      // store with the previous user's data after sign-out.
+      inFlight = null;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      firstQueuedAt = 0;
+      snapshot = EMPTY as unknown as T;
+      loaded = false;
+      emit();
+    },
   };
 }
 
@@ -119,6 +132,20 @@ const registrations = createResource<Registration[]>(
 );
 
 const users = createResource<User[]>("users", adminListUsers);
+
+/**
+ * Drops every cached admin read.
+ *
+ * These stores are module-level, so they outlive the components that read them
+ * and survive client-side navigation. Without this, signing out and back in
+ * within the same SPA session would leave the previous admin's registrations
+ * and participant list sitting in memory and briefly on screen. Wired into both
+ * sign-out paths.
+ */
+export function invalidateAdminRealtimeCache(): void {
+  registrations.reset();
+  users.reset();
+}
 
 /**
  * One Realtime channel per table set, shared by every mounted consumer and torn
