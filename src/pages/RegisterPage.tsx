@@ -252,6 +252,19 @@ function RegistrationFlow({ preselectedId, initialDayId }: { preselectedId: stri
     }
   }, [preselectedEvent, firstSelectedEventId, draft.members.length, user, initialDayId]);
 
+  // A deep link (?event=<sport>) can preselect a Day 1 event that internal
+  // participants are not allowed to register for. Drop it once the participant
+  // type is known, so the picker and the summary never show a selection that
+  // submit would reject. Deferred into a microtask for the same reason as above.
+  useEffect(() => {
+    if (teamType !== "internal" || draft.eventIds.length === 0) return;
+    const blocked = draft.eventIds.filter((id) => isSportEvent(allEvents.find((e) => e.id === id)));
+    if (blocked.length === 0) return;
+    void Promise.resolve().then(() => {
+      setDraft((d) => ({ ...d, eventIds: d.eventIds.filter((id) => !blocked.includes(id)) }));
+    });
+  }, [teamType, draft.eventIds, allEvents]);
+
   function selectEvent(ev: TechEvent) {
     const isMultiSelect = ev.dayId === "day-2";
     let newEventIds = [...draft.eventIds];
@@ -1285,7 +1298,12 @@ function SportStep({
 
   const activeDay = activeDayId ? dayTabs.find((d) => d.id === activeDayId) : undefined;
   const dayEvents = events.filter((e) => e.dayId === activeDayId);
-  const openDayEvents = dayEvents.filter((e) => e.registrationOpen);
+  // Sports (Day 1) are closed to internal / SIMATS participants, so they are not
+  // offered at all rather than offered and then rejected at submit. External
+  // participants see the full list. Already-registered rows are untouched.
+  const openDayEvents = dayEvents.filter(
+    (e) => e.registrationOpen && !(isInternal && isSportEvent(e))
+  );
 
   const leadText = activeDay
     ? activeDay.id === "day-2"
@@ -1376,7 +1394,11 @@ function SportStep({
           {[1,2,3,4].map((i) => <div key={i} className="animate-pulse h-16 bg-white/10" />)}
         </div>
       ) : openDayEvents.length === 0 ? (
-        <p className="mt-6 text-sm text-muted">No events are open for registration on {activeDay!.label} right now.</p>
+        <p className="mt-6 text-sm text-muted">
+          {isInternal && activeDayId === "day-1"
+            ? "Sports registration is closed for SIMATS students. Technical and Non-Technical events on Day 2 are open to you — please pick from there."
+            : `No events are open for registration on ${activeDay!.label} right now.`}
+        </p>
       ) : (() => {
         const renderEvent = (ev: TechEvent) => {
           const active = selectedIds.includes(ev.id);

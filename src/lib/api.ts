@@ -231,6 +231,15 @@ export const api = {
       if (!event) throw new Error("Event not found.");
       if (!event.registrationOpen) throw new Error("Registration for this event is closed.");
 
+      // Sports (Day 1) registration is closed to internal / SIMATS participants.
+      // External participants are unaffected. This gates NEW rows only —
+      // registrations that already exist are left exactly as they are.
+      if (participantType === "internal" && isSportEvent(event)) {
+        throw new Error(
+          "Sports registration is closed for SIMATS students. Please pick a Technical or Non-Technical event."
+        );
+      }
+
       const isIndividual = isIndividualEvent(event);
       const isSoloTeam = isSoloTeamEvent(event);
       const filledPlayers = input.members.filter((m) => m.name.trim() && m.role === "player").length;
