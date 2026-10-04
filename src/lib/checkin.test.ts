@@ -139,3 +139,10 @@ describe("adminListCheckinMembers attendance scoping", () => {
     expect(inCalls.some((c) => c.table === "attendance")).toBe(false);
   });
 });
+
+describe("adminTogglePlayerGroup", () => {
+  it("imports and exports correctly as an async function", async () => {
+    const { adminTogglePlayerGroup } = await import("./checkin");
+    expect(typeof adminTogglePlayerGroup).toBe("function");
+  });
+});

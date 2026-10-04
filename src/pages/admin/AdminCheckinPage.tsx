@@ -29,8 +29,7 @@ import { supabase } from "../../lib/supabase";
 import type { TechEvent } from "../../data/techtrove";
 import {
   useCheckinMembers,
-  adminTogglePlayerCheckin,
-  adminToggleCheckin,
+  adminTogglePlayerGroup,
   type CheckinMember,
   shouldDeferCheckinReload,
   markCheckinReload,
@@ -755,29 +754,13 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
   async function toggle(player: (typeof filteredPlayers)[number]) {
     setBusy(player.key);
     try {
-      await adminTogglePlayerCheckin(player.email, !player.attended);
+      await adminTogglePlayerGroup(player, !player.attended);
       await refresh();
       await loadStats();
       toast.success(
         player.attended
           ? `Check-in undone for ${player.playerName}`
           : `${player.playerName} checked in`
-      );
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Check-in failed.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function toggleMember(m: CheckinMember) {
-    setBusy(m.id);
-    try {
-      await adminToggleCheckin(m.id, !m.attended);
-      await refresh();
-      await loadStats();
-      toast.success(
-        m.attended ? `Check-in undone for ${m.memberName}` : `${m.memberName} checked in`
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Check-in failed.");
@@ -1400,7 +1383,13 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
             <div className="space-y-4">
               {filteredPlayers.map((player) => {
                 const m = player.members[0];
-                const isCaptain = player.members.some((x) => x.position === 1);
+                const realCapName = player.members.find((x) => x.captainName)?.captainName?.trim().toLowerCase();
+                const isCaptain = player.members.some(
+                  (x) =>
+                    (realCapName && x.memberName.trim().toLowerCase() === realCapName) ||
+                    x.position === 1 ||
+                    x.memberRole === "captain"
+                );
                 const isSub = player.members.every((x) => x.memberRole === "substitute");
                 const playerEventNames = Array.from(
                   new Set(player.members.map((x) => eventNameFor(x)).filter(Boolean))
@@ -1427,6 +1416,11 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
                               Substitute
                             </span>
                           )}
+                          {m.teamName && (
+                            <span className="shrink-0 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-amber-300">
+                              {m.teamName}
+                            </span>
+                          )}
                         </div>
                         {playerEventNames.length > 0 && (
                           <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -1445,6 +1439,7 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
                           {m.participantType === "internal" ? "SIMATS" : "External"}
                           {m.college ? ` · ${m.college}` : ""}
                           {m.regNumber ? ` · ${m.regNumber}` : ""}
+                          {m.registrationCode ? ` · ${m.registrationCode}` : ""}
                         </p>
                       </div>
 
@@ -1469,65 +1464,35 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
                       </button>
                     </div>
 
-                    <ul>
-                      {player.members.map((member) => (
-                        <li
-                          key={member.id}
-                          className="flex items-center justify-between gap-4 border-b border-white/[0.03] px-4 py-2.5 last:border-b-0"
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
-                            <div className="min-w-0">
-                              <p className="flex min-w-0 items-center gap-2">
-                                <span className="truncate text-[13px] font-semibold text-foreground">
-                                  {member.memberName}
-                                </span>
-                                <span
-                                  className={cn(
-                                    "shrink-0 border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em]",
-                                    member.position === 1
-                                      ? "border-primary/40 bg-primary/10 text-primary-soft"
-                                      : "border-white/10 text-muted"
-                                  )}
-                                >
-                                  {member.position === 1
-                                    ? "Captain"
-                                    : member.memberRole === "substitute"
-                                      ? `Sub ${member.position}`
-                                      : `Player ${String(member.position).padStart(2, "0")}`}
-                                </span>
-                              </p>
-                              <p className="truncate text-[11px] text-muted">
-                                {eventNameFor(member)}
-                                <span className="mx-1.5 opacity-50">·</span>
-                                {member.teamName}
-                                <span className="mx-1.5 opacity-50">·</span>
-                                <span className="font-mono">{member.registrationCode}</span>
-                              </p>
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() => toggleMember(member)}
-                            disabled={busy === member.id || viewOnly}
-                            className={cn(
-                              "shrink-0 rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition-all disabled:opacity-50",
-                              member.attended
-                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                                : "border-white/10 text-muted hover:border-primary/50 hover:text-primary-soft"
-                            )}
-                          >
-                            {busy === member.id ? (
-                              <Loader2 className="mx-auto h-3 w-3 animate-spin" aria-hidden />
-                            ) : member.attended ? (
-                              "Uncheck"
-                            ) : (
-                              "Check In"
-                            )}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                    {/* Read-only Squad Roster for team registrations — no individual member check-in buttons */}
+                    {player.members.length > 1 && (
+                      <div className="border-t border-white/[0.04] bg-white/[0.015] px-4 py-2.5">
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                          <span className="font-semibold text-muted text-[11px] mr-1">
+                            Team Members ({player.members.length}):
+                          </span>
+                          {player.members.map((mem) => {
+                            const isCap = realCapName
+                              ? mem.memberName.trim().toLowerCase() === realCapName
+                              : mem.position === 1 || mem.memberRole === "captain";
+                            return (
+                              <span
+                                key={mem.id}
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium border",
+                                  isCap
+                                    ? "border-primary/40 bg-primary/10 text-primary-soft font-semibold"
+                                    : "border-white/5 bg-white/[0.03] text-foreground/80"
+                                )}
+                              >
+                                {mem.memberName}
+                                {isCap && " (Captain)"}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -11,7 +11,6 @@
 import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { validateEmail } from "./validation";
 import { getAllRegistrations, type RegistrationRow } from "./db";
 
 /**
@@ -63,7 +62,12 @@ const SPORT_EVENT_KEYS = [
  * the `sports` attendance bucket to let a sport roster see attendance recorded
  * under any of these.
  */
-const SPORT_AGGREGATE_IDS = ["sports-unified-master", "sports-unified"] as const;
+const SPORT_AGGREGATE_IDS = [
+  "sports-unified-master",
+  "sports-unified",
+  "sports",
+  "ba31a6b79aa1bf173badbd6f62236556",
+] as const;
 
 function stripEventPrefix(id: string): string {
   return id.replace(/^(tech-|nontech-|sport-)/, "");
@@ -89,7 +93,7 @@ function isSportEvent(id: string): boolean {
 /** The looser membership test, used only when indexing attendance rows. */
 function isSportAggregateEvent(id: string): boolean {
   const raw = (id || "").trim().toLowerCase();
-  return (SPORT_AGGREGATE_IDS as readonly string[]).includes(raw) || isSportEvent(raw);
+  return (SPORT_AGGREGATE_IDS as readonly string[]).includes(raw as any) || isSportEvent(raw);
 }
 
 /**
@@ -114,9 +118,13 @@ export function attendanceEventAliases(eventId?: string): string[] | null {
   const raw = (eventId || "").trim().toLowerCase();
   if (!raw) return null;
 
-  const ids = new Set<string>([raw, stripEventPrefix(raw)]);
+  const clean = stripEventPrefix(raw);
+  const ids = new Set<string>([raw, clean]);
   if (isSportAggregateEvent(raw)) {
-    for (const k of SPORT_EVENT_KEYS) ids.add(k);
+    for (const k of SPORT_EVENT_KEYS) {
+      ids.add(k);
+      ids.add(`sport-${k}`);
+    }
     for (const k of SPORT_AGGREGATE_IDS) ids.add(k);
   }
   return [...ids];
@@ -305,10 +313,19 @@ export async function adminListCheckinMembers(opts?: {
       if (a.status && a.status !== "present") continue;
       const email = (a.participant_email || "").trim().toLowerCase();
       const uid = (a.participant_id || "").trim().toLowerCase();
+      const code = (a.registration_code || "").trim().toLowerCase();
       const ev = (a.event_id || "").trim().toLowerCase();
       const cleanEv = stripEventPrefix(ev);
       const isSport = isSportAggregateEvent(ev);
 
+      if (code) {
+        attPresentSet.add(`code::${code}`);
+        attPresentSet.add(`code::${code}::${ev}`);
+        attPresentSet.add(`code::${code}::${cleanEv}`);
+        if (isSport) {
+          attPresentSet.add(`code::${code}::sports`);
+        }
+      }
       if (email) {
         attPresentSet.add(`${email}::${ev}`);
         attPresentSet.add(`${email}::${cleanEv}`);
@@ -331,18 +348,28 @@ export async function adminListCheckinMembers(opts?: {
     const m = toCheckinMember(row);
     const email = (m.email || "").trim().toLowerCase();
     const uid = (m.userId || "").trim().toLowerCase();
+    const code = (m.registrationCode || "").trim().toLowerCase();
     const ev = (m.eventId || "").trim().toLowerCase();
     const cleanEv = stripEventPrefix(ev);
     const isSport = isSportEvent(ev);
 
     const isAttended =
       m.attended ||
+      (code && (
+        attPresentSet.has(`code::${code}`) ||
+        attPresentSet.has(`code::${code}::${ev}`) ||
+        attPresentSet.has(`code::${code}::${cleanEv}`) ||
+        (isSport && attPresentSet.has(`code::${code}::sports`))
+      )) ||
       attPresentSet.has(`${email}::${ev}`) ||
       attPresentSet.has(`${email}::${cleanEv}`) ||
       attPresentSet.has(`${uid}::${ev}`) ||
       attPresentSet.has(`${uid}::${cleanEv}`) ||
       (isSport && (attPresentSet.has(`${email}::sports`) || attPresentSet.has(`${uid}::sports`)));
 
+    if (code) {
+      registeredKeys.add(`code::${code}`);
+    }
     if (email) {
       registeredKeys.add(`${email}::${ev}`);
       registeredKeys.add(`${email}::${cleanEv}`);
@@ -365,11 +392,13 @@ export async function adminListCheckinMembers(opts?: {
       if (a.status && a.status !== "present") continue;
       const email = (a.participant_email || "").trim().toLowerCase();
       const uid = (a.participant_id || "").trim().toLowerCase();
+      const code = (a.registration_code || "").trim().toLowerCase();
       const ev = (a.event_id || "").trim().toLowerCase();
       const cleanEv = stripEventPrefix(ev);
-      if (!email && !uid) continue;
+      if (!email && !uid && !code) continue;
 
       if (
+        (code && registeredKeys.has(`code::${code}`)) ||
         (email &&
           (registeredKeys.has(`${email}::${ev}`) || registeredKeys.has(`${email}::${cleanEv}`))) ||
         (uid && (registeredKeys.has(`${uid}::${ev}`) || registeredKeys.has(`${uid}::${cleanEv}`)))
@@ -407,52 +436,97 @@ export async function adminListCheckinMembers(opts?: {
   return list;
 }
 
-/** Toggle check-in for a single member. Returns the updated member. */
+/** Toggle check-in for a single member or their entire team registration. Returns the updated member. */
 export async function adminToggleCheckin(
   memberId: string,
   attended: boolean
 ): Promise<CheckinMember> {
   await requireAdmin();
-  const { data, error } = await supabase
-    .from("registration_members")
-    .update({ attended })
-    .eq("id", memberId)
-    .select()
-    .single();
-  if (error || !data) {
-    throw new Error(error?.message || "Could not update check-in.");
-  }
-  const member = toCheckinMember(data as Record<string, unknown>);
 
-  // Keep attendance table in sync
+  // 1. Fetch current member details
+  const { data: memberRow, error: fetchErr } = await supabase
+    .from("registration_members")
+    .select(CHECKIN_MEMBER_COLUMNS)
+    .eq("id", memberId)
+    .maybeSingle();
+
+  if (fetchErr || !memberRow) {
+    throw new Error(fetchErr?.message || "Could not find member record.");
+  }
+
+  const member = toCheckinMember(memberRow as Record<string, unknown>);
+  const cleanEmail = (member.email || "").trim().toLowerCase();
+  const regId = member.registrationId;
+  const regCode = member.registrationCode;
+  const aliases = attendanceEventAliases(member.eventId) || [member.eventId];
+  const nowIso = new Date().toISOString();
+
+  // 2. Update registration_members table (if part of a team registration, sync entire team)
+  const updatePayload = attended
+    ? { attended: true, attended_at: nowIso, attended_source: "admin_desk" }
+    : { attended: false, attended_at: null, attended_source: null };
+
+  if (regId) {
+    const { error: regErr } = await supabase
+      .from("registration_members")
+      .update(updatePayload)
+      .eq("registration_id", regId);
+    if (regErr) console.warn("[checkin] team update error:", regErr);
+  } else {
+    const { error: singleErr } = await supabase
+      .from("registration_members")
+      .update(updatePayload)
+      .eq("id", memberId);
+    if (singleErr) throw new Error(singleErr.message);
+  }
+
+  // 3. Keep attendance table in sync
   try {
-    const cleanEmail = (member.email || "").trim().toLowerCase();
     if (attended) {
       await supabase.from("attendance").upsert(
         {
           event_id: member.eventId,
-          participant_id: member.userId,
-          participant_email: cleanEmail,
-          participant_name: member.memberName,
-          registration_code: member.registrationCode,
+          participant_id: member.userId || member.id,
+          participant_email: cleanEmail || null,
+          participant_name: member.captainName || member.memberName,
+          registration_code: regCode || null,
           status: "present",
-          marked_at: new Date().toISOString(),
+          source: "admin_desk",
+          marked_at: nowIso,
           marked_by: "desk_admin",
         },
         { onConflict: "event_id,participant_id" }
       );
     } else {
-      await supabase
-        .from("attendance")
-        .update({ status: "cancelled" })
-        .eq("event_id", member.eventId)
-        .or(`participant_email.ilike.${cleanEmail},participant_id.eq.${member.userId}`);
+      try {
+        await supabase.rpc("admin_uncheck_participant_or_team", {
+          p_registration_code: regCode || null,
+          p_email: cleanEmail || null,
+          p_registration_id: regId || null,
+          p_event_id: member.eventId || null,
+        });
+      } catch (rpcErr) {
+        console.warn("[checkin] admin_uncheck_participant_or_team rpc warning:", rpcErr);
+      }
+      // Clean uncheck: delete and cancel attendance records across all identifiers
+      if (regCode) {
+        await supabase.from("attendance").delete().eq("registration_code", regCode);
+        await supabase.from("attendance").update({ status: "cancelled" }).eq("registration_code", regCode);
+      }
+      if (cleanEmail) {
+        await supabase.from("attendance").delete().ilike("participant_email", cleanEmail).in("event_id", aliases);
+        await supabase.from("attendance").update({ status: "cancelled" }).ilike("participant_email", cleanEmail).in("event_id", aliases);
+      }
+      if (member.userId) {
+        await supabase.from("attendance").delete().eq("participant_id", member.userId).in("event_id", aliases);
+        await supabase.from("attendance").update({ status: "cancelled" }).eq("participant_id", member.userId).in("event_id", aliases);
+      }
     }
   } catch (attErr) {
     console.warn("[checkin] attendance sync warning:", attErr);
   }
 
-  return member;
+  return { ...member, attended };
 }
 
 /**
@@ -463,20 +537,19 @@ export async function adminToggleCheckin(
 export async function adminTogglePlayerCheckin(email: string, attended: boolean): Promise<void> {
   await requireAdmin();
 
-  // Validate that the input is a real email before it touches a filter.
-  const emailErr = validateEmail(email, "external");
-  if (emailErr) throw new Error(emailErr);
-
-  // Reject LIKE wildcards so the value can never expand into extra rows, and
-  // match case-insensitively (stored emails may be mixed case).
-  const clean = email.trim().toLowerCase();
-  if (clean.includes("%") || clean.includes("_")) {
+  const clean = (email || "").trim().toLowerCase();
+  if (!clean || clean.includes("%") || clean.includes("_")) {
     throw new Error("Invalid email address.");
   }
 
+  const nowIso = new Date().toISOString();
+  const updatePayload = attended
+    ? { attended: true, attended_at: nowIso, attended_source: "admin_desk" }
+    : { attended: false, attended_at: null, attended_source: null };
+
   const { error } = await supabase
     .from("registration_members")
-    .update({ attended })
+    .update(updatePayload)
     .ilike("email", clean);
   if (error) throw new Error(error?.message || "Could not update player check-in.");
 
@@ -485,9 +558,13 @@ export async function adminTogglePlayerCheckin(email: string, attended: boolean)
     if (attended) {
       await supabase
         .from("attendance")
-        .update({ status: "present" })
+        .update({ status: "present", marked_at: nowIso })
         .ilike("participant_email", clean);
     } else {
+      await supabase
+        .from("attendance")
+        .delete()
+        .ilike("participant_email", clean);
       await supabase
         .from("attendance")
         .update({ status: "cancelled" })
@@ -498,17 +575,200 @@ export async function adminTogglePlayerCheckin(email: string, attended: boolean)
   }
 }
 
+/**
+ * Check in (or undo) an entire PlayerGroup in one shot.
+ * For team events, checking in the team captain marks all registered members of that team.
+ * Unchecking permanently cancels and removes attendance records across event aliases.
+ */
+export async function adminTogglePlayerGroup(
+  player: PlayerGroup,
+  attended: boolean
+): Promise<void> {
+  await requireAdmin();
+
+  const regIds = Array.from(
+    new Set(player.members.map((m) => m.registrationId).filter(Boolean))
+  );
+  const memberIds = Array.from(
+    new Set(player.members.map((m) => m.id).filter(Boolean))
+  );
+  const regCodes = Array.from(
+    new Set(player.members.map((m) => m.registrationCode).filter(Boolean))
+  );
+  const emails = Array.from(
+    new Set(
+      player.members
+        .map((m) => (m.email || "").trim().toLowerCase())
+        .filter((e) => e && !e.includes("%") && !e.includes("_"))
+    )
+  );
+  const userIds = Array.from(
+    new Set(player.members.map((m) => (m.userId || "").trim()).filter(Boolean))
+  );
+  const eventIds = Array.from(
+    new Set(player.members.map((m) => (m.eventId || "").trim().toLowerCase()).filter(Boolean))
+  );
+  const allAliases = Array.from(
+    new Set(eventIds.flatMap((ev) => attendanceEventAliases(ev) || [ev]))
+  );
+
+  const nowIso = new Date().toISOString();
+  const updatePayload = attended
+    ? { attended: true, attended_at: nowIso, attended_source: "admin_desk" }
+    : { attended: false, attended_at: null, attended_source: null };
+
+  // 1. Update registration_members table
+  if (regCodes.length > 0) {
+    const { error: codeErr } = await supabase
+      .from("registration_members")
+      .update(updatePayload)
+      .in("registration_code", regCodes);
+    if (codeErr) console.warn("[checkin] reg_members error on regCodes:", codeErr);
+  }
+  if (regIds.length > 0) {
+    const { error: regErr } = await supabase
+      .from("registration_members")
+      .update(updatePayload)
+      .in("registration_id", regIds);
+    if (regErr) console.warn("[checkin] reg_members error on regIds:", regErr);
+  }
+  if (memberIds.length > 0) {
+    const { error: memErr } = await supabase
+      .from("registration_members")
+      .update(updatePayload)
+      .in("id", memberIds);
+    if (memErr) console.warn("[checkin] reg_members error on memberIds:", memErr);
+  }
+
+  // 2. Keep attendance table in sync
+  try {
+    if (attended) {
+      const captain =
+        player.members.find(
+          (m) =>
+            m.captainName &&
+            m.memberName.trim().toLowerCase() === m.captainName.trim().toLowerCase()
+        ) ||
+        player.members.find((m) => m.position === 1 || m.memberRole === "captain") ||
+        player.members[0];
+      if (captain) {
+        const cleanEmail = (captain.email || player.email || "").trim().toLowerCase();
+        await supabase.from("attendance").upsert(
+          {
+            event_id: captain.eventId,
+            participant_id: captain.userId || captain.id,
+            participant_email: cleanEmail || null,
+            participant_name: captain.captainName || captain.memberName || player.playerName,
+            registration_code: captain.registrationCode || null,
+            status: "present",
+            source: "admin_desk",
+            marked_at: nowIso,
+            marked_by: "desk_admin",
+          },
+          { onConflict: "event_id,participant_id" }
+        );
+      }
+    } else {
+      // Try security definer RPC first (bypasses any RLS constraints)
+      try {
+        await supabase.rpc("admin_uncheck_participant_or_team", {
+          p_registration_code: regCodes[0] || null,
+          p_email: emails[0] || null,
+          p_registration_id: regIds[0] || null,
+          p_event_id: eventIds[0] || null,
+        });
+      } catch (rpcErr) {
+        console.warn("[checkin] admin_uncheck_participant_or_team rpc warning:", rpcErr);
+      }
+
+      // UNCHECK: Cleanly remove/cancel attendance records
+      for (const code of regCodes) {
+        await supabase.from("attendance").delete().eq("registration_code", code);
+        await supabase.from("attendance").update({ status: "cancelled" }).eq("registration_code", code);
+      }
+      for (const em of emails) {
+        if (allAliases.length > 0) {
+          await supabase.from("attendance").delete().ilike("participant_email", em).in("event_id", allAliases);
+          await supabase.from("attendance").update({ status: "cancelled" }).ilike("participant_email", em).in("event_id", allAliases);
+        } else {
+          await supabase.from("attendance").delete().ilike("participant_email", em);
+          await supabase.from("attendance").update({ status: "cancelled" }).ilike("participant_email", em);
+        }
+      }
+      for (const uid of userIds) {
+        if (allAliases.length > 0) {
+          await supabase.from("attendance").delete().eq("participant_id", uid).in("event_id", allAliases);
+          await supabase.from("attendance").update({ status: "cancelled" }).eq("participant_id", uid).in("event_id", allAliases);
+        } else {
+          await supabase.from("attendance").delete().eq("participant_id", uid);
+          await supabase.from("attendance").update({ status: "cancelled" }).eq("participant_id", uid);
+        }
+      }
+    }
+  } catch (attErr) {
+    console.warn("[checkin] attendance sync warning during group toggle:", attErr);
+  }
+}
+
 /** Check in (or undo) every member of a team registration in one shot. */
 export async function adminBulkToggleCheckin(
   registrationId: string,
   attended: boolean
 ): Promise<void> {
   await requireAdmin();
+  const nowIso = new Date().toISOString();
+  const updatePayload = attended
+    ? { attended: true, attended_at: nowIso, attended_source: "admin_desk" }
+    : { attended: false, attended_at: null, attended_source: null };
+
   const { error } = await supabase
     .from("registration_members")
-    .update({ attended })
+    .update(updatePayload)
     .eq("registration_id", registrationId);
   if (error) throw new Error(error?.message || "Could not update team check-in.");
+
+  // Also sync attendance table
+  try {
+    const { data: members } = await supabase
+      .from("registration_members")
+      .select("event_id, registration_code, email, user_id, member_name, captain_name")
+      .eq("registration_id", registrationId);
+
+    if (members && members.length > 0) {
+      const captain = members.find((m: any) => m.position === 1) || members[0];
+      const regCode = captain.registration_code;
+      const cleanEmail = (captain.email || "").trim().toLowerCase();
+      const aliases = attendanceEventAliases(captain.event_id) || [captain.event_id];
+
+      if (attended) {
+        await supabase.from("attendance").upsert(
+          {
+            event_id: captain.event_id,
+            participant_id: captain.user_id || registrationId,
+            participant_email: cleanEmail || null,
+            participant_name: captain.captain_name || captain.member_name,
+            registration_code: regCode || null,
+            status: "present",
+            source: "admin_desk",
+            marked_at: nowIso,
+            marked_by: "desk_admin",
+          },
+          { onConflict: "event_id,participant_id" }
+        );
+      } else {
+        if (regCode) {
+          await supabase.from("attendance").delete().eq("registration_code", regCode);
+          await supabase.from("attendance").update({ status: "cancelled" }).eq("registration_code", regCode);
+        }
+        if (cleanEmail) {
+          await supabase.from("attendance").delete().ilike("participant_email", cleanEmail).in("event_id", aliases);
+          await supabase.from("attendance").update({ status: "cancelled" }).ilike("participant_email", cleanEmail).in("event_id", aliases);
+        }
+      }
+    }
+  } catch (attErr) {
+    console.warn("[checkin] bulk toggle attendance sync warning:", attErr);
+  }
 }
 
 export interface PlayerGroup {
@@ -704,17 +964,83 @@ export function useCheckinMembers(eventId?: string, search?: string) {
     const grouped = new Map<string, PlayerGroup>();
 
     for (const m of members) {
-      const key = (m.email || m.id).trim().toLowerCase();
-      const group = grouped.get(key) ?? {
-        key,
-        playerName: m.memberName,
-        email: m.email.trim(),
-        members: [],
-        attended: false,
-      };
+      const regCode = (m.registrationCode || "").trim().toLowerCase();
+      const regId = (m.registrationId || "").trim().toLowerCase();
+      const teamName = (m.teamName || "").trim().toLowerCase();
+      const isTeam = Boolean(
+        (teamName && teamName !== "individual") ||
+        regCode ||
+        (m.captainName && m.captainName !== m.memberName)
+      );
+
+      // Group teams by registrationCode (fallback to registrationId).
+      // This ensures all team members sharing code TT-CE09-7H2G00 unify into 1 single squad card.
+      const key = isTeam && regCode
+        ? `team_code_${regCode}`
+        : isTeam && regId
+          ? `team_id_${regId}`
+          : (m.email || m.userId || m.id).trim().toLowerCase();
+
+      let group = grouped.get(key);
+      if (!group) {
+        group = {
+          key,
+          playerName: isTeam ? (m.captainName || m.memberName) : m.memberName,
+          email: (m.email || "").trim(),
+          members: [],
+          attended: false,
+        };
+        grouped.set(key, group);
+      }
+
+      // If team has an explicit captainName set, default the card's lead name to the captain
+      if (isTeam && m.captainName && !group.playerName) {
+        group.playerName = m.captainName;
+      }
+
       group.members.push(m);
       if (m.attended) group.attended = true;
-      grouped.set(key, group);
+    }
+
+    // Refine each group's captain name, email, and sort order
+    for (const group of grouped.values()) {
+      const isCaptain = (mem: CheckinMember) =>
+        Boolean(
+          mem.captainName &&
+          mem.memberName.trim().toLowerCase() === mem.captainName.trim().toLowerCase()
+        );
+
+      let captainMember = group.members.find(isCaptain);
+      if (!captainMember) {
+        captainMember = group.members.find(
+          (mem) => mem.position === 1 || mem.memberRole === "captain"
+        );
+      }
+
+      const explicitCaptainName = group.members.find((mem) => mem.captainName)?.captainName;
+
+      if (captainMember) {
+        group.playerName = captainMember.memberName;
+        if (captainMember.email) group.email = captainMember.email.trim();
+      } else if (explicitCaptainName) {
+        group.playerName = explicitCaptainName;
+      }
+
+      // Sort members within each group:
+      // Exact matched captain first, then position 1 / captain role, then remaining positions
+      group.members.sort((a, b) => {
+        const aIsExactCap = isCaptain(a);
+        const bIsExactCap = isCaptain(b);
+        if (aIsExactCap && !bIsExactCap) return -1;
+        if (!aIsExactCap && bIsExactCap) return 1;
+
+        const aIsCap = a.position === 1 || a.memberRole === "captain";
+        const bIsCap = b.position === 1 || b.memberRole === "captain";
+        if (aIsCap && !bIsCap) return -1;
+        if (!aIsCap && bIsCap) return 1;
+
+        return (a.position ?? 99) - (b.position ?? 99);
+      });
     }
 
     const list = Array.from(grouped.values());

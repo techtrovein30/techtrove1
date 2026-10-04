@@ -1083,6 +1083,8 @@ export async function markEventAttendance(
   });
 
   if (rpcError) {
+    console.error("[coordinatorApi] mark_event_attendance RPC returned error:", rpcError);
+
     // Check if participant is scanning the unified sports pass token
     const cachedSportsToken = (() => {
       try {
@@ -1092,7 +1094,11 @@ export async function markEventAttendance(
       }
     })();
 
-    if (cachedSportsToken && cleanToken === cachedSportsToken) {
+    const isSportsPass =
+      cleanToken === UNIFIED_SPORTS_TOKEN ||
+      (cachedSportsToken !== "" && cleanToken === cachedSportsToken);
+
+    if (isSportsPass) {
       try {
         const days = await getDaysAsync();
         const sportsList = days
@@ -1100,47 +1106,112 @@ export async function markEventAttendance(
           .filter(
             (e) => e.dayId === "day-1" || (e.category ?? "").toLowerCase().startsWith("sport")
           );
-        const sportEventIds = new Set(sportsList.map((e) => e.id));
+        const sportEventIds = new Set(sportsList.map((e) => e.id.toLowerCase()));
         const email = user.email.trim().toLowerCase();
 
-        const { data: memberRows } = await supabase
-          .from("registration_members")
-          .select("event_id, event_name")
-          .ilike("email", email);
+        const [memberRowsRes, intRegsRes, extRegsRes] = await Promise.all([
+          supabase
+            .from("registration_members")
+            .select("event_id, event_name")
+            .ilike("email", email),
+          supabase.from("registrations_internal").select("event_id").eq("user_id", user.id),
+          supabase.from("registrations_external").select("event_id").eq("user_id", user.id),
+        ]);
 
-        const registeredSports = (memberRows ?? []).filter((m) => sportEventIds.has(m.event_id));
+        const ALL_SPORT_SLUGS = new Set([
+          "cricket", "football", "volleyball", "kabaddi", "kho-kho", "khokho",
+          "throwball", "chess", "carrom", "sport-cricket", "sport-football",
+          "sport-volleyball", "sport-kabaddi", "sport-khokho", "sport-khokho-girls",
+          "sport-throwball-girls", "sport-chess", "sport-chess-girls", "sport-carrom",
+          "sport-carrom-girls",
+        ]);
 
-        if (registeredSports.length > 0) {
-          for (const reg of registeredSports) {
-            const matched = sportsList.find((e) => e.id === reg.event_id);
-            if (matched?.attendanceToken && matched.attendanceToken !== cleanToken) {
-              const { data: subRpc } = await supabase.rpc("mark_event_attendance", {
-                p_token: matched.attendanceToken,
-              });
-              const subRes = (subRpc ?? {}) as Record<string, unknown>;
-              if (subRes.ok) {
-                emitRealtimeAttendance(matched.id);
-                return {
-                  ok: true,
-                  reason: "success",
-                  message: `✅ Attendance Marked for ${matched.name}!`,
-                  eventName: matched.name,
-                  markedAt: String(subRes.marked_at || new Date().toISOString()),
-                };
-              } else if (subRes.reason === "already_attended") {
-                return {
-                  ok: false,
-                  reason: "already_attended",
-                  message: `✓ Attendance already marked for ${matched.name}.`,
-                  eventName: matched.name,
-                  markedAt: String(subRes.marked_at || ""),
-                };
-              }
-            }
+        const isSportId = (id?: string | null): boolean => {
+          if (!id) return false;
+          const clean = id.trim().toLowerCase();
+          return (
+            sportEventIds.has(clean) ||
+            clean.startsWith("sport-") ||
+            ALL_SPORT_SLUGS.has(clean) ||
+            ALL_SPORT_SLUGS.has(clean.replace(/^sport-/, ""))
+          );
+        };
+
+        const userSportEvents = new Set<string>();
+        for (const m of memberRowsRes.data ?? []) {
+          if (m.event_id && isSportId(m.event_id)) {
+            userSportEvents.add(m.event_id);
           }
         }
-      } catch {
-        // Fall back to rpc error
+        for (const r of [...(intRegsRes.data ?? []), ...(extRegsRes.data ?? [])]) {
+          if (r.event_id && isSportId(r.event_id)) {
+            userSportEvents.add(r.event_id);
+          }
+        }
+
+        if (userSportEvents.size > 0) {
+          const firstEventId = Array.from(userSportEvents)[0];
+          const matched = sportsList.find((e) => e.id === firstEventId) || {
+            id: firstEventId,
+            name: firstEventId.replace(/^(sport-)/, "").toUpperCase(),
+          };
+
+          // Check if already attended
+          const { data: existingAtt } = await supabase
+            .from("attendance")
+            .select("id, marked_at")
+            .eq("participant_id", user.id)
+            .ilike("event_id", `%${matched.id.replace(/^(sport-)/, "")}%`)
+            .maybeSingle();
+
+          if (existingAtt) {
+            return {
+              ok: false,
+              reason: "already_attended",
+              message: `✓ Attendance already marked for ${matched.name}.`,
+              eventName: matched.name,
+              markedAt: existingAtt.marked_at,
+            };
+          }
+
+          const markedTime = new Date().toISOString();
+          await Promise.all([
+            supabase.from("attendance").upsert(
+              {
+                event_id: matched.id,
+                participant_id: user.id,
+                participant_email: email,
+                participant_name: user.fullName,
+                marked_at: markedTime,
+                status: "present",
+                source: "qr",
+              },
+              { onConflict: "event_id,participant_id" }
+            ),
+            supabase
+              .from("registration_members")
+              .update({ attended: true, attended_at: markedTime, attended_source: "qr" })
+              .ilike("email", email)
+              .ilike("event_id", `%${matched.id.replace(/^(sport-)/, "")}%`),
+          ]);
+
+          emitRealtimeAttendance(matched.id);
+          return {
+            ok: true,
+            reason: "success",
+            message: `✅ Attendance Marked for ${matched.name}!`,
+            eventName: matched.name,
+            markedAt: markedTime,
+          };
+        } else {
+          return {
+            ok: false,
+            reason: "not_registered",
+            message: "❌ You are not registered for any Day 1 sports event.",
+          };
+        }
+      } catch (fallbackErr) {
+        console.error("[coordinatorApi] Client fallback also failed:", fallbackErr);
       }
     }
 
@@ -1180,7 +1251,7 @@ export async function markEventAttendance(
           const sportsList = allEvList.filter(
             (e) => e.dayId === "day-1" || (e.category ?? "").toLowerCase().startsWith("sport")
           );
-          const sportEventIds = new Set(sportsList.map((e) => e.id));
+          const sportEventIds = new Set(sportsList.map((e) => e.id.toLowerCase()));
           const email = user.email.trim().toLowerCase();
 
           const [memberRowsRes, intRegsRes, extRegsRes] = await Promise.all([
@@ -1192,26 +1263,33 @@ export async function markEventAttendance(
             supabase.from("registrations_external").select("event_id").eq("user_id", user.id),
           ]);
 
+          const ALL_SPORT_SLUGS = new Set([
+            "cricket", "football", "volleyball", "kabaddi", "kho-kho", "khokho",
+            "throwball", "chess", "carrom", "sport-cricket", "sport-football",
+            "sport-volleyball", "sport-kabaddi", "sport-khokho", "sport-khokho-girls",
+            "sport-throwball-girls", "sport-chess", "sport-chess-girls", "sport-carrom",
+            "sport-carrom-girls",
+          ]);
+
+          const isSportId = (id?: string | null): boolean => {
+            if (!id) return false;
+            const clean = id.trim().toLowerCase();
+            return (
+              sportEventIds.has(clean) ||
+              clean.startsWith("sport-") ||
+              ALL_SPORT_SLUGS.has(clean) ||
+              ALL_SPORT_SLUGS.has(clean.replace(/^sport-/, ""))
+            );
+          };
+
           const userSportEvents = new Set<string>();
           for (const m of memberRowsRes.data ?? []) {
-            if (
-              m.event_id &&
-              (sportEventIds.has(m.event_id) ||
-                m.event_id.startsWith("sport-") ||
-                m.event_id === "cricket" ||
-                m.event_id === "football")
-            ) {
+            if (m.event_id && isSportId(m.event_id)) {
               userSportEvents.add(m.event_id);
             }
           }
           for (const r of [...(intRegsRes.data ?? []), ...(extRegsRes.data ?? [])]) {
-            if (
-              r.event_id &&
-              (sportEventIds.has(r.event_id) ||
-                r.event_id.startsWith("sport-") ||
-                r.event_id === "cricket" ||
-                r.event_id === "football")
-            ) {
+            if (r.event_id && isSportId(r.event_id)) {
               userSportEvents.add(r.event_id);
             }
           }
@@ -1243,15 +1321,18 @@ export async function markEventAttendance(
 
             const markedTime = new Date().toISOString();
             await Promise.all([
-              supabase.from("attendance").insert({
-                event_id: matched.id,
-                participant_id: user.id,
-                participant_email: email,
-                participant_name: user.fullName,
-                marked_at: markedTime,
-                status: "present",
-                source: "qr",
-              }),
+              supabase.from("attendance").upsert(
+                {
+                  event_id: matched.id,
+                  participant_id: user.id,
+                  participant_email: email,
+                  participant_name: user.fullName,
+                  marked_at: markedTime,
+                  status: "present",
+                  source: "qr",
+                },
+                { onConflict: "event_id,participant_id" }
+              ),
               supabase
                 .from("registration_members")
                 .update({ attended: true, attended_at: markedTime, attended_source: "qr" })
@@ -1332,15 +1413,18 @@ export async function markEventAttendance(
 
           const markedTime = new Date().toISOString();
           await Promise.all([
-            supabase.from("attendance").insert({
-              event_id: targetEvId,
-              participant_id: user.id,
-              participant_email: userEmail,
-              participant_name: user.fullName,
-              marked_at: markedTime,
-              status: "present",
-              source: "qr",
-            }),
+            supabase.from("attendance").upsert(
+              {
+                event_id: targetEvId,
+                participant_id: user.id,
+                participant_email: userEmail,
+                participant_name: user.fullName,
+                marked_at: markedTime,
+                status: "present",
+                source: "qr",
+              },
+              { onConflict: "event_id,participant_id" }
+            ),
             supabase
               .from("registration_members")
               .update({ attended: true, attended_at: markedTime, attended_source: "qr" })
