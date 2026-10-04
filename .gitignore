@@ -7,8 +7,10 @@ dist
 .env.*
 !.env.example
 # One-off admin/DB helper queries (paste into the Supabase SQL editor, never commit)
-query_update_own_*.txt
-query_update_*.txt
+# Schema changes live in supabase/migrations/. Already-tracked files stay tracked -
+# gitignore does not untrack them.
+query_*.sql
+query_*.txt
 all_db_queries.sql
 # Local scratch & tooling
 *.docx
@@ -16,6 +18,13 @@ all_db_queries.sql
 scratch/
 # Session handoff (contains LIVE credentials — never commit)
 session_handoff_email_system.txt
+# Session handoff notes (context only, not needed to run the site)
+HANDOFF_*.txt
+# Supabase CLI local state (machine-specific, never commit).
+# supabase/migrations/ and supabase/functions/ ARE tracked on purpose.
+supabase/.temp/
+# Local admin tooling scripts
+scripts/
 # DB log exports for manual comparison (contain personal data)
 compare/
 test-browser.js
