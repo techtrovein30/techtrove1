@@ -1174,59 +1174,6 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
               )}
 
               {/* ────────────────────────────────────────────────────────── */}
-              {/* 1B. INDIVIDUAL SPORTS PASSES (DAY 1 - CRICKET, FOOTBALL..) */}
-              {/* ────────────────────────────────────────────────────────── */}
-              {(categoryFilter === "all" || categoryFilter === "sports") && (
-                <section className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
-                        <Trophy className="h-5 w-5 text-amber-400" />
-                        Day 1 · Individual Sports Event Passes ({filteredSports.length} Sports)
-                      </h2>
-                      <p className="text-xs text-muted">
-                        Each sport has its own dedicated event pass with live team / player counts
-                        and check-in tracking.
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300">
-                      {filteredSports.length} Sports
-                    </span>
-                  </div>
-
-                  {filteredSports.length === 0 ? (
-                    <div className="rounded-xl border border-white/[0.07] bg-[#141414] p-8 text-center text-muted text-xs">
-                      No sports events match your search.
-                    </div>
-                  ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      {filteredSports.map((item) => {
-                        const rawEv = sportsEvents.find((e) => e.id === item.id);
-                        const stat = attendanceStats[item.id] ||
-                          attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
-                          attendanceStats[`sport-${item.id}`] || { total: 0, attended: 0 };
-                        const unit = getEventUnitLabel(rawEv);
-                        return (
-                          <EventCard
-                            key={item.id}
-                            item={item}
-                            stat={stat}
-                            accentColor="amber"
-                            unitLabel={unit}
-                            onPresent={() => setPresentItem(item)}
-                            onPrint={() => setPrintItem(item)}
-                            onDownload={() => downloadQr(item.qrDataUrl, item.name)}
-                            onCopy={() => copyLink(item.token, item.id)}
-                            isCopied={copiedId === item.id}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* ────────────────────────────────────────────────────────── */}
               {/* 2. MASTER UNIVERSAL TECH & NON-TECH PASS (DAY 2 - ₹75)     */}
               {/* ────────────────────────────────────────────────────────── */}
               {(categoryFilter === "all" ||
@@ -1421,7 +1368,60 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
               )}
 
               {/* ────────────────────────────────────────────────────────── */}
-              {/* 3. TECHNICAL EVENTS GRID (DAY 2 - SEPARATE QRs)            */}
+              {/* 3. INDIVIDUAL SPORTS PASSES (DAY 1 - CRICKET, FOOTBALL..)  */}
+              {/* ────────────────────────────────────────────────────────── */}
+              {(categoryFilter === "all" || categoryFilter === "sports") && (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
+                        <Trophy className="h-5 w-5 text-amber-400" />
+                        Day 1 · Individual Sports Event Passes ({filteredSports.length} Sports)
+                      </h2>
+                      <p className="text-xs text-muted">
+                        Each sport has its own dedicated event pass with live team / player counts
+                        and check-in tracking.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300">
+                      {filteredSports.length} Sports
+                    </span>
+                  </div>
+
+                  {filteredSports.length === 0 ? (
+                    <div className="rounded-xl border border-white/[0.07] bg-[#141414] p-8 text-center text-muted text-xs">
+                      No sports events match your search.
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {filteredSports.map((item) => {
+                        const rawEv = sportsEvents.find((e) => e.id === item.id);
+                        const stat = attendanceStats[item.id] ||
+                          attendanceStats[item.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
+                          attendanceStats[`sport-${item.id}`] || { total: 0, attended: 0 };
+                        const unit = getEventUnitLabel(rawEv);
+                        return (
+                          <EventCard
+                            key={item.id}
+                            item={item}
+                            stat={stat}
+                            accentColor="amber"
+                            unitLabel={unit}
+                            onPresent={() => setPresentItem(item)}
+                            onPrint={() => setPrintItem(item)}
+                            onDownload={() => downloadQr(item.qrDataUrl, item.name)}
+                            onCopy={() => copyLink(item.token, item.id)}
+                            isCopied={copiedId === item.id}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* ────────────────────────────────────────────────────────── */}
+              {/* 4. TECHNICAL EVENTS GRID (DAY 2 - SEPARATE QRs)            */}
               {/* ────────────────────────────────────────────────────────── */}
               {(categoryFilter === "all" || categoryFilter === "technical") && (
                 <section className="space-y-4">
@@ -1474,7 +1474,7 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
               )}
 
               {/* ────────────────────────────────────────────────────────── */}
-              {/* 3. NON-TECHNICAL EVENTS GRID (DAY 2 - SEPARATE QRs)        */}
+              {/* 5. NON-TECHNICAL EVENTS GRID (DAY 2 - SEPARATE QRs)        */}
               {/* ────────────────────────────────────────────────────────── */}
               {(categoryFilter === "all" || categoryFilter === "non_technical") && (
                 <section className="space-y-4">
