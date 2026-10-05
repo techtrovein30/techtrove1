@@ -23,7 +23,7 @@ import { getAllRegistrations, type RegistrationRow } from "./db";
 function sanitizeCheckinSearch(input: string): string {
   return input
     .toUpperCase()
-    .replace(/[^A-Z0-9 .\-&]/g, " ")
+    .replace(/[^A-Z0-9 .\-&@_]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 64);
@@ -204,7 +204,7 @@ export async function adminListCheckinMembers(opts?: {
   if (safeTerm) {
     const term = `%${safeTerm}%`;
     query = query.or(
-      `member_name.ilike.${term},team_name.ilike.${term},captain_name.ilike.${term},registration_code.ilike.${term}`
+      `member_name.ilike.${term},team_name.ilike.${term},captain_name.ilike.${term},registration_code.ilike.${term},email.ilike.${term},reg_number.ilike.${term},phone.ilike.${term}`
     );
   }
 
@@ -299,6 +299,12 @@ export async function adminListCheckinMembers(opts?: {
             .toLowerCase()
             .includes(termLower) ||
           String(m.email || "")
+            .toLowerCase()
+            .includes(termLower) ||
+          String(m.reg_number || "")
+            .toLowerCase()
+            .includes(termLower) ||
+          String(m.phone || "")
             .toLowerCase()
             .includes(termLower)
       );
@@ -547,20 +553,28 @@ export async function adminTogglePlayerCheckin(email: string, attended: boolean)
     ? { attended: true, attended_at: nowIso, attended_source: "admin_desk" }
     : { attended: false, attended_at: null, attended_source: null };
 
-  const { error } = await supabase
+  const { data: members, error } = await supabase
     .from("registration_members")
     .update(updatePayload)
-    .ilike("email", clean);
+    .ilike("email", clean)
+    .select("user_id, event_id, member_name, registration_code");
   if (error) throw new Error(error?.message || "Could not update player check-in.");
 
   // Also sync attendance table
   try {
-    if (attended) {
-      await supabase
-        .from("attendance")
-        .update({ status: "present", marked_at: nowIso })
-        .ilike("participant_email", clean);
-    } else {
+    if (attended && members && members.length > 0) {
+      const attendanceRows = members.map(m => ({
+        event_id: m.event_id,
+        participant_id: m.user_id,
+        participant_email: clean,
+        participant_name: m.member_name,
+        registration_code: m.registration_code,
+        status: "present",
+        marked_at: nowIso,
+        marked_by: "desk_admin",
+      }));
+      await supabase.from("attendance").upsert(attendanceRows, { onConflict: "event_id,participant_id" });
+    } else if (!attended) {
       await supabase
         .from("attendance")
         .delete()

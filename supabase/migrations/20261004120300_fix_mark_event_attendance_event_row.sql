@@ -153,8 +153,15 @@ begin
     into v_existing
     from public.attendance a
    where (
-     a.event_id = v_effective_event_id
-     or regexp_replace(a.event_id, '^(tech-|nontech-|sport-)', '') = regexp_replace(v_effective_event_id, '^(tech-|nontech-|sport-)', '')
+     (v_is_sports and v_target_event.id is null and (
+       a.event_id in (select id from public.events where day_id = 'day-1' or lower(coalesce(category, '')) like 'sport%')
+       or replace(a.event_id, 'sport-', '') in ('cricket', 'football', 'volleyball', 'kabaddi', 'khokho', 'khokho-girls', 'throwball-girls', 'chess', 'chess-girls', 'carrom', 'carrom-girls')
+       or a.event_id = 'sports-unified-master'
+     ))
+     or (not (v_is_sports and v_target_event.id is null) and (
+       a.event_id = v_effective_event_id
+       or regexp_replace(a.event_id, '^(tech-|nontech-|sport-)', '') = regexp_replace(v_effective_event_id, '^(tech-|nontech-|sport-)', '')
+     ))
    )
    and (
      (a.participant_email is not null and lower(btrim(a.participant_email)) = v_email)
@@ -174,19 +181,35 @@ begin
   end if;
 
   -- 5. Record verified attendance
-  insert into public.attendance (
-    event_id, participant_id, participant_email, participant_name,
-    registration_code, status, marked_at, marked_by
-  ) values (
-    v_effective_event_id,
-    v_uid::text,
-    v_email,
-    coalesce(v_member.member_name, v_user_name),
-    v_member.registration_code,
-    'present',
-    now(),
-    'qr_scanner'
-  );
+  if v_is_sports and v_target_event.id is null then
+    insert into public.attendance (
+      event_id, participant_id, participant_email, participant_name,
+      registration_code, status, marked_at, marked_by
+    )
+    select event_id, v_uid::text, v_email, coalesce(member_name, v_user_name),
+           registration_code, 'present', now(), 'qr_scanner'
+      from public.registration_members
+     where (lower(btrim(email)) = v_email or (user_id is not null and user_id = v_uid))
+       and (
+         event_id in (select id from public.events where day_id = 'day-1' or lower(coalesce(category, '')) like 'sport%')
+         or replace(event_id, 'sport-', '') in ('cricket', 'football', 'volleyball', 'kabaddi', 'khokho', 'khokho-girls', 'throwball-girls', 'chess', 'chess-girls', 'carrom', 'carrom-girls')
+       )
+    on conflict (event_id, participant_id) do nothing;
+  else
+    insert into public.attendance (
+      event_id, participant_id, participant_email, participant_name,
+      registration_code, status, marked_at, marked_by
+    ) values (
+      v_effective_event_id,
+      v_uid::text,
+      v_email,
+      coalesce(v_member.member_name, v_user_name),
+      v_member.registration_code,
+      'present',
+      now(),
+      'qr_scanner'
+    );
+  end if;
 
   -- Also update registration_members attended flag
   update public.registration_members
@@ -198,8 +221,14 @@ begin
      or (user_id is not null and user_id = v_uid)
    )
    and (
-     event_id = v_effective_event_id
-     or regexp_replace(event_id, '^(tech-|nontech-|sport-)', '') = regexp_replace(v_effective_event_id, '^(tech-|nontech-|sport-)', '')
+     (v_is_sports and v_target_event.id is null and (
+       event_id in (select id from public.events where day_id = 'day-1' or lower(coalesce(category, '')) like 'sport%')
+       or replace(event_id, 'sport-', '') in ('cricket', 'football', 'volleyball', 'kabaddi', 'khokho', 'khokho-girls', 'throwball-girls', 'chess', 'chess-girls', 'carrom', 'carrom-girls')
+     ))
+     or (not (v_is_sports and v_target_event.id is null) and (
+       event_id = v_effective_event_id
+       or regexp_replace(event_id, '^(tech-|nontech-|sport-)', '') = regexp_replace(v_effective_event_id, '^(tech-|nontech-|sport-)', '')
+     ))
    );
 
   return jsonb_build_object(
