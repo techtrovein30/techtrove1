@@ -158,6 +158,71 @@ export async function adminScanCheckin(raw: string): Promise<ScanResult> {
   return toScanResult((data?.[0] ?? {}) as Record<string, unknown>);
 }
 
+export async function adminScanCheckinByCode(regCode: string): Promise<ScanResult> {
+  const cleanCode = regCode.trim().toUpperCase();
+  
+  const { data, error } = await supabase
+    .from("registration_members")
+    .select("user_id, event_id, member_name, email, participant_type, attended, registration_code")
+    .eq("registration_code", cleanCode);
+
+  if (error || !data || data.length === 0) {
+    return { ok: false, reason: "not_registered", displayName: null };
+  }
+
+  const email = data[0].email || "";
+  const displayName = data[0].member_name || email;
+  const participantType = data[0].participant_type as any;
+  const alreadyAttended = data.filter(d => d.attended).length;
+  
+  if (alreadyAttended === data.length) {
+    return {
+      ok: true,
+      email,
+      displayName,
+      participantType,
+      membersChecked: 0,
+      membersTotal: data.length,
+      alreadyAttended: data.length,
+      duplicate: true,
+    };
+  }
+
+  const nowIso = new Date().toISOString();
+  const updatePayload = { attended: true, attended_at: nowIso, attended_source: "admin_desk" };
+
+  const { error: updErr } = await supabase
+    .from("registration_members")
+    .update(updatePayload)
+    .eq("registration_code", cleanCode);
+
+  if (updErr) throw new Error("Could not check in this registration code.");
+
+  const attendanceRows = data.map(m => ({
+    event_id: m.event_id,
+    participant_id: m.user_id,
+    participant_email: m.email || null,
+    participant_name: m.member_name,
+    registration_code: m.registration_code,
+    status: "present",
+    marked_at: nowIso,
+    marked_by: "desk_admin",
+  }));
+  
+  await supabase.from("attendance").upsert(attendanceRows, { onConflict: "event_id,participant_id" }).catch(() => {});
+
+  return {
+    ok: true,
+    email,
+    displayName,
+    participantType,
+    membersChecked: data.length - alreadyAttended,
+    membersTotal: data.length,
+    alreadyAttended,
+    duplicate: false,
+  };
+}
+
 /**
  * React hook: the signed-in participant's check-in passes.
  * `refresh` is returned so the profile can re-fetch after an admin edits a

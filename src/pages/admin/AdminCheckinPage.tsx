@@ -34,7 +34,7 @@ import {
   shouldDeferCheckinReload,
   markCheckinReload,
 } from "../../lib/checkin";
-import { adminScanCheckin, type ScanResult } from "../../lib/checkinQr";
+import { adminScanCheckin, adminScanCheckinByCode, type ScanResult } from "../../lib/checkinQr";
 import {
   getAttendanceEventStats,
   CANONICAL_EVENT_TOKENS,
@@ -647,7 +647,12 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
       }
 
       try {
-        const result = await adminScanCheckin(raw);
+        let result;
+        if (raw.trim().toUpperCase().startsWith("TT-")) {
+          result = await adminScanCheckinByCode(raw);
+        } else {
+          result = await adminScanCheckin(raw);
+        }
         setScanResult(result);
         if (result.ok) {
 // Flip the row in place. This used to re-read every registration_members
