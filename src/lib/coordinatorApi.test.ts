@@ -63,6 +63,8 @@ import {
   getAssignedCoordinatorEvent,
   parseAttendanceToken,
   getAttendanceEventStats,
+  UNIFIED_DAY2_TOKEN,
+  CANONICAL_EVENT_TOKENS,
 } from "./coordinatorApi";
 import { supabase } from "./supabase";
 import { requireAdmin } from "./adminGuard";
@@ -617,4 +619,33 @@ describe("getAttendanceEventStats desk headcounts", () => {
     expect(stats["sports-unified-master"].attended).toBe(1);
     expect(stats["sports-unified-master"].total).toBe(2);
   });
+
+  it("maps UNIFIED_DAY2_TOKEN and aggregates Day 2 tech & non-tech stats", async () => {
+    expect(UNIFIED_DAY2_TOKEN).toMatch(/^[0-9a-f]{32}$/);
+    expect(CANONICAL_EVENT_TOKENS["tech-nontech-universal"]).toBe(UNIFIED_DAY2_TOKEN);
+    expect(CANONICAL_EVENT_TOKENS["day-2-universal"]).toBe(UNIFIED_DAY2_TOKEN);
+
+    vi.mocked(getRegistrationCountsByEvent).mockResolvedValue({
+      hackathon: 10,
+      dance: 8,
+    } as never);
+
+    tables({
+      events: [
+        { id: "hackathon", name: "Hackathon", category: "technical", day_id: "day-2" },
+        { id: "dance", name: "Dance", category: "non-technical", day_id: "day-2" },
+      ],
+      registration_member_stats: [
+        { event_id: "hackathon", attended_people: 6 },
+        { event_id: "dance", attended_people: 4 },
+      ],
+    });
+
+    const stats = await getAttendanceEventStats();
+
+    expect(stats["tech-nontech-universal"]).toBeDefined();
+    expect(stats["tech-nontech-universal"].total).toBe(18);
+    expect(stats["day-2-universal"].total).toBe(18);
+  });
 });
+

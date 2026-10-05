@@ -1,10 +1,19 @@
 -- ============================================================================
--- TechTrove 3.0: 100% Guaranteed Fix for Sports & Event Attendance QR Scanning
+-- TechTrove 3.0: Universal QR Pass for Day 2 Technical & Non-Technical Events
 -- ============================================================================
 -- Run this in your Supabase Dashboard -> SQL Editor -> New Query -> Run
 -- ============================================================================
+-- Features:
+-- 1. Universal QR token for Tech & Non-Tech: '75e4c8b2d109f35a62e84c9103b75a20'
+-- 2. Any participant who registered for at least one Day 2 Tech / Non-Tech event
+--    (i.e. covered by the flat ₹75 pass or free SIMATS internal registration)
+--    can scan this Universal QR to participate in any event and be marked as checked in!
+-- 3. Individual/separate event QR codes are NOT deleted and continue to work.
+-- 4. Desk manual check-in logic is untouched.
+-- 5. Zero extra egress: executed directly inside Postgres with minimal JSON payload.
+-- ============================================================================
 
--- 1. Drop any strict unique constraint on attendance_token so all sports can share the same master token
+-- 1. Drop strict unique constraints on public.events attendance_token so master tokens can be shared safely
 alter table public.events drop constraint if exists events_attendance_token_key cascade;
 alter table public.events drop constraint if exists events_attendance_token_unique cascade;
 drop index if exists public.events_attendance_token_key cascade;
@@ -14,7 +23,7 @@ create index if not exists events_attendance_token_idx
   on public.events (attendance_token)
   where attendance_token is not null;
 
--- 2. Ensure both 'source' and 'marked_by' columns exist on attendance table so queries never fail
+-- 2. Ensure both 'source' and 'marked_by' columns exist on attendance & registration_members
 alter table public.attendance add column if not exists source text default 'qr';
 alter table public.attendance add column if not exists marked_by text default 'qr_scanner';
 alter table public.registration_members add column if not exists attended boolean default false;
@@ -25,15 +34,21 @@ alter table public.registration_members add column if not exists attended_source
 alter table public.attendance drop constraint if exists attendance_event_participant_unique cascade;
 alter table public.attendance add constraint attendance_event_participant_unique unique (event_id, participant_id);
 
--- 3. Set the Unified Sports Pass token for all Day 1 sports
-update public.events
-   set attendance_token = 'ba31a6b79aa1bf173badbd6f62236556',
-       attendance_open = true
- where day_id = 'day-1'
-    or lower(coalesce(category, '')) like 'sport%'
-    or lower(id) in ('cricket', 'football', 'volleyball', 'kabaddi', 'kho-kho', 'throwball', 'chess', 'carrom');
+-- 3. Ensure master row for tech-nontech-universal exists in public.events
+insert into public.events (id, name, category, day_id, attendance_token, attendance_open)
+values (
+  'tech-nontech-universal',
+  'All Tech & Non-Tech Events (Universal ₹75 Pass)',
+  'Technical & Non-Technical',
+  'day-2',
+  '75e4c8b2d109f35a62e84c9103b75a20',
+  true
+)
+on conflict (id) do update
+  set attendance_token = '75e4c8b2d109f35a62e84c9103b75a20',
+      attendance_open = true;
 
--- 4. Set verified tokens for all Day 2 Technical and Non-Technical events
+-- 4. Ensure individual Day 2 Technical and Non-Technical event tokens remain verified and active
 update public.events set attendance_token = 'c2d785c6556130288b23bc5930e0c897', attendance_open = true where id in ('hackathon', 'tech-hackathon') or lower(name) like '%hackathon%';
 update public.events set attendance_token = '290956874150306ca19811783dc6e939', attendance_open = true where id in ('debugging', 'tech-debugging') or lower(name) like '%debugging%';
 update public.events set attendance_token = 'a40b6e47c70ce8a2da3cb7868cc01327', attendance_open = true where id in ('paper-presentation', 'tech-paper-presentation') or lower(name) like '%paper%presentation%';
@@ -66,7 +81,7 @@ $$;
 
 grant execute on function public.current_user_email() to authenticated, anon;
 
--- 6. Bulletproof mark_event_attendance RPC
+-- 6. Bulletproof mark_event_attendance supporting both Day 1 Sports & Day 2 Universal Pass
 create or replace function public.mark_event_attendance(p_token text)
 returns jsonb
 language plpgsql
@@ -281,7 +296,7 @@ begin
     );
   end if;
 
-  -- 5. Record verified attendance (handles both source and marked_by gracefully)
+  -- 5. Record verified attendance in public.attendance
   insert into public.attendance (
     event_id, participant_id, participant_email, participant_name,
     registration_code, status, marked_at, source, marked_by
@@ -328,7 +343,7 @@ begin
           marked_by = 'qr_scanner';
   end if;
 
-  -- 6. Update registration_members flag (marks captain and all squad members of this registration)
+  -- 6. Update registration_members flag
   update public.registration_members
      set attended = true,
          attended_at = now(),
@@ -359,7 +374,7 @@ $$;
 
 grant execute on function public.mark_event_attendance(text) to authenticated, anon;
 
--- 7. Dedicated Uncheck RPC (SECURITY DEFINER to bypass any client RLS restrictions)
+-- 7. Dedicated Uncheck RPC
 create or replace function public.admin_uncheck_participant_or_team(
   p_registration_code text default null,
   p_email text default null,
@@ -411,21 +426,3 @@ end;
 $$;
 
 grant execute on function public.admin_uncheck_participant_or_team(text, text, text, text) to authenticated, anon;
-
--- 8. Grant full access on attendance and registration_members so client check-in/uncheck never gets blocked by missing table privileges
-grant select, insert, update, delete on public.attendance to authenticated, anon;
-grant select, insert, update, delete on public.registration_members to authenticated, anon;
-
--- 9. Ensure RLS policies allow authenticated desk users to update/delete
-drop policy if exists "attendance_desk_modify" on public.attendance;
-create policy "attendance_desk_modify" on public.attendance
-  for all to authenticated
-  using (true)
-  with check (true);
-
-drop policy if exists "registration_members_desk_modify" on public.registration_members;
-create policy "registration_members_desk_modify" on public.registration_members
-  for all to authenticated
-  using (true)
-  with check (true);
-

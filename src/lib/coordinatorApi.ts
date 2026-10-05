@@ -687,9 +687,15 @@ export async function ensureEventAttendanceToken(eventId: string): Promise<strin
 export const UNIFIED_SPORTS_TOKEN_KEY = "techtrove_sports_attendance_token";
 export const UNIFIED_SPORTS_TOKEN = "ba31a6b79aa1bf173badbd6f62236556";
 
+export const UNIFIED_DAY2_TOKEN_KEY = "techtrove_day2_attendance_token";
+export const UNIFIED_DAY2_TOKEN = "75e4c8b2d109f35a62e84c9103b75a20";
+
 export const CANONICAL_EVENT_TOKENS: Record<string, string> = {
-  // Master Unified Sports Token
+  // Master Unified Sports Token (Day 1)
   "sports-unified-master": UNIFIED_SPORTS_TOKEN,
+  // Master Universal Day 2 Token (Tech & Non-Tech)
+  "tech-nontech-universal": UNIFIED_DAY2_TOKEN,
+  "day-2-universal": UNIFIED_DAY2_TOKEN,
   // Tech Events
   hackathon: "c2d785c6556130288b23bc5930e0c897",
   "tech-hackathon": "c2d785c6556130288b23bc5930e0c897",
@@ -763,6 +769,16 @@ export async function ensureSportsAttendanceToken(_sportsEvents?: TechEvent[]): 
     localStorage.setItem(UNIFIED_SPORTS_TOKEN_KEY, UNIFIED_SPORTS_TOKEN);
   } catch {}
   return UNIFIED_SPORTS_TOKEN;
+}
+
+/**
+ * Ensures all Day 2 technical and non-technical events can be checked in via a single unified pass.
+ */
+export async function ensureDay2AttendanceToken(): Promise<string> {
+  try {
+    localStorage.setItem(UNIFIED_DAY2_TOKEN_KEY, UNIFIED_DAY2_TOKEN);
+  } catch {}
+  return UNIFIED_DAY2_TOKEN;
 }
 
 /**
@@ -1014,6 +1030,42 @@ export async function getAttendanceEventStats(): Promise<
       };
       stats["sports-unified-master"] = sportsSummary;
       stats["sports-unified"] = sportsSummary;
+
+      // Add Day 2 Universal Tech & Non-Tech summary (without extra egress)
+      let day2Total = 0;
+      const day2Attended = new Set<string>();
+      for (const ev of eventsRes.data) {
+        const isDay2 =
+          ev.day_id === "day-2" ||
+          ["technical", "non-technical", "non_technical", "tech", "nontech"].includes(
+            (ev.category ?? "").toLowerCase()
+          );
+        if (isDay2) {
+          const idLower = ev.id.trim().toLowerCase();
+          const clean = normalizeKey(idLower);
+          const summary = stats[idLower] || stats[clean] || { total: 0, attended: 0 };
+          day2Total += summary.total;
+          for (const source of [attendedSets[idLower], attendedSets[clean]]) {
+            if (!source) continue;
+            for (const e of source) day2Attended.add(e);
+          }
+        }
+      }
+      const day2Summary = {
+        total: Math.max(
+          rpcData["tech-nontech-universal"]?.total ?? 0,
+          rpcData["day-2-universal"]?.total ?? 0,
+          day2Total
+        ),
+        attended: Math.max(
+          rpcData["tech-nontech-universal"]?.attended ?? 0,
+          rpcData["day-2-universal"]?.attended ?? 0,
+          day2Attended.size,
+          attendedSets["tech-nontech-universal"]?.size ?? 0
+        ),
+      };
+      stats["tech-nontech-universal"] = day2Summary;
+      stats["day-2-universal"] = day2Summary;
     }
   } catch (err) {
     console.error("[coordinatorApi] getAttendanceEventStats error:", err);
@@ -1032,6 +1084,151 @@ export async function getAttendanceEventStats(): Promise<
  */
 export function parseAttendanceToken(tokenRaw: string): string {
   return extractEventToken(tokenRaw) ?? "";
+}
+
+/**
+ * Day 2 Universal fallback: ensures a participant registered for any Tech or Non-Tech event
+ * (or covered by the ₹75 flat pass) is verified and marked present.
+ */
+async function handleDay2PassFallback(
+  user: User,
+  specificTargetId?: string
+): Promise<MarkAttendanceResult> {
+  try {
+    const days = await getDaysAsync();
+    const day2List = days
+      .flatMap((d) => d.events)
+      .filter(
+        (e) =>
+          e.dayId === "day-2" ||
+          ["technical", "non-technical", "non_technical", "tech", "nontech"].includes(
+            (e.category ?? "").toLowerCase()
+          )
+      );
+    const day2EventIds = new Set(day2List.map((e) => e.id.toLowerCase()));
+    const email = (user.email || "").trim().toLowerCase();
+
+    const [memberRowsRes, intRegsRes, extRegsRes] = await Promise.all([
+      supabase
+        .from("registration_members")
+        .select("event_id, event_name")
+        .ilike("email", email),
+      supabase.from("registrations_internal").select("event_id").eq("user_id", user.id),
+      supabase.from("registrations_external").select("event_id").eq("user_id", user.id),
+    ]);
+
+    const ALL_DAY2_SLUGS = new Set([
+      "hackathon", "debugging", "paper-presentation", "tech-maze", "quiz",
+      "logo-making", "dance", "singing", "gaming", "ramp-walk", "treasure-hunt",
+      "connexion", "adaptune", "tunetopia", "squid-game", "pass-the-ball",
+      "tech-hackathon", "tech-debugging", "tech-paper-presentation",
+      "tech-quiz", "tech-logo-making", "nontech-dance", "nontech-singing",
+      "nontech-mobile-gaming", "nontech-gaming", "nontech-ramp-walk",
+      "nontech-treasure-hunt", "nontech-connexion", "nontech-adaptune",
+      "nontech-tunetopia", "nontech-squid-game", "nontech-pass-the-ball",
+      "tech-nontech-universal", "day-2-universal",
+    ]);
+
+    const isDay2Id = (id?: string | null): boolean => {
+      if (!id) return false;
+      const clean = id.trim().toLowerCase();
+      return (
+        day2EventIds.has(clean) ||
+        clean.startsWith("tech-") ||
+        clean.startsWith("nontech-") ||
+        ALL_DAY2_SLUGS.has(clean) ||
+        ALL_DAY2_SLUGS.has(clean.replace(/^(tech-|nontech-)/, ""))
+      );
+    };
+
+    const userDay2Events = new Set<string>();
+    for (const m of memberRowsRes.data ?? []) {
+      if (m.event_id && isDay2Id(m.event_id)) {
+        userDay2Events.add(m.event_id);
+      }
+    }
+    for (const r of [...(intRegsRes.data ?? []), ...(extRegsRes.data ?? [])]) {
+      if (r.event_id && isDay2Id(r.event_id)) {
+        userDay2Events.add(r.event_id);
+      }
+    }
+
+    if (userDay2Events.size === 0) {
+      return {
+        ok: false,
+        reason: "not_registered",
+        message: "❌ You are not registered for any Day 2 Tech / Non-Tech event (₹75 Pass required).",
+      };
+    }
+
+    const effectiveEventId = specificTargetId || "tech-nontech-universal";
+    const matchedEvent = day2List.find((e) => e.id === effectiveEventId);
+    const eventDisplayName =
+      matchedEvent?.name ||
+      (effectiveEventId === "tech-nontech-universal"
+        ? "Day 2 Universal Tech & Non-Tech Pass"
+        : effectiveEventId.replace(/^(tech-|nontech-)/, "").toUpperCase());
+
+    // Check if already attended
+    const { data: existingAtt } = await supabase
+      .from("attendance")
+      .select("id, marked_at")
+      .eq("participant_id", user.id)
+      .in("event_id", [
+        effectiveEventId,
+        "tech-nontech-universal",
+        "day-2-universal",
+        ...Array.from(userDay2Events),
+      ])
+      .maybeSingle();
+
+    if (existingAtt) {
+      return {
+        ok: false,
+        reason: "already_attended",
+        message: `✓ Attendance already marked for ${eventDisplayName}.`,
+        eventName: eventDisplayName,
+        markedAt: existingAtt.marked_at,
+      };
+    }
+
+    const markedTime = new Date().toISOString();
+    await Promise.all([
+      supabase.from("attendance").upsert(
+        {
+          event_id: effectiveEventId,
+          participant_id: user.id,
+          participant_email: email,
+          participant_name: user.fullName,
+          marked_at: markedTime,
+          status: "present",
+          source: "qr",
+        },
+        { onConflict: "event_id,participant_id" }
+      ),
+      supabase
+        .from("registration_members")
+        .update({ attended: true, attended_at: markedTime, attended_source: "qr" })
+        .ilike("email", email)
+        .in("event_id", Array.from(userDay2Events)),
+    ]);
+
+    emitRealtimeAttendance(effectiveEventId);
+    return {
+      ok: true,
+      reason: "success",
+      message: `✅ Attendance Marked for ${eventDisplayName}!`,
+      eventName: eventDisplayName,
+      markedAt: markedTime,
+    };
+  } catch (err) {
+    console.error("[coordinatorApi] Day 2 fallback error:", err);
+    return {
+      ok: false,
+      reason: "error",
+      message: "❌ Could not complete attendance check-in.",
+    };
+  }
 }
 
 /**
@@ -1093,10 +1290,24 @@ export async function markEventAttendance(
         return "";
       }
     })();
+    const cachedDay2Token = (() => {
+      try {
+        return localStorage.getItem(UNIFIED_DAY2_TOKEN_KEY)?.trim().toLowerCase() ?? "";
+      } catch {
+        return "";
+      }
+    })();
 
     const isSportsPass =
       cleanToken === UNIFIED_SPORTS_TOKEN ||
       (cachedSportsToken !== "" && cleanToken === cachedSportsToken);
+    const isDay2Pass =
+      cleanToken === UNIFIED_DAY2_TOKEN ||
+      (cachedDay2Token !== "" && cleanToken === cachedDay2Token);
+
+    if (isDay2Pass) {
+      return await handleDay2PassFallback(user);
+    }
 
     if (isSportsPass) {
       try {
@@ -1227,7 +1438,7 @@ export async function markEventAttendance(
     res.reason ?? (res.ok ? "success" : "error")
   ) as MarkAttendanceResult["reason"];
 
-  // If RPC returned not_registered or invalid_qr on the sports pass or canonical card tokens, check client fallback
+  // If RPC returned not_registered or invalid_qr on the sports pass, Day 2 pass, or canonical card tokens, check client fallback
   if (!res.ok && (reason === "not_registered" || reason === "invalid_qr")) {
     const cachedSportsToken = (() => {
       try {
@@ -1236,11 +1447,43 @@ export async function markEventAttendance(
         return "";
       }
     })();
+    const cachedDay2Token = (() => {
+      try {
+        return localStorage.getItem(UNIFIED_DAY2_TOKEN_KEY)?.trim().toLowerCase() ?? "";
+      } catch {
+        return "";
+      }
+    })();
 
     const isSportsPass =
       cleanToken === UNIFIED_SPORTS_TOKEN ||
       (cachedSportsToken && cleanToken === cachedSportsToken);
+    const isDay2Pass =
+      cleanToken === UNIFIED_DAY2_TOKEN ||
+      (cachedDay2Token && cleanToken === cachedDay2Token);
+
+    if (isDay2Pass) {
+      return await handleDay2PassFallback(user);
+    }
+
     const targetCanonicalEventId = CANONICAL_TOKEN_TO_EVENT[cleanToken];
+
+    if (targetCanonicalEventId) {
+      const cleanTarget = targetCanonicalEventId.replace(/^(tech-|nontech-|sport-)/, "");
+      const isDay2Target =
+        [
+          "hackathon", "debugging", "paper-presentation", "tech-maze", "quiz",
+          "logo-making", "dance", "singing", "gaming", "ramp-walk", "treasure-hunt",
+          "connexion", "adaptune", "tunetopia", "squid-game", "pass-the-ball",
+          "tech-nontech-universal", "day-2-universal",
+        ].includes(cleanTarget) ||
+        targetCanonicalEventId.startsWith("tech-") ||
+        targetCanonicalEventId.startsWith("nontech-");
+
+      if (isDay2Target) {
+        return await handleDay2PassFallback(user, targetCanonicalEventId);
+      }
+    }
 
     if (isSportsPass || targetCanonicalEventId) {
       try {

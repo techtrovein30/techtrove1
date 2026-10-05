@@ -208,8 +208,9 @@ export async function adminScanCheckinByCode(regCode: string): Promise<ScanResul
     marked_at: nowIso,
     marked_by: "desk_admin",
   }));
-  
-  await supabase.from("attendance").upsert(attendanceRows, { onConflict: "event_id,participant_id" }).catch(() => {});
+  try {
+    await supabase.from("attendance").upsert(attendanceRows, { onConflict: "event_id,participant_id" });
+  } catch {}
 
   return {
     ok: true,

@@ -39,6 +39,7 @@ import {
   getAttendanceEventStats,
   CANONICAL_EVENT_TOKENS,
   UNIFIED_SPORTS_TOKEN,
+  UNIFIED_DAY2_TOKEN,
 } from "../../lib/coordinatorApi";
 import { adminUpdateEvent } from "../../lib/eventStore";
 import { buildEventQrPayload } from "../../lib/qrToken";
@@ -94,8 +95,12 @@ function getEventUnitLabel(ev?: TechEvent): string {
 }
 
 const STATIC_QR_MAP: Record<string, string> = {
-  // Master Unified Sports Pass
+  // Master Unified Sports Pass (Day 1)
   "sports-unified-master": "/checkin%20qr's/sports-pass.png",
+
+  // Master Universal Tech & Non-Tech Pass (Day 2 - ₹75 Flat Pass)
+  "tech-nontech-universal": "/checkin%20qr's/tech-nontech-pass.png",
+  "day-2-universal": "/checkin%20qr's/tech-nontech-pass.png",
 
   // Technical Events
   hackathon: "/checkin%20qr's/hackathon.png",
@@ -166,6 +171,8 @@ export function AdminCheckinPage({ viewOnly = false }: { viewOnly?: boolean } = 
   // Tokens & QR Data
   const [sportsToken, setSportsToken] = useState<string>("");
   const [sportsQrUrl, setSportsQrUrl] = useState<string>("");
+  const [day2Token, setDay2Token] = useState<string>("");
+  const [day2QrUrl, setDay2QrUrl] = useState<string>("");
   const [eventTokens, setEventTokens] = useState<Record<string, string>>({});
   const [eventQrUrls, setEventQrUrls] = useState<Record<string, string>>({});
   const [attendanceStats, setAttendanceStats] = useState<
@@ -366,12 +373,22 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
 
     const initQrs = async () => {
       try {
-        // 1. Unified Sports Pass
+        // 1. Unified Sports Pass (Day 1)
         const sToken = resolveSports(sportsEvents);
         const sQr = STATIC_QR_MAP["sports-unified-master"] || (await generateQrData(sToken));
         if (cancelled) return;
         setSportsToken(sToken);
         setSportsQrUrl(sQr);
+
+        // 1B. Universal Tech & Non-Tech Pass (Day 2 - ₹75 Flat Pass)
+        const d2Token = UNIFIED_DAY2_TOKEN;
+        const d2Qr =
+          STATIC_QR_MAP["tech-nontech-universal"] ||
+          STATIC_QR_MAP["day-2-universal"] ||
+          (await generateQrData(d2Token));
+        if (cancelled) return;
+        setDay2Token(d2Token);
+        setDay2QrUrl(d2Qr);
 
         // 2. Individual Sports, Tech & Non-Tech QRs in parallel
         const allOther = [...sportsEvents, ...techEvents, ...nonTechEvents];
@@ -525,6 +542,57 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
       subEvents: sportsEvents,
     };
   }, [sportsToken, sportsQrUrl, sportsEvents]);
+
+  // Aggregate Day 2 (Tech & Non-Tech) Stats
+  const day2Stats = useMemo(() => {
+    if (
+      attendanceStats["tech-nontech-universal"] &&
+      attendanceStats["tech-nontech-universal"].total > 0
+    ) {
+      return attendanceStats["tech-nontech-universal"];
+    }
+    let total = 0;
+    let attended = 0;
+    const countedEvents = new Set<string>();
+
+    for (const ev of [...techEvents, ...nonTechEvents]) {
+      const clean = ev.id.replace(/^(tech-|nontech-|sport-)/, "");
+      if (countedEvents.has(clean)) continue;
+      countedEvents.add(clean);
+
+      const s =
+        attendanceStats[ev.id] ||
+        attendanceStats[clean] ||
+        attendanceStats[`tech-${clean}`] ||
+        attendanceStats[`nontech-${clean}`];
+      if (s) {
+        total += s.total;
+        attended += s.attended;
+      }
+    }
+    return { total, attended };
+  }, [techEvents, nonTechEvents, attendanceStats]);
+
+  // Unified Day 2 (Tech & Non-Tech) Universal QR Item
+  const unifiedDay2Item: EventQrItem = useMemo(() => {
+    const payload = day2Token ? buildEventQrPayload(day2Token) : "";
+    const url = payload
+      ? `${window.location.origin}/attendance?token=${encodeURIComponent(payload)}`
+      : "";
+    return {
+      id: "tech-nontech-universal",
+      name: "All Tech & Non-Tech Events (Universal ₹75 Pass)",
+      category: "Technical & Non-Technical - Day 2",
+      dayId: "day-2",
+      venue: "Campus Auditoriums, Labs & Arenas",
+      time: "Day 2 (Full Day)",
+      token: day2Token,
+      qrDataUrl: day2QrUrl,
+      url,
+      isSportsGroup: false,
+      subEvents: [...techEvents, ...nonTechEvents],
+    };
+  }, [day2Token, day2QrUrl, techEvents, nonTechEvents]);
 
   // Technical QR Items
   const techItems: EventQrItem[] = useMemo(() => {
@@ -1159,7 +1227,201 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
               )}
 
               {/* ────────────────────────────────────────────────────────── */}
-              {/* 2. TECHNICAL EVENTS GRID (DAY 2 - SEPARATE QRs)            */}
+              {/* 2. MASTER UNIVERSAL TECH & NON-TECH PASS (DAY 2 - ₹75)     */}
+              {/* ────────────────────────────────────────────────────────── */}
+              {(categoryFilter === "all" ||
+                categoryFilter === "technical" ||
+                categoryFilter === "non_technical") && (
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
+                        <Sparkles className="h-5 w-5 text-sky-400" />
+                        Day 2 · All Tech & Non-Tech Events (1 Universal QR Pass)
+                      </h2>
+                      <p className="text-xs text-muted">
+                        Any participant registered for any Day 2 event (or flat ₹75 pass) can scan this single QR to participate in any competition.
+                      </p>
+                    </div>
+                    <span className="hidden sm:inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[11px] font-semibold text-sky-300">
+                      Universal ₹75 Pass · All Tech & Non-Tech
+                    </span>
+                  </div>
+
+                  <div className="relative overflow-hidden rounded-2xl border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/[0.08] via-[#14151b] to-[#1a1322] p-6 shadow-[0_0_40px_rgba(14,165,233,0.08)]">
+                    {/* Background glow watermark */}
+                    <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-sky-500/10 blur-3xl" />
+                    <div className="pointer-events-none absolute -left-16 -bottom-16 h-64 w-64 rounded-full bg-purple-500/10 blur-3xl" />
+
+                    <div className="grid gap-6 md:grid-cols-12 md:items-center">
+                      {/* Left: Info, Covered Events, Stats */}
+                      <div className="space-y-5 md:col-span-7">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
+                            <span className="rounded-md border border-sky-500/40 bg-sky-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-300">
+                              Universal Pass · Day 2
+                            </span>
+                            <span className="rounded-md border border-purple-500/40 bg-purple-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-300">
+                              ₹75 Flat Pass
+                            </span>
+                            <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-muted">
+                              Single Pass for All Tech & Non-Tech
+                            </span>
+                          </div>
+                          <h3 className="text-2xl font-black tracking-tight text-foreground sm:text-3xl">
+                            All Technical & Non-Technical Check-in
+                          </h3>
+                          <p className="mt-2 text-xs sm:text-sm text-neutral-300 leading-relaxed max-w-xl">
+                            Participants who registered for any event or paid the flat ₹75 pass can scan this
+                            universal QR code. They can participate in any Tech or Non-Tech competition and their
+                            attendance will be recorded as checked in!
+                          </p>
+                        </div>
+
+                        {/* Covered events chips */}
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-sky-400/90 mb-2">
+                            Events Included Under This Pass ({techEvents.length + nonTechEvents.length} Competitions):
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                            {[...techEvents, ...nonTechEvents].map((ev) => {
+                              const s =
+                                attendanceStats[ev.id] ||
+                                attendanceStats[ev.id.replace(/^(tech-|nontech-|sport-)/, "")] ||
+                                attendanceStats[`tech-${ev.id}`] ||
+                                attendanceStats[`nontech-${ev.id}`] || { total: 0, attended: 0 };
+                              const unit = getEventUnitLabel(ev);
+                              const isTech = (ev.category ?? "").toLowerCase() === "technical";
+                              return (
+                                <span
+                                  key={ev.id}
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium shadow-sm",
+                                    isTech
+                                      ? "border-sky-500/25 bg-sky-500/10 text-sky-200"
+                                      : "border-purple-500/25 bg-purple-500/10 text-purple-200"
+                                  )}
+                                >
+                                  <span>{ev.name}</span>
+                                  <span
+                                    className={cn(
+                                      "rounded px-1.5 py-0.5 text-[10px] font-bold",
+                                      isTech
+                                        ? "bg-sky-400/20 text-sky-300"
+                                        : "bg-purple-400/20 text-purple-300"
+                                    )}
+                                  >
+                                    {s.total} {unit}
+                                  </span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Live Day 2 attendance stat bar */}
+                        <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 backdrop-blur-sm">
+                          <div className="flex items-center justify-between text-xs mb-1.5">
+                            <span className="text-muted font-medium">
+                              Day 2 Athletes & Participants Attendance
+                            </span>
+                            <span className="font-semibold text-sky-400">
+                              {day2Stats.attended} / {day2Stats.total} Checked In
+                            </span>
+                          </div>
+                          <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                            <div
+                              className="h-full bg-gradient-to-r from-sky-400 via-indigo-400 to-purple-400 transition-all duration-500"
+                              style={{
+                                width: `${
+                                  day2Stats.total > 0
+                                    ? Math.min(
+                                        100,
+                                        Math.round((day2Stats.attended / day2Stats.total) * 100)
+                                      )
+                                    : 0
+                                }%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setPresentItem(unifiedDay2Item)}
+                            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-purple-400 px-4 py-2 text-xs font-bold text-black hover:opacity-90 shadow-lg shadow-sky-400/20 transition-all"
+                          >
+                            <Maximize2 className="h-4 w-4" />
+                            Present on Screen
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPrintItem(unifiedDay2Item)}
+                            className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-white/10 transition-all"
+                          >
+                            <Printer className="h-4 w-4 text-sky-400" />
+                            Print Poster
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadQr(day2QrUrl, "techtrove-day2-universal-checkin")}
+                            className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/5 px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-white/10 transition-all"
+                          >
+                            <Download className="h-4 w-4" />
+                            Download PNG
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copyLink(day2Token, "day2-universal")}
+                            className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-foreground hover:bg-white/10 transition-all"
+                          >
+                            {copiedId === "day2-universal" ? (
+                              <Check className="h-4 w-4 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                            Copy Link
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Right: Crisp QR Code Display */}
+                      <div className="flex flex-col items-center justify-center md:col-span-5">
+                        <div className="relative group">
+                          <div className="absolute -inset-2 rounded-2xl bg-gradient-to-r from-sky-500 to-purple-500 opacity-20 blur-xl group-hover:opacity-40 transition-opacity" />
+                          <div className="relative rounded-2xl border-2 border-white/20 bg-white p-3.5 shadow-2xl transition-transform group-hover:scale-[1.02]">
+                            {day2QrUrl ? (
+                              <img
+                                src={day2QrUrl}
+                                alt="Day 2 Universal Pass QR Code"
+                                className="h-56 w-56 sm:h-64 sm:w-64 object-contain"
+                              />
+                            ) : (
+                              <div className="flex h-56 w-56 sm:h-64 sm:w-64 items-center justify-center">
+                                <Loader2 className="h-8 w-8 animate-spin text-neutral-400" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 text-center">
+                          <p className="text-[11px] font-mono text-neutral-400">
+                            Token: <span className="text-sky-300 font-bold">{day2Token ? `${day2Token.slice(0, 8)}...${day2Token.slice(-6)}` : "..."}</span>
+                          </p>
+                          <p className="text-[10px] text-muted mt-0.5">
+                            Scan with phone camera or visit <strong className="text-foreground">techtrove.live/attendance</strong>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* ────────────────────────────────────────────────────────── */}
+              {/* 3. TECHNICAL EVENTS GRID (DAY 2 - SEPARATE QRs)            */}
               {/* ────────────────────────────────────────────────────────── */}
               {(categoryFilter === "all" || categoryFilter === "technical") && (
                 <section className="space-y-4">
@@ -1609,6 +1871,7 @@ const { players, loading: playersLoading, refresh, applyScan } = useCheckinMembe
       {batchPrintOpen && (
         <BatchPrintModal
           sportsItem={unifiedSportsItem}
+          day2Item={unifiedDay2Item}
           sportsItems={sportsItems}
           techItems={techItems}
           nonTechItems={nonTechItems}
@@ -1878,12 +2141,14 @@ function PrintPosterModal({ item, onClose }: { item: EventQrItem; onClose: () =>
 
 function BatchPrintModal({
   sportsItem,
+  day2Item,
   sportsItems,
   techItems,
   nonTechItems,
   onClose,
 }: {
   sportsItem: EventQrItem;
+  day2Item?: EventQrItem;
   sportsItems: EventQrItem[];
   techItems: EventQrItem[];
   nonTechItems: EventQrItem[];
@@ -1895,10 +2160,20 @@ function BatchPrintModal({
 
   const itemsToPrint = useMemo(() => {
     if (selectedBatch === "sports") return [sportsItem, ...sportsItems];
-    if (selectedBatch === "technical") return techItems;
-    if (selectedBatch === "non_technical") return nonTechItems;
-    return [sportsItem, ...sportsItems, ...techItems, ...nonTechItems];
-  }, [selectedBatch, sportsItem, sportsItems, techItems, nonTechItems]);
+    if (selectedBatch === "technical") {
+      return (day2Item ? [day2Item, ...techItems] : techItems);
+    }
+    if (selectedBatch === "non_technical") {
+      return (day2Item ? [day2Item, ...nonTechItems] : nonTechItems);
+    }
+    return [
+      sportsItem,
+      ...(day2Item ? [day2Item] : []),
+      ...sportsItems,
+      ...techItems,
+      ...nonTechItems,
+    ];
+  }, [selectedBatch, sportsItem, day2Item, sportsItems, techItems, nonTechItems]);
 
   const handlePrint = () => {
     window.print();
