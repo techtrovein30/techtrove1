@@ -143,6 +143,7 @@ export async function uploadPaymentProof(
     .upload(path, file, {
       upsert: true,
       contentType: file.type,
+      cacheControl: "31536000",
     });
 
   if (error) {
@@ -196,6 +197,7 @@ export async function reuploadPaymentProof(
   const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(cleanPath, file, {
     upsert: true,
     contentType: file.type,
+    cacheControl: "31536000",
   });
 
   if (error) {
@@ -235,6 +237,7 @@ export async function uploadIdCard(
     .upload(path, file, {
       upsert: true,
       contentType: file.type,
+      cacheControl: "31536000",
     });
 
   if (error) {
