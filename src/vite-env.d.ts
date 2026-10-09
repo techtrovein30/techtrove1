@@ -4,7 +4,7 @@
 declare const __APP_VERSION__: string;
 
 interface ImportMetaEnv {
-  /** "true" takes the whole site offline behind the EventClosed page. */
+  /** Set to "false" to reopen a closed site. Any other/absent value = closed. */
   readonly VITE_EVENT_CLOSED?: string;
 }
 
